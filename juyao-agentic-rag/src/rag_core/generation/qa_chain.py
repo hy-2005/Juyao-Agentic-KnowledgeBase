@@ -28,14 +28,6 @@ def answer_question(question: str) -> QAResult:
     settings = get_settings()
     context = search_context(question)
 
-    # 无可用片段：弱答 / 拒答，满足「检索质量不足时不胡编」
-    if not context.documents:
-        return QAResult(
-            answer=f"当前知识库证据不足，建议补充更具体的问题或先更新知识库。\n\n{DISCLAIMER}",
-            citations=[],
-            score=context.max_score,
-        )
-
     context_blocks = []
     citations: list[str] = []
     for doc in context.documents:
@@ -57,5 +49,10 @@ def answer_question(question: str) -> QAResult:
         HumanMessage(content=build_user_prompt(question=question, context_blocks=context_blocks)),
     ]
     answer = llm.invoke(messages).content
-    answer_with_guardrail = f"{answer}\n\n{DISCLAIMER}"
+    # 证据不足时追加提醒，但不强制拒答，保留模型通用能力。
+    evidence_notice = ""
+    if not context.documents:
+        evidence_notice = "提醒：当前知识库证据不足，以下内容可能包含模型通用知识推断，仅供参考。\n\n"
+
+    answer_with_guardrail = f"{evidence_notice}{answer}\n\n{DISCLAIMER}"
     return QAResult(answer=answer_with_guardrail, citations=citations, score=context.max_score)

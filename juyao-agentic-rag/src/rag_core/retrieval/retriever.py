@@ -13,17 +13,14 @@ from rag_core.vector_store import get_vector_store
 
 @dataclass
 class RetrievedContext:
-    """一次检索结果：过滤后的文档列表 + 原始最高分（用于日志与调试）。"""
-
+    # 一次检索结果：过滤后的文档列表 + 原始最高分（用于日志与调试）。
     documents: list[Document]
     max_score: float
 
 
+# 向量相似度检索：返回分数 ≥ MIN_RELEVANCE_SCORE 的片段。
+# 若全部被过滤，documents 为空，上层应走「证据不足」分支。
 def search_context(query: str) -> RetrievedContext:
-    """
-    向量相似度检索：返回分数 ≥ MIN_RELEVANCE_SCORE 的片段。
-    若全部被过滤，documents 为空，上层应走「证据不足」分支。
-    """
     settings = get_settings()
     try:
         vector_store = get_vector_store()

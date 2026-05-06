@@ -29,9 +29,10 @@ class Settings(BaseSettings):
     qdrant_collection: str = Field(default="juyao_knowledge_chunks")
 
     # --- 切分与检索（与阶段 0/1 文档对齐）---
-    chunk_size: int = Field(default=700)
-    chunk_overlap: int = Field(default=120)
-    top_k: int = Field(default=5)
+    # embedding 模型上下文通常比生成模型更小，默认值取稳妥一些，避免入库时报 input length 超限
+    chunk_size: int = Field(default=300)
+    chunk_overlap: int = Field(default=60)
+    top_k: int = Field(default=2)
     min_relevance_score: float = Field(default=0.35)  # 低于阈值的片段不进生成上下文
 
 
