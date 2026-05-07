@@ -13,6 +13,7 @@ SYSTEM_PROMPT = """你是通用超级知识库助手。请遵守：
 
 def build_user_prompt(question: str, context_blocks: list[str]) -> str:
     """把检索到的片段编号后放入用户消息，便于模型引用 chunk_id。"""
+    # 没有召回时也显式传“无片段”，让模型知道当前是低证据场景。
     context_text = "\n\n".join(context_blocks) if context_blocks else "（无可用检索片段）"
     return (
         f"用户问题：{question}\n\n"

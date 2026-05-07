@@ -1,3 +1,4 @@
+
 """
 数据公约：chunk 与文档的稳定标识（后续向量库与 Neo4j 对齐同一 chunk_id）。
 
@@ -8,7 +9,6 @@
 
 import hashlib
 from dataclasses import dataclass
-
 from langchain_core.documents import Document
 
 
@@ -54,6 +54,7 @@ def enrich_chunk_metadata(
     overlap_right: int,
 ) -> Document:
     """把公约字段写入 LangChain Document.metadata，供检索与溯源展示。"""
+    # chunk_id 依赖 chunk 文本本身：文本变更 -> ID 变更 -> 可触发增量更新策略。
     chunk_id = build_chunk_id(source_doc_id=source_doc_id, chunk_index=chunk_index, chunk_text=document.page_content)
     metadata = dict(document.metadata or {})
     metadata.update(

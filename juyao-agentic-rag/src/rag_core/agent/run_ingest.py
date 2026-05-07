@@ -1,8 +1,8 @@
 """
 知识入库入口：文本文件 → 切块 → 写入 Qdrant。
 
-本地开发：在 juyao-agentic-rag 目录执行 ``pip install -e .`` 后，可直接：
-``python ingest.py --file data/sample_medical.txt``
+本地开发：在项目根执行 ``pip install -e .`` 后，可直接：
+``python ingest.py --file src/data/samples/sample_medical.txt``，或 ``python -m rag_core.agent.run_ingest ...``。
 """
 
 import argparse
@@ -11,14 +11,15 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from rag_core.ingestion.loader import load_text
-from rag_core.ingestion.splitter import split_into_chunks
-from rag_core.vector_store import ensure_collection_exists, get_vector_store
+from rag_core.rag.ingestion.loader import load_text
+from rag_core.rag.ingestion.splitter import split_into_chunks
+from rag_core.rag.vector_store import ensure_collection_exists, get_vector_store
 
 
 def ingest_file(file_path: str) -> int:
     """导入单个文件，返回写入的 chunk 数量。"""
     source_name = Path(file_path).name
+    # 1) 读原文 2) 语义切块 3) 写向量库
     content = load_text(file_path)
     chunks = split_into_chunks(source_name=source_name, content=content)
 
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    # CLI 入口保持最薄，核心逻辑都在 ingest_file，便于后续复用到 API/任务队列。
     count = ingest_file(args.file)
     print(f"导入完成，共写入 {count} 个 chunk。")
 

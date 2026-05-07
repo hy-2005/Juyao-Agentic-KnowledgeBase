@@ -1,0 +1,12 @@
+# 运行时目录（保留目录占位用 .gitkeep）
+src/logs/*
+!src/logs/.gitkeep
+src/storage/*
+!src/storage/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/

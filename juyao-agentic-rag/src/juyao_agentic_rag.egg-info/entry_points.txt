@@ -1,3 +1,3 @@
 [console_scripts]
-juyao-ingest = rag_core.ingest_cli:main
-juyao-rag = rag_core.cli:main
+juyao-ingest = rag_core.agent.run_ingest:main
+juyao-rag = rag_core.agent.run_qa:main

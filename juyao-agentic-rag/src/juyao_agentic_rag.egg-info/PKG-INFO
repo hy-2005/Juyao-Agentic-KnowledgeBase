@@ -3,12 +3,13 @@ Name: juyao-agentic-rag
 Version: 0.1.0
 Summary: Universal super knowledge base RAG baseline
 Requires-Python: >=3.10
-Requires-Dist: langchain>=0.3.0
-Requires-Dist: langchain-community>=0.3.0
-Requires-Dist: langchain-text-splitters>=0.3.0
-Requires-Dist: langchain-ollama>=0.2.0
-Requires-Dist: langchain-openai>=0.3.0
-Requires-Dist: langchain-qdrant>=0.2.0
+Requires-Dist: langchain<2.0.0,>=1.0.0
+Requires-Dist: langchain-core<2.0.0,>=1.0.0
+Requires-Dist: langchain-community>=0.4.0
+Requires-Dist: langchain-text-splitters>=1.0.0
+Requires-Dist: langchain-ollama>=1.0.0
+Requires-Dist: langchain-openai>=1.0.0
+Requires-Dist: langchain-qdrant>=1.0.0
 Requires-Dist: qdrant-client>=1.12.0
 Requires-Dist: pydantic>=2.8.0
 Requires-Dist: pydantic-settings>=2.5.0

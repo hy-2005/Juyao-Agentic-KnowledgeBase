@@ -20,6 +20,7 @@ def load_text(path: str) -> str:
     for encoding in ("utf-8", "utf-16", "gbk"):
         tried.append(encoding)
         try:
+            # 成功读取后立即返回，不继续尝试后续编码。
             return file_path.read_text(encoding=encoding)
         except UnicodeDecodeError:
             continue

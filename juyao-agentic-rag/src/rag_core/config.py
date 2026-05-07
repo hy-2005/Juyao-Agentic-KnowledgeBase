@@ -7,7 +7,6 @@
 """
 
 from functools import lru_cache
-
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -17,7 +16,8 @@ class Settings(BaseSettings):
 
     # --- Ollama：本地推理服务地址与各模型名 ---
     ollama_base_url: str = Field(default="http://localhost:11434")
-    chunk_model: str = Field(default="qwen2:1.5b")  # 规划：语义切分用，当前 splitter 尚未调用，预留
+    # 语义切分模型：splitter 会通过 get_chunk_llm() 实际调用它来选语义断点
+    chunk_model: str = Field(default="qwen2:1.5b")
     embed_model: str = Field(default="mxbai-embed-large:latest")
     gen_model: str = Field(default="glm-5")
     openai_api_key: str = Field(default="sk-3RktNA8DhzNUytzEAocLMVwOEtDRc6gyZZ18jFpVCNShNO1v")
@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     qdrant_collection: str = Field(default="juyao_knowledge_chunks")
 
     # --- 切分与检索（与阶段 0/1 文档对齐）---
+    # chunk_size 在当前策略中用于“语义切分参考 + embedding 安全上限”
     # embedding 模型上下文通常比生成模型更小，默认值取稳妥一些，避免入库时报 input length 超限
     chunk_size: int = Field(default=300)
     chunk_overlap: int = Field(default=60)

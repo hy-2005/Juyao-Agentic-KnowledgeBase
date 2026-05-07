@@ -5,7 +5,7 @@
   pip install -e .
 
 安装后可在任意当前目录执行：
-  python -m rag_core.cli ...
+  python -m rag_core.agent.run_qa ...
 无需再设置 PYTHONPATH。
 """
 
@@ -35,8 +35,8 @@ setup(
     install_requires=_requirements(),
     entry_points={
         "console_scripts": [
-            "juyao-ingest=rag_core.ingest_cli:main",
-            "juyao-rag=rag_core.cli:main",
+            "juyao-ingest=rag_core.agent.run_ingest:main",
+            "juyao-rag=rag_core.agent.run_qa:main",
         ]
     },
 )
