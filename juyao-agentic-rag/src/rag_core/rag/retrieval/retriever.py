@@ -15,6 +15,9 @@
 #   ⑤ 按 RRF 分数从高到低排序，得到最终喂给 LLM 的 documents 顺序。
 
 import logging
+import urllib.error
+import urllib.request
+from json import dumps, loads
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -26,6 +29,10 @@ from rag_core.rag.elasticsearch_store import search_elasticsearch
 from rag_core.rag.vector_store import get_vector_store
 
 logger = logging.getLogger(__name__)
+
+
+def _preview_text(text: str, max_len: int = 120) -> str:
+    return text.replace("\n", " ").replace("\r", " ").strip()[:max_len]
 
 
 @dataclass
@@ -98,12 +105,109 @@ def _vector_similarity_topk(query: str, k: int) -> list[tuple[Document, float]]:
         raise
 
 
+def _rerank_after_rrf(query: str, fused_docs: list[Document]) -> list[Document]:
+    # 对 RRF 结果做二次精排（优先 DashScope，失败时回退到 RRF 顺序）。
+    if not fused_docs:
+        return []
+
+    settings = get_settings()
+    top_n = max(1, min(settings.rerank_top_n, len(fused_docs)))
+    documents_payload = [doc.page_content for doc in fused_docs]
+    provider = (settings.rerank_provider or "").strip().lower()
+    if provider == "dashscope":
+        if not settings.dashscope_api_key:
+            logger.warning("【重排】DashScope API Key 为空，回退 RRF 顺序。")
+            return fused_docs[:top_n]
+        request_body = dumps(
+            {
+                "model": settings.dashscope_rerank_model,
+                "input": {"query": query, "documents": documents_payload},
+                "parameters": {"return_documents": True, "top_n": top_n},
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            settings.dashscope_rerank_url,
+            data=request_body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.dashscope_api_key}",
+            },
+            method="POST",
+        )
+    else:
+        request_body = dumps(
+            {
+                "model": settings.rerank_model,
+                "query": query,
+                "documents": documents_payload,
+                "top_n": top_n,
+            }
+        ).encode("utf-8")
+        rerank_url = f"{settings.ollama_base_url.rstrip('/')}/api/rerank"
+        req = urllib.request.Request(
+            rerank_url,
+            data=request_body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            body = response.read().decode("utf-8")
+        payload = loads(body)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        logger.warning("【重排】调用 Ollama rerank 失败，回退 RRF 顺序。err=%s", exc)
+        return fused_docs[:top_n]
+
+    results = payload.get("results")
+    if not isinstance(results, list):
+        output = payload.get("output")
+        if isinstance(output, dict):
+            results = output.get("results")
+    if not isinstance(results, list) or not results:
+        logger.warning("【重排】返回结果为空或格式异常，回退 RRF 顺序。payload=%s", payload)
+        return fused_docs[:top_n]
+
+    selected_docs: list[Document] = []
+    seen_idx: set[int] = set()
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        if not isinstance(index, int):
+            continue
+        if index < 0 or index >= len(fused_docs) or index in seen_idx:
+            continue
+        seen_idx.add(index)
+        selected_docs.append(fused_docs[index])
+        if len(selected_docs) >= top_n:
+            break
+
+    if not selected_docs:
+        logger.warning("【重排】未解析到有效 index，回退 RRF 顺序。payload=%s", payload)
+        return fused_docs[:top_n]
+
+    model_name = settings.dashscope_rerank_model if provider == "dashscope" else settings.rerank_model
+    logger.info(
+        "【重排】provider=%s model=%s，RRF %s 条 -> 重排后 %s 条",
+        provider or "ollama",
+        model_name,
+        len(fused_docs),
+        len(selected_docs),
+    )
+    for i, doc in enumerate(selected_docs, 1):
+        cid = doc.metadata.get("chunk_id", "?")
+        logger.info("  [输出 %s] chunk_id=%s preview=%s", i, cid, _preview_text(doc.page_content))
+    return selected_docs
+
+
 def search_context(query: str) -> RetrievedContext:
     # 1) 两路并行：各取 top_k 条（名次用于 RRF）；2) 向量侧先按 min_relevance_score 过滤再赋名次；
     # 3) ES 侧保持 BM25 排序名次；4) RRF 融合得到最终顺序。
     settings = get_settings()
     k = settings.top_k  # 每路最多取几条参与后面步骤（不是 RRF 公式里的常数 rrf_k）
     rrf_k = settings.rrf_k  # 仅出现在 1/(rrf_k+rank) 里，和 top_k 含义不同
+    rrf_top_n = max(1, settings.rrf_top_n)
 
     def run_vector() -> list[tuple[Document, float]]:
         return _vector_similarity_topk(query, k)
@@ -144,16 +248,23 @@ def search_context(query: str) -> RetrievedContext:
     )
 
     fused = _reciprocal_rank_fusion(vec_pairs_for_rrf, es_pairs, rrf_k)
-    # 下游只要文档列表；融合分若需要可从 fused 里取，当前只打日志。
-    documents = [doc for doc, _ in fused]
+    # RRF 融合结果先截断到 rrf_top_n，再交给重排模型二次精排。
+    fused_docs = [doc for doc, _ in fused[:rrf_top_n]]
 
     logger.info(
-        "【RRF 融合】rrf_k=%s（公式：Σ 1/(rrf_k+rank)，两路名次各自独立从 1 起）→ 融合后 %s 条",
+        "【RRF 融合】rrf_k=%s（公式：Σ 1/(rrf_k+rank)，两路名次各自独立从 1 起）→ 融合后 %s 条（截断后参与重排 %s 条）",
         rrf_k,
-        len(documents),
+        len(fused),
+        len(fused_docs),
     )
     for i, (doc, rrf_s) in enumerate(fused, 1):
         cid = doc.metadata.get("chunk_id", "?")
-        logger.info("  [%s] chunk_id=%s rrf_score=%.6f", i, cid, rrf_s)
+        logger.info("  [%s] chunk_id=%s rrf_score=%.6f preview=%s", i, cid, rrf_s, _preview_text(doc.page_content))
+    logger.info("【重排输入】来自 RRF 前 %s 条，重排取 top_n=%s", len(fused_docs), settings.rerank_top_n)
+    for i, doc in enumerate(fused_docs, 1):
+        cid = doc.metadata.get("chunk_id", "?")
+        logger.info("  [输入 %s] chunk_id=%s preview=%s", i, cid, _preview_text(doc.page_content))
+
+    documents = _rerank_after_rrf(query, fused_docs)
 
     return RetrievedContext(documents=documents, max_score=max_score)

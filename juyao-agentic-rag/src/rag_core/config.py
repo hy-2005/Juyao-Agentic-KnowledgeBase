@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     # 语义切分模型：splitter 会通过 get_chunk_llm() 实际调用它来选语义断点
     chunk_model: str = Field(default="qwen2:1.5b")
     embed_model: str = Field(default="mxbai-embed-large:latest")
+    rerank_model: str = Field(default="bona/bge-reranker-v2-m3:latest")
+    rerank_provider: str = Field(default="dashscope")  # dashscope / ollama
+    dashscope_api_key: str = Field(default="sk-7f8f386b3c8a419bb6b5a70f1234850a")  # 建议通过环境变量 DASHSCOPE_API_KEY 注入
+    dashscope_rerank_url: str = Field(
+        default="https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+    )
+    dashscope_rerank_model: str = Field(default="gte-rerank-v2")
+
     gen_model: str = Field(default="glm-5")
     openai_api_key: str = Field(default="sk-3RktNA8DhzNUytzEAocLMVwOEtDRc6gyZZ18jFpVCNShNO1v")
     openai_base_url: str = Field(default="https://api.xstx.info/v1")
@@ -36,7 +44,9 @@ class Settings(BaseSettings):
     # embedding 模型上下文通常比生成模型更小，默认值取稳妥一些，避免入库时报 input length 超限
     chunk_size: int = Field(default=300)
     chunk_overlap: int = Field(default=60)
-    top_k: int = Field(default=2)
+    top_k: int = Field(default=15)  # 每路召回条数（向量路、ES 路各自 top_k）
+    rrf_top_n: int = Field(default=8)  # RRF 融合后先截断到前 N 条，再进入重排
+    rerank_top_n: int = Field(default=3)  # RRF 后二次重排最终返回条数
     min_relevance_score: float = Field(default=0.35)  # 低于阈值的片段不进生成上下文
     # RRF（倒数排名融合）：score(d)=Σ 1/(k+rank_i(d)) 中的常数 k；论文/常见实现默认 60，与 top_k 含义不同。
     rrf_k: int = Field(default=60)

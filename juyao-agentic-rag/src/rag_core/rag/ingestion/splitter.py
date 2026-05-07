@@ -14,12 +14,15 @@
 # ``retriever.search_context`` 再按问题向量把 chunk 取回，二者共用同一套 chunk 与向量配置。
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from langchain_core.documents import Document
 from rag_core.config import get_settings
 from rag_core.model.factory import get_chunk_llm
 from rag_core.rag.contracts import build_source_doc_id, enrich_chunk_metadata
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -101,12 +104,13 @@ def _build_direct_split_prompt(content: str, target_chars: int) -> str:
         f"1) 你只能在原文中插入标记 `{_CUT_MARK}`；\n"
         "2) 除插入该标记外，原文任何字符都不能新增、删除、改写、换序；\n"
         "3) 不要输出解释，不要输出 JSON，只输出“插入标记后的完整原文”；\n"
-        "4) 切块主依据：完全由你根据原文语义判断在哪里切开，避免拆散同一语义单元。\n"
-        f"5) 工程说明（非切块目标）：单块正文长度上限约 {target_chars} 字，用于向量入库与程序最终兜底；"
-        "若某段仍超长会由后续逻辑再切。该数字不是「每块要写满这么多字」，块可以更短；仍以语义为准决定切分，不要用凑字数、等长分块来切。\n\n"
+        "4) 切块主依据：完全基于语义连贯性进行切分，确保不拆散同一语义单元，优先保障语义完整性；\n"
+        f"5) 工程说明（非硬性目标）：建议单块正文长度约 {target_chars} 字（仅作为参考，非强制要求）。"
+        f"此限制用于后续向量入库，若某段超长，程序会自动处理。切分核心逻辑以语义为准，无需强行凑字数或等长分块，允许生成更短块。即使部分块远短于目标长度，也应以保持语义单元完整为首要原则。\n\n"
         "原文如下：\n"
         f"{content}"
     )
+
 
 
 def _split_by_qwen_direct(content: str, target_chars: int) -> list[_Span]:
@@ -344,7 +348,16 @@ def split_into_chunks(source_name: str, content: str) -> list[Document]:
     # chunk_size 在这里同时承担“参考长度 + 安全上限”两种角色。
     semantic_spans = _build_semantic_spans(content=content, target_chars=settings.chunk_size)
     if not semantic_spans:
+        logger.warning("【语义切分】source=%s 未生成有效分块（content_len=%s）", source_name, len(content))
         return []
+    logger.info(
+        "【语义切分】source=%s content_len=%s 生成语义分块 %s 段（chunk_size=%s, overlap=%s）",
+        source_name,
+        len(content),
+        len(semantic_spans),
+        settings.chunk_size,
+        settings.chunk_overlap,
+    )
     source_doc_id = build_source_doc_id(content=content, source_name=source_name)
 
     chunks: list[Document] = []
@@ -375,6 +388,19 @@ def split_into_chunks(source_name: str, content: str) -> list[Document]:
                 overlap_left=overlap_left,
                 overlap_right=overlap_right,
             )
+        )
+        # 仅打印预览，避免日志过长；用于开发调试“语义切分到底切出了哪些内容”。
+        preview = chunk_text.replace("\n", " ").replace("\r", " ").strip()[:120]
+        logger.info(
+            "  [chunk %s] chunk_id=%s span=[%s,%s) overlap(L=%s,R=%s) len=%s preview=%s",
+            idx + 1,
+            chunks[-1].metadata.get("chunk_id", "?"),
+            start_char,
+            end_char,
+            overlap_left,
+            overlap_right,
+            len(chunk_text),
+            preview,
         )
 
     return chunks
