@@ -1,6 +1,4 @@
-"""
-提示词模板：系统约束（防幻觉、通用知识库边界）与用户侧拼装（问题 + 检索上下文）。
-"""
+# 提示词模板：系统约束（防幻觉、通用知识库边界）与用户侧拼装（问题 + 检索上下文）。
 
 SYSTEM_PROMPT = """你是通用超级知识库助手。请遵守：
 1) 优先使用提供的检索内容作答；有证据时尽量引用并保持可追溯。
@@ -12,7 +10,7 @@ SYSTEM_PROMPT = """你是通用超级知识库助手。请遵守：
 
 
 def build_user_prompt(question: str, context_blocks: list[str]) -> str:
-    """把检索到的片段编号后放入用户消息，便于模型引用 chunk_id。"""
+    # 把检索到的片段编号后放入用户消息，便于模型引用 chunk_id。
     # 没有召回时也显式传“无片段”，让模型知道当前是低证据场景。
     context_text = "\n\n".join(context_blocks) if context_blocks else "（无可用检索片段）"
     return (

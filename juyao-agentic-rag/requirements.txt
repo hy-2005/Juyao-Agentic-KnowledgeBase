@@ -1,5 +1,6 @@
 # Python RAG 子项目依赖（与「开发规划」阶段 0/1 一致）
-# 安装：在 juyao-agentic-rag 目录下执行  pip install -r requirements.txt
+# 安装依赖：在 juyao-agentic-rag 目录下执行  pip install -e .  （由 pyproject.toml 读取本文件）
+# 或仅装库不修包：pip install -r requirements.txt
 # LangChain 1.x（与 langchain-core 1.x 对齐）
 
 langchain>=1.0.0,<2.0.0
@@ -14,3 +15,5 @@ pydantic>=2.8.0
 pydantic-settings>=2.5.0
 python-dotenv>=1.0.1
 tqdm>=4.66.0
+# 与 Docker 镜像 elasticsearch/elasticsearch:7.17.x 对齐，勿升级到 8.x 客户端
+elasticsearch>=7.17.0,<8.0.0

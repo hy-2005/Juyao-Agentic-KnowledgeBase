@@ -1,8 +1,6 @@
-"""
-通用问答编排：检索 →（可选）LLM 生成 → 拼接提示。
-
-阶段 1 策略：检索为空或全部被阈值过滤时，直接返回“证据不足”，不调用 LLM。
-"""
+# 通用问答编排：检索 →（可选）LLM 生成 → 拼接提示。
+#
+# 阶段 1 策略：检索为空或全部被阈值过滤时，直接返回“证据不足”，不调用 LLM。
 
 from dataclasses import dataclass
 
@@ -24,9 +22,9 @@ class QAResult:
 
 
 def answer_question(question: str) -> QAResult:
-    """端到端回答一个问题。"""
+    # 端到端回答一个问题。
     settings = get_settings()
-    # 先检索证据，再决定喂给模型哪些上下文。
+    # 检索：向量 + ES 并行，RRF 融合（rrf_k 默认 60，见 retriever / config）后作为证据上下文。
     context = search_context(question)
 
     context_blocks = []

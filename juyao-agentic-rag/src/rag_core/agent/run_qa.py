@@ -1,11 +1,10 @@
-"""
-问答运行入口：检索 + LLM 生成 + 引用输出。
-
-本地开发：在项目根（含 ``setup.py``）执行 ``pip install -e .`` 后，可直接：
-``python ask.py --question "你的问题"``，或 ``python -m rag_core.agent.run_qa ...``。
-"""
+# 问答运行入口：检索 + LLM 生成 + 引用输出。
+#
+# 本地开发：在项目根执行 pip install -e . 后：
+# python -m rag_core.agent.run_qa --question "什么是 RAG 技术？核心解决了大模型的哪三大痛点？"（或使用 juyao-rag）。
 
 import argparse
+import logging
 
 from rag_core.agent.qa_chain import answer_question
 
@@ -17,6 +16,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s [%(name)s] %(message)s",
+    )
     parser = build_parser()
     args = parser.parse_args()
     # answer_question 内部会完成：检索 -> 组 prompt -> 调用 LLM -> 拼接引用信息。

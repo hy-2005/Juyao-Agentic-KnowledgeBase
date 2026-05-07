@@ -1,6 +1,4 @@
-"""
-向量存储封装：Ollama Embedding + Qdrant，供入库与检索共用同一套配置。
-"""
+# 向量存储封装：Ollama Embedding + Qdrant，供入库与检索共用同一套配置。
 
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
@@ -12,13 +10,13 @@ from rag_core.model.factory import get_embeddings
 
 
 def get_qdrant_client() -> QdrantClient:
-    """原生客户端：创建集合、删改数据等高级操作用；日常 add/search 可走 QdrantVectorStore。"""
+    # 原生客户端：创建集合、删改数据等高级操作用；日常 add/search 可走 QdrantVectorStore。
     settings = get_settings()
     return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
 def ensure_collection_exists() -> None:
-    """确保目标 collection 存在；不存在则按当前 embedding 维度自动创建。"""
+    # 确保目标 collection 存在；不存在则按当前 embedding 维度自动创建。
     settings = get_settings()
     client = get_qdrant_client()
     try:
@@ -38,7 +36,7 @@ def ensure_collection_exists() -> None:
 
 
 def get_vector_store() -> QdrantVectorStore:
-    """LangChain 向量库门面：similarity_search_*、add_documents 等。"""
+    # LangChain 向量库门面：similarity_search_*、add_documents 等。
     settings = get_settings()
     return QdrantVectorStore(
         client=get_qdrant_client(),

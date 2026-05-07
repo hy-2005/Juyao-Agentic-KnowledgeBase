@@ -10,3 +10,4 @@ pydantic>=2.8.0
 pydantic-settings>=2.5.0
 python-dotenv>=1.0.1
 tqdm>=4.66.0
+elasticsearch<8.0.0,>=7.17.0

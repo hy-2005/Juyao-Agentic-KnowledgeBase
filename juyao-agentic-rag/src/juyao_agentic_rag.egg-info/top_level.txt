@@ -1,1 +1,3 @@
+data
+docs
 rag_core

@@ -9,13 +9,14 @@
 # - 主路径：让小模型在原文中插入切分标记（不允许改写字符）；
 # - 兜底路径：模型不可用/输出不合法时，改走候选单元窗口断点；
 # - 最终保障：所有路径都统一经过最大长度约束与 metadata 标注。
+#
+# 与检索的关系：入库时这里生成的 chunk 经 embedding 写入 Qdrant；问答时
+# ``retriever.search_context`` 再按问题向量把 chunk 取回，二者共用同一套 chunk 与向量配置。
 
 import json
 import re
 from dataclasses import dataclass
-
 from langchain_core.documents import Document
-
 from rag_core.config import get_settings
 from rag_core.model.factory import get_chunk_llm
 from rag_core.rag.contracts import build_source_doc_id, enrich_chunk_metadata
@@ -100,8 +101,9 @@ def _build_direct_split_prompt(content: str, target_chars: int) -> str:
         f"1) 你只能在原文中插入标记 `{_CUT_MARK}`；\n"
         "2) 除插入该标记外，原文任何字符都不能新增、删除、改写、换序；\n"
         "3) 不要输出解释，不要输出 JSON，只输出“插入标记后的完整原文”；\n"
-        "4) 优先按语义完整性切分，避免把同一语义单元拆开；\n"
-        f"5) 参考每块长度约 {target_chars} 字（仅参考，不是硬约束）。\n\n"
+        "4) 切块主依据：完全由你根据原文语义判断在哪里切开，避免拆散同一语义单元。\n"
+        f"5) 工程说明（非切块目标）：单块正文长度上限约 {target_chars} 字，用于向量入库与程序最终兜底；"
+        "若某段仍超长会由后续逻辑再切。该数字不是「每块要写满这么多字」，块可以更短；仍以语义为准决定切分，不要用凑字数、等长分块来切。\n\n"
         "原文如下：\n"
         f"{content}"
     )
@@ -226,8 +228,8 @@ def _pick_split_index_with_qwen(candidates: list[str], target_chars: int) -> int
         "严格要求：\n"
         "1) 只判断断点位置，不改写、不新增、不删除原文内容；\n"
         "2) 仅返回断点编号，不输出解释；\n"
-        "3) 优先保证语义完整，不要把同一语义单元拆开。\n"
-        f"参考目标字符数（仅参考，不是强约束）: {target_chars}\n"
+        "3) 断点由语义决定：保证语义完整，不要把同一语义单元拆开；不要仅按字数、等长或「凑近某一长度」来选择。\n"
+        f"4) 工程说明：单块正文长度上限约 {target_chars} 字（程序最终会再做兜底）；你只需在语义合理的前提下选出 split_after。\n"
         f"候选单元总数: {len(candidates)}\n"
         "返回严格 JSON：{\"split_after\": 整数}\n"
         "其中 split_after 的有效范围是 [1, 候选单元总数-1]。\n\n"
@@ -330,10 +332,9 @@ def _apply_overlap(
 
 
 def split_into_chunks(source_name: str, content: str) -> list[Document]:
-    # 将整篇文本切成多块 Document。
-    # source_name: 展示用来源名，一般用文件名
-    # content: 全文字符串
-    # return: 带完整 metadata 的 Document 列表。若无法切分则返回空列表。
+    # 整篇文本 → 多条 Document（入库侧 chunk；含 chunk_id 等 metadata）。
+    # source_name 一般用文件名，仅用于展示与溯源；content 为全文。
+    # 无法得到合法切分时返回空列表。
     settings = get_settings()
     # 主流程入口：
     # 1) 先拿到语义切分区间；

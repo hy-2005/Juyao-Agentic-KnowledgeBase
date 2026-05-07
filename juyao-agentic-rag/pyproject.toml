@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "juyao-agentic-rag"
+version = "0.1.0"
+description = "Universal super knowledge base RAG baseline"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+juyao-ingest = "rag_core.agent.run_ingest:main"
+juyao-rag = "rag_core.agent.run_qa:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }

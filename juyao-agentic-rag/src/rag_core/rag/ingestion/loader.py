@@ -1,17 +1,15 @@
-"""原始文档加载：支持常见文本编码自动兜底；PDF 等需在入库前清洗为文本。"""
+# 原始文档加载：支持常见文本编码自动兜底；PDF 等需在入库前清洗为文本。
 
 from pathlib import Path
 
 
 def load_text(path: str) -> str:
-    """
-    读取本地文本文件，自动尝试常见编码。
-
-    优先顺序：
-    1) utf-8
-    2) utf-16（含 BOM 的常见 Windows 文本）
-    3) gbk（部分中文本地导出文本）
-    """
+    # 读取本地文本文件，自动尝试常见编码。
+    #
+    # 优先顺序：
+    # 1) utf-8
+    # 2) utf-16（含 BOM 的常见 Windows 文本）
+    # 3) gbk（部分中文本地导出文本）
     file_path = Path(path)
     if not file_path.exists():
         raise FileNotFoundError(f"未找到输入文件: {path}")
