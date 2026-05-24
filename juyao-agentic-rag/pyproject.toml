@@ -7,14 +7,53 @@ name = "juyao-agentic-rag"
 version = "0.1.0"
 description = "Universal super knowledge base RAG baseline"
 requires-python = ">=3.10"
-dynamic = ["dependencies"]
+readme = "README.md"
+dependencies = [
+    "langchain>=1.0.0,<2.0.0",
+    "langchain-core>=1.0.0,<2.0.0",
+    "langchain-community>=0.4.0",
+    "langchain-text-splitters>=1.0.0",
+    "langchain-ollama>=1.0.0",
+    "langchain-openai>=1.0.0",
+    "langchain-qdrant>=1.0.0",
+    "langchain-neo4j>=0.1.0",
+    "qdrant-client>=1.12.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.5.0",
+    "python-dotenv>=1.0.1",
+    "tqdm>=4.66.0",
+    "elasticsearch>=7.17.0,<8.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "redis>=5.0.0",
+    "neo4j>=5.20.0",
+    "kafka-python>=2.0.2",
+    "pymupdf>=1.24.0",
+    "python-docx>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.0.0",
+]
 
 [project.scripts]
-juyao-ingest = "rag_core.agent.run_ingest:main"
-juyao-rag = "rag_core.agent.run_qa:main"
+juyao-ingest = "rag_core.cli.ingest:main"
+juyao-ingest-kg = "rag_core.cli.ingest_kg:main"
+juyao-rag = "rag_core.cli.qa:main"
+juyao-rag-api = "rag_core.api.app:run"
+juyao-rag-kafka-consumer = "rag_core.cli.kafka_consumer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
+[tool.setuptools.package-data]
+"rag_core.prompts" = ["text/*.md"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

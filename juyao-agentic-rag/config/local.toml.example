@@ -1,0 +1,5 @@
+# 本地覆盖配置（可选，不提交 Git）
+# 复制后按需修改：cp config/local.toml.example config/local.toml
+
+# gen_model = "qwen-plus"
+# top_k = 10

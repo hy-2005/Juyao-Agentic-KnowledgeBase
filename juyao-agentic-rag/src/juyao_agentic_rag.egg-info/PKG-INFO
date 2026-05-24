@@ -3,6 +3,7 @@ Name: juyao-agentic-rag
 Version: 0.1.0
 Summary: Universal super knowledge base RAG baseline
 Requires-Python: >=3.10
+Description-Content-Type: text/markdown
 Requires-Dist: langchain<2.0.0,>=1.0.0
 Requires-Dist: langchain-core<2.0.0,>=1.0.0
 Requires-Dist: langchain-community>=0.4.0
@@ -10,9 +11,72 @@ Requires-Dist: langchain-text-splitters>=1.0.0
 Requires-Dist: langchain-ollama>=1.0.0
 Requires-Dist: langchain-openai>=1.0.0
 Requires-Dist: langchain-qdrant>=1.0.0
+Requires-Dist: langchain-neo4j>=0.1.0
 Requires-Dist: qdrant-client>=1.12.0
 Requires-Dist: pydantic>=2.8.0
 Requires-Dist: pydantic-settings>=2.5.0
 Requires-Dist: python-dotenv>=1.0.1
 Requires-Dist: tqdm>=4.66.0
 Requires-Dist: elasticsearch<8.0.0,>=7.17.0
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: uvicorn[standard]>=0.32.0
+Requires-Dist: redis>=5.0.0
+Requires-Dist: neo4j>=5.20.0
+Requires-Dist: kafka-python>=2.0.2
+Requires-Dist: pymupdf>=1.24.0
+Requires-Dist: python-docx>=1.1.0
+Provides-Extra: dev
+Requires-Dist: ruff>=0.8.0; extra == "dev"
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+
+# juyao-agentic-rag — Agentic RAG / GraphRAG 知识库
+
+## 开发
+
+```powershell
+pip install -e ".[dev]"
+ruff check src tests
+pytest
+```
+
+## 包结构
+
+```
+src/rag_core/
+├── core/              # 配置、路径
+├── domain/            # chunk 公约等领域模型
+├── llm/               # Embedding / Chat 工厂
+├── prompts/           # Prompt 模板
+├── ingestion/         # 加载、切分、入库管线、Kafka 事件
+├── indexing/          # Qdrant、Elasticsearch
+├── retrieval/         # 混合检索（改写、HyDE、RRF、重排）
+├── knowledge_graph/   # Neo4j 抽取、存储、查询
+├── orchestration/     # 对话 / 问答编排、意图路由
+├── memory/            # Redis 会话
+├── api/               # FastAPI 应用
+└── cli/               # 命令行入口
+```
+
+## 快速开始
+
+```powershell
+cd juyao-agentic-rag
+pip install -e .
+copy .env.example .env
+python -m rag_core.cli.ingest --file src/data/samples/sample_medical.txt
+python -m rag_core.cli.qa --question "简要介绍样例文档内容"
+```
+
+## 控制台命令
+
+| 命令 | 模块 |
+|------|------|
+| `juyao-ingest` | `rag_core.cli.ingest` |
+| `juyao-ingest-kg` | `rag_core.cli.ingest_kg` |
+| `juyao-rag` | `rag_core.cli.qa` |
+| `juyao-rag-api` | `rag_core.api.app` |
+| `juyao-rag-kafka-consumer` | `rag_core.cli.kafka_consumer` |
+
+## 配置
+
+环境变量 > `.env` > `config/local.toml` > `config/default.toml`。详见 `.cursor/rules/juyao-agentic-rag-engineering.mdc`。

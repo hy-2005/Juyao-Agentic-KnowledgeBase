@@ -12,6 +12,19 @@ juyao:
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证
   captchaType: math
+  # Python RAG FastAPI：仅由后端 RagController HTTP 调用（前端走 Java）；会话由 FastAPI 写 Redis
+  rag:
+    base-url: http://127.0.0.1:8000
+    # 文档异步入库：Java 发 Kafka；默认由本机 @KafkaListener 消费并 HTTP 调 FastAPI 入库（与 sql/rag_document_hash 表 Hash 幂等配合）
+    ingest:
+      kafka-topic: juyao.rag.documents
+      # 是否启用 Java 侧 Kafka 消费并转发 FastAPI（false 时可改由独立 Python 进程消费）
+      listener-enabled: true
+      # 与 Python 默认 juyao-rag-ingest 相同则切换时 offset 连续；勿与 Python 消费者同时同组抢分区 unless intended
+      listener-group-id: juyao-rag-ingest
+      listener-concurrency: 1
+      # 与 FastAPI rag_ingest_internal_token 一致时可设环境变量 RAG_INGEST_INTERNAL_TOKEN；空表示不校验
+      internal-token: ${RAG_INGEST_INTERNAL_TOKEN:}
 
 # 开发环境配置
 server:
@@ -36,6 +49,8 @@ logging:
   level:
     com.juyao: debug
     org.springframework: warn
+    # Kafka：容器启动、分区分配、poll/ack 等（仅 Spring Kafka；底层 client 设 DEBUG 会极吵）
+    org.springframework.kafka: info
 
 # 用户配置
 user:
@@ -57,9 +72,20 @@ spring:
   servlet:
     multipart:
       # 单个文件大小
-      max-file-size: 10MB
+      max-file-size: 50MB
       # 设置总上传的文件大小
-      max-request-size: 20MB
+      max-request-size: 60MB
+  kafka:
+    # 与 docker-compose.kafka.yml 一致：本机连 PLAINTEXT_HOST → 127.0.0.1:9092（compose 内服务名为 kafka）
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
   # 服务模块
   devtools:
     restart:

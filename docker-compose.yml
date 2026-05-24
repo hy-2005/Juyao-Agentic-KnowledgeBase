@@ -1,0 +1,191 @@
+# ============================================================================
+# JuYao Agentic RAG — 基础设施 Docker Compose
+# ============================================================================
+#
+# 一键启动 RAG 引擎所需的全部外部服务。
+# 生产环境请务必修改默认密码，并通过 .env.docker 注入密钥。
+#
+# 快速启动:
+#   docker compose up -d                    # 启动全部服务
+#   docker compose up -d juyao-ollama juyao-qdrant  # 仅启动最小集合
+#   docker compose down                     # 停止并移除容器
+#   docker compose down -v                  # 同时删除数据卷（谨慎）
+#
+# 包含服务:
+#   Ollama       — Embedding 模型 (11434)
+#   MySQL 8.0    — 文档注册表 (3307→3306)
+#   Redis 7.2    — 多轮会话 (6379)
+#   Elasticsearch 8.4 — BM25 全文检索 (9201→9200)
+#   Qdrant       — 向量检索 (6333/gRPC, 6334/HTTP)
+#   Neo4j 5.18   — GraphRAG 知识图谱 (7474/Browser, 7687/Bolt)
+#   Kafka 7.5    — 异步入库消息队列 (9092)
+#   Zookeeper    — Kafka 依赖 (2181)
+# ============================================================================
+
+version: "3.8"
+
+networks:
+  juyao-network:
+    driver: bridge
+
+services:
+
+  # --------------------------------------------------------------------------
+  # Ollama — Embedding 模型服务
+  # 启动后需手动拉取模型: docker exec -it juyao-ollama ollama pull mxbai-embed-large:latest
+  # --------------------------------------------------------------------------
+  juyao-ollama:
+    image: ollama/ollama:latest
+    container_name: juyao-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    restart: "unless-stopped"
+    networks:
+      - juyao-network
+
+  # --------------------------------------------------------------------------
+  # MySQL 8.0 — Java 管理端文档注册表
+  # 默认 root 密码仅用于本地开发，生产环境请修改
+  # --------------------------------------------------------------------------
+  juyao-mysql:
+    image: mysql:8.0.33
+    container_name: juyao-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-123456}"
+      TZ: "Asia/Shanghai"
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+    restart: "unless-stopped"
+    networks:
+      - juyao-network
+
+  # --------------------------------------------------------------------------
+  # Redis 7.2 — 会话记忆缓存（HTTP API 模式必需）
+  # --------------------------------------------------------------------------
+  juyao-redis:
+    image: redis:7.2.4
+    container_name: juyao-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_data:/data
+    command: redis-server --appendonly yes
+    restart: "unless-stopped"
+    networks:
+      - juyao-network
+
+  # --------------------------------------------------------------------------
+  # Elasticsearch 8.4 — BM25 全文检索
+  # 安全功能已关闭（仅本地开发），生产环境请启用 xpack.security
+  # --------------------------------------------------------------------------
+  juyao-es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.4.1
+    container_name: juyao-es
+    ports:
+      - "9201:9200"
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      TZ: "Asia/Shanghai"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - ./es_plugins:/usr/share/elasticsearch/plugins
+    restart: "unless-stopped"
+    networks:
+      - juyao-network
+    privileged: true
+
+  # --------------------------------------------------------------------------
+  # Qdrant — 向量数据库（语义检索）
+  # gRPC: 6333, HTTP API: 6334
+  # --------------------------------------------------------------------------
+  juyao-qdrant:
+    image: qdrant/qdrant:latest
+    container_name: juyao-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    restart: "unless-stopped"
+    networks:
+      - juyao-network
+
+  # --------------------------------------------------------------------------
+  # Neo4j 5.18 — GraphRAG 知识图谱
+  # Browser: http://localhost:7474, Bolt: bolt://localhost:7687
+  # 默认密码仅用于本地开发，生产环境请修改 NEO4J_AUTH
+  # --------------------------------------------------------------------------
+  juyao-neo4j:
+    image: neo4j:5.18.0
+    container_name: juyao-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: "${NEO4J_AUTH:-neo4j/12345678}"
+      TZ: Asia/Shanghai
+      NEO4J_dbms_memory_heap_max__size: 1G
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*,gds.*"
+      NEO4J_dbms_security_procedures_allowlist: "apoc.*,gds.*"
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+    volumes:
+      - ./neo4j_data:/data
+      - ./neo4j_plugins:/plugins
+    restart: unless-stopped
+    networks:
+      - juyao-network
+
+  # --------------------------------------------------------------------------
+  # Zookeeper — Kafka 集群协调
+  # --------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    restart: unless-stopped
+    networks:
+      - juyao-network
+
+  # --------------------------------------------------------------------------
+  # Kafka 7.5 — 异步入库消息队列
+  # 与 Java 管理端配合：文档上传 → Kafka → Python 消费者入库
+  # --------------------------------------------------------------------------
+  juyao-kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: juyao-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      - zookeeper
+    restart: unless-stopped
+    networks:
+      - juyao-network
+
+volumes:
+  es_data:
