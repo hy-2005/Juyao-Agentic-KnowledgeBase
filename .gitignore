@@ -41,7 +41,36 @@ nbdist/
 *.log
 *.xml.versionsBackup
 *.swp
+# Docker Compose 数据卷（勿提交）
+kafka_data/
+ollama_data/
+mysql_data/
+redis_data/
+qdrant_data/
+neo4j_data/
+es_plugins/
+neo4j_plugins/
 
 !*/build/*.java
 !*/build/*.html
 !*/build/*.xml
+
+######################################################################
+# Python Artifacts (juyao-agentic-rag)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+juyao-agentic-rag/.env
+juyao-agentic-rag/config/local.toml
+
+# Python Virtual Environment
+venv/
+.venv/
+
+# Docker Compose .env
+.env.docker.local
+.env

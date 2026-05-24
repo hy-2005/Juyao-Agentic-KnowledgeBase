@@ -93,6 +93,27 @@ export const constantRoutes = [
         meta: { title: '个人中心', icon: 'user' }
       }
     ]
+  },
+  {
+    path: '/rag',
+    component: Layout,
+    redirect: '/rag/chat',
+    alwaysShow: true,
+    meta: { title: '智能知识库', icon: 'education' },
+    children: [
+      {
+        path: 'chat',
+        component: () => import('@/views/rag/chat/index'),
+        name: 'RagChat',
+        meta: { title: '智能问答', icon: 'message' }
+      },
+      {
+        path: 'ingest',
+        component: () => import('@/views/rag/ingest/index'),
+        name: 'RagDocIngest',
+        meta: { title: '文档管理', icon: 'documentation' }
+      }
+    ]
   }
 ]
 

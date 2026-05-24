@@ -1,11 +1,3 @@
-# 与 rag_core 并列的工程目录（均在 src/ 下）：数据与示例路径。
-#
-# 项目根目录指包含 pyproject.toml 与 src/ 的那一层；运行 CLI 时当前工作目录建议设为该根目录。
+"""向后兼容：请优先使用 rag_core.core.paths。"""
 
-from pathlib import Path
-
-_SRC_ROOT = Path(__file__).resolve().parent.parent
-
-DATA_DIR = _SRC_ROOT / "data"
-SAMPLES_DIR = DATA_DIR / "samples"
-DEFAULT_SAMPLE_FILE = SAMPLES_DIR / "sample_medical.txt"
+from rag_core.core.paths import *  # noqa: F403

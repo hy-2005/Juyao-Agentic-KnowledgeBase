@@ -1,0 +1,41 @@
+---
+description: juyao-agentic-rag Python 子项目工程约定
+globs: juyao-agentic-rag/**/*
+alwaysApply: false
+---
+
+# juyao-agentic-rag 工程规范
+
+## 配置
+
+- **唯一入口**：`rag_core.core.config.get_settings()`（兼容别名 `rag_core.config.get_settings`）。
+- **优先级**（高 → 低）：环境变量 → `.env` → `config/local.toml` → `config/default.toml` → Field 默认值。
+- **密钥**：只放 `.env`，参考 `.env.example`。
+
+## 包结构（`src/rag_core/`）
+
+| 包 | 职责 |
+|---|---|
+| `core` | 配置、路径 |
+| `domain` | chunk 公约等领域模型 |
+| `llm` | Embedding / Chat 工厂 |
+| `prompts` | Prompt 模板 |
+| `ingestion` | 加载、切分、入库管线、Kafka 事件 |
+| `indexing` | Qdrant、Elasticsearch |
+| `retrieval` | 混合检索 |
+| `knowledge_graph` | Neo4j 图谱 |
+| `orchestration` | 对话 / 问答编排 |
+| `memory` | Redis 会话 |
+| `api` | FastAPI |
+| `cli` | 命令行入口（`ingest` / `qa` / `kafka_consumer` 等） |
+
+## 依赖与路径
+
+- 安装：`pip install -e .`；开发：`pip install -e ".[dev]"`。
+- 项目根：`rag_core.core.paths.PROJECT_ROOT`；样例：`SAMPLES_DIR`。
+
+## 变更原则
+
+- 新增配置项：同步 `Settings`、`config/default.toml`、`.env.example`（密钥）。
+- CLI 只做参数解析，业务逻辑放在 `ingestion` / `orchestration` 等包。
+- 禁止 `ingestion` 依赖 `cli`（单向：cli → ingestion）。

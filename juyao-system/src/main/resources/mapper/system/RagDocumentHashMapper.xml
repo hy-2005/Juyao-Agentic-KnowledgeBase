@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.juyao.system.mapper.RagDocumentHashMapper">
+
+    <resultMap type="RagDocumentHash" id="RagDocumentHashResult">
+        <id     property="id"               column="id" />
+        <result property="kbId"             column="kb_id" />
+        <result property="docLogicalKey"    column="doc_logical_key" />
+        <result property="fileExt"          column="file_ext" />
+        <result property="fileSizeBytes"    column="file_size_bytes" />
+        <result property="contentSha256"    column="content_sha256" />
+        <result property="updateTime"       column="update_time" />
+    </resultMap>
+
+    <sql id="selectRagDocumentHashVo">
+        select id, kb_id, doc_logical_key, file_ext, file_size_bytes, content_sha256, update_time
+        from rag_document_hash
+    </sql>
+
+    <select id="selectByKbAndKey" resultMap="RagDocumentHashResult">
+        <include refid="selectRagDocumentHashVo"/>
+        where kb_id = #{kbId} and doc_logical_key = #{docLogicalKey}
+    </select>
+
+    <select id="selectRagDocumentHashList" parameterType="RagDocumentHash" resultMap="RagDocumentHashResult">
+        <include refid="selectRagDocumentHashVo"/>
+        <where>
+            <if test="kbId != null">and kb_id = #{kbId}</if>
+            <if test="docLogicalKey != null and docLogicalKey != ''">
+                and doc_logical_key like concat('%', #{docLogicalKey}, '%')
+            </if>
+            <if test="fileExt != null and fileExt != ''">and file_ext = #{fileExt}</if>
+            <if test="params.beginTime != null and params.beginTime != ''">
+                and date_format(update_time,'%Y%m%d') &gt;= date_format(#{params.beginTime},'%Y%m%d')
+            </if>
+            <if test="params.endTime != null and params.endTime != ''">
+                and date_format(update_time,'%Y%m%d') &lt;= date_format(#{params.endTime},'%Y%m%d')
+            </if>
+        </where>
+        order by update_time desc, id desc
+    </select>
+
+    <insert id="mergeRagDocumentHash" parameterType="RagDocumentHash">
+        insert into rag_document_hash (kb_id, doc_logical_key, file_ext, file_size_bytes, content_sha256, update_time)
+        values (#{kbId}, #{docLogicalKey}, #{fileExt}, #{fileSizeBytes}, #{contentSha256}, now())
+        on duplicate key update
+            content_sha256 = values(content_sha256),
+            file_ext = values(file_ext),
+            file_size_bytes = values(file_size_bytes),
+            update_time = now()
+    </insert>
+
+    <delete id="deleteByKbAndKey">
+        delete from rag_document_hash where kb_id = #{kbId} and doc_logical_key = #{docLogicalKey}
+    </delete>
+</mapper>

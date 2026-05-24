@@ -54,6 +54,16 @@
             <artifactId>juyao-generator</artifactId>
         </dependency>
 
+        <!-- Kafka：RAG 文档异步入库（spring-kafka + kafka-clients 版本由父 POM 与 Spring Boot 3.5.x 对齐） -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>
