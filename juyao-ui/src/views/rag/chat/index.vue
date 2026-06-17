@@ -36,22 +36,27 @@
                   <span class="dot" /><span class="dot" /><span class="dot" />
                 </div>
                 <div v-else-if="item.role === 'assistant'" class="content assistant-content">
+                  <div
+                    v-if="getAnswerBanner(item).bannerHtml"
+                    class="answer-banner"
+                    v-html="getAnswerBanner(item).bannerHtml"
+                  />
                   <div v-if="getParsed(item).think" class="think-block">
                     <button type="button" class="think-toggle" @click="toggleThink(idx)">
-                      <i :class="item.showThink ? 'el-icon-arrow-down' : 'el-icon-arrow-right'" />
+                      <i :class="shouldExpandThink(item) ? 'el-icon-arrow-down' : 'el-icon-arrow-right'" />
                       <span v-if="item.streaming && getParsed(item).inThink">思考中…</span>
-                      <span v-else>{{ item.showThink ? '隐藏思考过程' : '查看思考过程' }}</span>
+                      <span v-else>{{ shouldExpandThink(item) ? '隐藏思考过程' : '查看思考过程' }}</span>
                     </button>
                     <div
-                      v-show="item.showThink"
+                      v-show="shouldExpandThink(item)"
                       class="think-body markdown-body"
                       v-html="renderAssistant(getParsed(item).think)"
                     />
                   </div>
                   <div
-                    v-if="getParsed(item).answer || (!getParsed(item).think && item.content)"
+                    v-if="getAnswerBanner(item).contentMarkdown || (!getParsed(item).think && item.content)"
                     class="markdown-body"
-                    v-html="renderAssistant(getParsed(item).answer || item.content)"
+                    v-html="renderAssistant(getAnswerBanner(item).contentMarkdown || item.content, null)"
                   />
                   <div v-else-if="item.streaming" class="typing inline-typing">
                     <span class="dot" /><span class="dot" /><span class="dot" />
@@ -85,7 +90,7 @@
 
 <script>
 import { createSession, listMessages, listSessions, streamChat } from '@/api/rag'
-import { renderChatMarkdown } from '@/utils/ragMarkdown'
+import { renderChatMarkdown, extractBanner } from '@/utils/ragMarkdown'
 import { splitThinkContent } from '@/utils/ragChatContent'
 
 export default {
@@ -118,11 +123,25 @@ export default {
     await this.initSessions({ autoSelectFirst: true })
   },
   methods: {
-    renderAssistant(text) {
-      return renderChatMarkdown(text)
+    renderAssistant(text, meta) {
+      return renderChatMarkdown(text, meta)
     },
     getParsed(item) {
       return splitThinkContent(item.content)
+    },
+    /** 取 answer 部分的 (banner, contentMarkdown)：banner 提到 think 之前渲染，contentMarkdown 交给正文渲染器。 */
+    getAnswerBanner(item) {
+      const parsed = this.getParsed(item)
+      const answerSrc = parsed.answer || (parsed.think ? '' : (item.content || ''))
+      return extractBanner(answerSrc, item.meta)
+    },
+    shouldExpandThink(item) {
+      // 流式生成中位于 <think> 块内：自动展开，让用户实时看到思考过程。
+      // 流式结束后：默认保持展开，避免出现“思考过程突然消失”的观感；用户可手动折叠。
+      if (!item) return false
+      const parsed = this.getParsed(item)
+      if (item.streaming && parsed.inThink) return true
+      return item.showThink !== false
     },
     toggleThink(idx) {
       const msg = this.messages[idx]
@@ -201,7 +220,7 @@ export default {
         const res = await listMessages(sessionId)
         this.messages = (res.data || [])
           .filter(m => m.role === 'user' || m.role === 'assistant')
-          .map(m => ({ role: m.role, content: m.content || '', showThink: false }))
+          .map(m => ({ role: m.role, content: m.content || '', showThink: true }))
       } catch (e) {
         this.$message.error(e.message || '历史消息加载失败')
       } finally {
@@ -250,7 +269,7 @@ export default {
         role: 'assistant',
         content: '',
         streaming: true,
-        showThink: false
+        showThink: true
       }) - 1
       this.stickToBottom = true
       this.scrollToBottom(true)
@@ -268,6 +287,9 @@ export default {
                 const chunk = (data && data.content) || ''
                 this.messages[assistantIndex].content += chunk
                 this.scrollToBottom()
+              } else if (event === 'meta') {
+                // 记录后端 meta（含 had_evidence / route_branch 等），用于缺失 banner 时兜底注入。
+                this.$set(this.messages[assistantIndex], 'meta', data || {})
               }
             },
             onError: (data) => {
@@ -437,6 +459,14 @@ export default {
 
 .think-block {
   margin-bottom: 8px;
+}
+
+.answer-banner {
+  margin: 0 0 10px;
+}
+
+.answer-banner ::v-deep .md-banner {
+  margin: 0;
 }
 
 .think-toggle {
