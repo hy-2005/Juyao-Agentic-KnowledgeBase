@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysOperLog;
  * 
  * @author juyao
  */
-public interface ISysOperLogService
-{
+public interface ISysOperLogService{
     /**
      * 新增操作日志
      * 

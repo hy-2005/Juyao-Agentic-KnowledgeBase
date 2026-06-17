@@ -19,8 +19,7 @@ import com.juyao.common.enums.DataSourceType;
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 @Inherited
-public @interface DataSource
-{
+public @interface DataSource{
     /**
      * 切换数据源名称
      */

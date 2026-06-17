@@ -9,8 +9,7 @@ import com.juyao.common.core.domain.entity.SysDictData;
  * 
  * @author juyao
  */
-public interface SysDictDataMapper
-{
+public interface SysDictDataMapper{
     /**
      * 根据条件分页查询字典数据
      * 

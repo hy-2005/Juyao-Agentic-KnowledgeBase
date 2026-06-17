@@ -29,8 +29,7 @@ import jakarta.servlet.http.HttpServletResponse;
  */
 @RestController
 @RequestMapping("/rag/documents")
-public class RagDocIngestController extends BaseController
-{
+public class RagDocIngestController extends BaseController{
     @Autowired
     private RagDocIngestService ragDocIngestService;
 
@@ -38,8 +37,7 @@ public class RagDocIngestController extends BaseController
     private IRagDocumentHashService ragDocumentHashService;
 
     @GetMapping("/list")
-    public TableDataInfo list(RagDocumentHash query)
-    {
+    public TableDataInfo list(RagDocumentHash query){
         startPage();
         List<RagDocumentHash> list = ragDocumentHashService.selectRagDocumentHashList(query);
         return getDataTable(list);
@@ -47,8 +45,7 @@ public class RagDocIngestController extends BaseController
 
     @Log(title = "RAG文档管理", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
-    public void export(HttpServletResponse response, RagDocumentHash query)
-    {
+    public void export(HttpServletResponse response, RagDocumentHash query){
         List<RagDocumentHash> list = ragDocumentHashService.selectRagDocumentHashList(query);
         ExcelUtil<RagDocumentHash> util = new ExcelUtil<>(RagDocumentHash.class);
         util.exportExcel(response, list, "RAG文档登记");
@@ -58,15 +55,11 @@ public class RagDocIngestController extends BaseController
     public AjaxResult upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "kbId", required = false, defaultValue = "0") Long kbId,
-            @RequestParam(value = "logicalKey", required = false) String logicalKey)
-    {
-        try
-        {
+            @RequestParam(value = "logicalKey", required = false) String logicalKey){
+        try{
             Map<String, Object> data = ragDocIngestService.upload(file, kbId, logicalKey);
             return success(data);
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error(e.getMessage());
         }
     }
@@ -74,14 +67,10 @@ public class RagDocIngestController extends BaseController
     @DeleteMapping
     public AjaxResult delete(
             @RequestParam(value = "kbId", required = false, defaultValue = "0") Long kbId,
-            @RequestParam("logicalKey") String logicalKey)
-    {
-        try
-        {
+            @RequestParam("logicalKey") String logicalKey){
+        try{
             return success(ragDocIngestService.deleteAndNotify(kbId, logicalKey));
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error(e.getMessage());
         }
     }

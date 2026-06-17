@@ -6,8 +6,7 @@ package com.juyao.common.enums;
  * @author juyao
  *
  */
-public enum BusinessStatus
-{
+public enum BusinessStatus{
     /**
      * 成功
      */

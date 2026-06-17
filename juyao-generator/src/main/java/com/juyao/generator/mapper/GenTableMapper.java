@@ -8,8 +8,7 @@ import com.juyao.generator.domain.GenTable;
  * 
  * @author juyao
  */
-public interface GenTableMapper
-{
+public interface GenTableMapper{
     /**
      * 查询业务列表
      * 

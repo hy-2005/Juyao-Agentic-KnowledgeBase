@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysNotice;
  * 
  * @author juyao
  */
-public interface SysNoticeMapper
-{
+public interface SysNoticeMapper{
     /**
      * 查询公告信息
      * 

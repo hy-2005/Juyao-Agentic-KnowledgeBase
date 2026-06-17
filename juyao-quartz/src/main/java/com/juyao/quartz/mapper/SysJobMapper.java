@@ -8,8 +8,7 @@ import com.juyao.quartz.domain.SysJob;
  * 
  * @author juyao
  */
-public interface SysJobMapper
-{
+public interface SysJobMapper{
     /**
      * 查询调度任务日志集合
      * 

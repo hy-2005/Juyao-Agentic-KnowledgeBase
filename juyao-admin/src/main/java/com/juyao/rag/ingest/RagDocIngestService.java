@@ -25,15 +25,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.juyao.common.config.JuyaoConfig;
 import com.juyao.common.exception.ServiceException;
-import com.juyao.system.domain.RagDocumentHash;
 import com.juyao.system.service.IRagDocumentHashService;
 
 /**
- * RAG 文档上传：落盘、全文 SHA-256、表 rag_document_hash 幂等比对、变更时发 Kafka。
+ * RAG 文档上传：落盘、计算全文 SHA-256、携带 hash 发 Kafka；幂等由消费者查库判断。
  */
 @Service
-public class RagDocIngestService
-{
+public class RagDocIngestService{
     private static final Logger log = LoggerFactory.getLogger(RagDocIngestService.class);
 
     /** 常见知识库格式：纯文本、Markdown、PDF、Word（仅 .docx；旧版 .doc 请另存为 docx 或 PDF）及 CSV 等。 */
@@ -57,59 +55,38 @@ public class RagDocIngestService
     @Value("${juyao.rag.ingest.kafka-topic}")
     private String kafkaTopic;
 
-    public Map<String, Object> upload(MultipartFile file, Long kbId, String logicalKeyOverride) throws IOException
-    {
-        if (file == null || file.isEmpty())
-        {
+    public Map<String, Object> upload(MultipartFile file, Long kbId, String logicalKeyOverride) throws IOException{
+        if (file == null || file.isEmpty()){
             throw new ServiceException("文件不能为空");
         }
         Long kb = kbId != null ? kbId : 0L;
         String original = file.getOriginalFilename();
-        if (original == null || original.isBlank())
-        {
+        if (original == null || original.isBlank()){
             throw new ServiceException("文件名无效");
         }
         String logicalKey = logicalKeyOverride != null && !logicalKeyOverride.isBlank()
                 ? logicalKeyOverride.trim()
                 : Path.of(original).getFileName().toString();
-        if (logicalKey.contains("..") || logicalKey.contains("/") || logicalKey.contains("\\"))
-        {
+        if (logicalKey.contains("..") || logicalKey.contains("/") || logicalKey.contains("\\")){
             throw new ServiceException("逻辑名不允许包含路径分隔符或 ..，请仅使用文件名");
         }
         String ext = extensionOf(logicalKey);
-        if (!ALLOWED_EXT.contains(ext))
-        {
+        if (!ALLOWED_EXT.contains(ext)){
             throw new ServiceException("不支持的文件类型: ." + ext);
         }
 
         Path base = Path.of(JuyaoConfig.getProfile()).normalize().toAbsolutePath();
         Path dir = base.resolve("rag").resolve(String.valueOf(kb)).normalize();
-        if (!dir.startsWith(base))
-        {
+        if (!dir.startsWith(base)){
             throw new ServiceException("非法上传目录");
         }
         Files.createDirectories(dir);
         Path target = dir.resolve(logicalKey).normalize();
-        if (!target.startsWith(dir))
-        {
+        if (!target.startsWith(dir)){
             throw new ServiceException("非法文件路径");
         }
 
         String sha256 = copyAndDigest(file, target);
-        RagDocumentHash existing = ragDocumentHashService.selectByKbAndKey(kb, logicalKey);
-        if (existing != null && sha256.equalsIgnoreCase(existing.getContentSha256()))
-        {
-            log.info("[RAG-Kafka] 跳过发送：内容未变，不发 Kafka。topic={} kbId={} docLogicalKey={}",
-                    kafkaTopic, kb, logicalKey);
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("skipped", true);
-            out.put("reason", "content_sha256_unchanged");
-            out.put("kbId", kb);
-            out.put("docLogicalKey", logicalKey);
-            out.put("contentSha256", sha256);
-            out.put("localPath", target.toAbsolutePath().toString());
-            return out;
-        }
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("v", 1);
@@ -119,6 +96,14 @@ public class RagDocIngestService
         payload.put("contentSha256", sha256);
         payload.put("localPath", target.toAbsolutePath().toString());
         payload.put("mimeType", file.getContentType() != null ? file.getContentType() : "");
+        String extCol = (ext == null || ext.isBlank()) ? null : ext;
+        Long sizeBytes = file.getSize() >= 0 ? file.getSize() : null;
+        if (extCol != null){
+            payload.put("fileExt", extCol);
+        }
+        if (sizeBytes != null){
+            payload.put("fileSizeBytes", sizeBytes);
+        }
 
         String json = toJson(payload);
         String key = kb + ":" + logicalKey;
@@ -133,29 +118,22 @@ public class RagDocIngestService
                 jsonLen,
                 Thread.currentThread().getName());
         kafkaTemplate.send(kafkaTopic, key, json).whenComplete((SendResult<String, String> result, Throwable ex) -> {
-            if (ex != null)
-            {
+            if (ex != null){
                 log.error("[RAG-Kafka] UPSERT 发送失败 topic={} key={} thread={} err={}",
                         kafkaTopic, key, Thread.currentThread().getName(), ex.toString(), ex);
                 return;
             }
-            if (result != null && result.getRecordMetadata() != null)
-            {
+            if (result != null && result.getRecordMetadata() != null){
                 var meta = result.getRecordMetadata();
                 long ts = meta.hasTimestamp() ? meta.timestamp() : -1L;
                 log.info(
                         "[RAG-Kafka] UPSERT broker 已确认 topic={} partition={} offset={} key={} ts={} callbackThread={}",
                         meta.topic(), meta.partition(), meta.offset(), key, ts, Thread.currentThread().getName());
-            }
-            else
-            {
+            } else {
                 log.warn("[RAG-Kafka] UPSERT 发送回调无 metadata topic={} key={} thread={}",
                         kafkaTopic, key, Thread.currentThread().getName());
             }
         });
-        Long sizeBytes = file.getSize() >= 0 ? file.getSize() : null;
-        String extCol = (ext == null || ext.isBlank()) ? null : ext;
-        ragDocumentHashService.mergeHash(kb, logicalKey, sha256, extCol, sizeBytes);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("skipped", false);
@@ -166,15 +144,12 @@ public class RagDocIngestService
         return out;
     }
 
-    public Map<String, Object> deleteAndNotify(Long kbId, String logicalKey)
-    {
-        if (logicalKey == null || logicalKey.isBlank())
-        {
+    public Map<String, Object> deleteAndNotify(Long kbId, String logicalKey){
+        if (logicalKey == null || logicalKey.isBlank()){
             throw new ServiceException("logicalKey 不能为空");
         }
         Long kb = kbId != null ? kbId : 0L;
-        if (logicalKey.contains("..") || logicalKey.contains("/") || logicalKey.contains("\\"))
-        {
+        if (logicalKey.contains("..") || logicalKey.contains("/") || logicalKey.contains("\\")){
             throw new ServiceException("逻辑名不允许包含路径分隔符或 ..");
         }
 
@@ -191,22 +166,18 @@ public class RagDocIngestService
                 "[RAG-Kafka] Producer 发起 DELETE send topic={} key={} kbId={} doc={} jsonLen={} thread={}",
                 kafkaTopic, key, kb, logicalKey.trim(), jsonLen, Thread.currentThread().getName());
         kafkaTemplate.send(kafkaTopic, key, json).whenComplete((SendResult<String, String> result, Throwable ex) -> {
-            if (ex != null)
-            {
+            if (ex != null){
                 log.error("[RAG-Kafka] DELETE 发送失败 topic={} key={} thread={} err={}",
                         kafkaTopic, key, Thread.currentThread().getName(), ex.toString(), ex);
                 return;
             }
-            if (result != null && result.getRecordMetadata() != null)
-            {
+            if (result != null && result.getRecordMetadata() != null){
                 var meta = result.getRecordMetadata();
                 long ts = meta.hasTimestamp() ? meta.timestamp() : -1L;
                 log.info(
                         "[RAG-Kafka] DELETE broker 已确认 topic={} partition={} offset={} key={} ts={} callbackThread={}",
                         meta.topic(), meta.partition(), meta.offset(), key, ts, Thread.currentThread().getName());
-            }
-            else
-            {
+            } else {
                 log.warn("[RAG-Kafka] DELETE 发送回调无 metadata topic={} key={} thread={}",
                         kafkaTopic, key, Thread.currentThread().getName());
             }
@@ -219,42 +190,31 @@ public class RagDocIngestService
         return out;
     }
 
-    private static String extensionOf(String filename)
-    {
+    private static String extensionOf(String filename){
         int i = filename.lastIndexOf('.');
-        if (i < 0 || i == filename.length() - 1)
-        {
+        if (i < 0 || i == filename.length() - 1){
             return "";
         }
         return filename.substring(i + 1).toLowerCase();
     }
 
-    private static String copyAndDigest(MultipartFile file, Path target) throws IOException
-    {
-        try
-        {
+    private static String copyAndDigest(MultipartFile file, Path target) throws IOException{
+        try{
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             try (InputStream raw = file.getInputStream();
-                    DigestInputStream in = new DigestInputStream(raw, md))
-            {
+                    DigestInputStream in = new DigestInputStream(raw, md)){
                 Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
             return HexFormat.of().formatHex(md.digest());
-        }
-        catch (NoSuchAlgorithmException e)
-        {
+        } catch (NoSuchAlgorithmException e){
             throw new ServiceException("SHA-256 不可用").setDetailMessage(e.getMessage());
         }
     }
 
-    private String toJson(Map<String, Object> payload)
-    {
-        try
-        {
+    private String toJson(Map<String, Object> payload){
+        try{
             return objectMapper.writeValueAsString(payload);
-        }
-        catch (JsonProcessingException e)
-        {
+        } catch (JsonProcessingException e){
             throw new ServiceException("序列化 Kafka 消息失败").setDetailMessage(e.getMessage());
         }
     }

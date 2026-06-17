@@ -28,7 +28,7 @@ def get_elasticsearch_client() -> Elasticsearch:
 
 def ensure_es_index_exists() -> None:
     # 索引不存在则创建，已存在则跳过。
-    # mapping：content 为 text（BM25；未配 IK 等则用默认分词）；
+    # mapping：content 为 text + IK 分词（ik_max_word 索引 / ik_smart 检索）；
     # chunk_id / source_doc_id / source_name 为 keyword（过滤、与 Qdrant chunk_id 对齐）；
     # chunk_index、字符区间、overlap_* 为 integer（溯源）。
     settings = get_settings()
@@ -40,7 +40,11 @@ def ensure_es_index_exists() -> None:
         body={
             "mappings": {
                 "properties": {
-                    "content": {"type": "text"},
+                    "content": {
+                        "type": "text",
+                        "analyzer": "ik_max_word",
+                        "search_analyzer": "ik_smart",
+                    },
                     "chunk_id": {"type": "keyword"},
                     "source_doc_id": {"type": "keyword"},
                     "source_name": {"type": "keyword"},

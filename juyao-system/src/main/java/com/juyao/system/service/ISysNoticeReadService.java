@@ -9,8 +9,7 @@ import com.juyao.system.domain.SysNotice;
  *
  * @author juyao
  */
-public interface ISysNoticeReadService
-{
+public interface ISysNoticeReadService{
     /**
      * 标记已读（幂等，重复调用不报错）
      *

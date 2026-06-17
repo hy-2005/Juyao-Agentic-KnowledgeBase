@@ -5,8 +5,7 @@ package com.juyao.common.enums;
  * 
  * @author juyao
  */
-public enum BusinessType
-{
+public enum BusinessType{
     /**
      * 其它
      */

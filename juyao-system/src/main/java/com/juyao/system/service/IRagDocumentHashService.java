@@ -4,8 +4,7 @@ import java.util.List;
 
 import com.juyao.system.domain.RagDocumentHash;
 
-public interface IRagDocumentHashService
-{
+public interface IRagDocumentHashService{
     RagDocumentHash selectByKbAndKey(Long kbId, String docLogicalKey);
 
     List<RagDocumentHash> selectRagDocumentHashList(RagDocumentHash query);

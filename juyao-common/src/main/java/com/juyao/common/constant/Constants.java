@@ -8,8 +8,7 @@ import io.jsonwebtoken.Claims;
  * 
  * @author juyao
  */
-public class Constants
-{
+public class Constants{
     /**
      * UTF-8 字符集
      */
@@ -174,8 +173,7 @@ public class Constants
     /**
      * 部门相关常量
      */
-    public static class Dept
-    {
+    public static class Dept{
         /**
          * 全部数据权限
          */

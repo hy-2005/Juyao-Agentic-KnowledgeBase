@@ -18,7 +18,6 @@ import com.juyao.common.enums.DesensitizedType;
 @Target(ElementType.FIELD)
 @JacksonAnnotationsInside
 @JsonSerialize(using = SensitiveJsonSerializer.class)
-public @interface Sensitive
-{
+public @interface Sensitive{
     DesensitizedType desensitizedType();
 }

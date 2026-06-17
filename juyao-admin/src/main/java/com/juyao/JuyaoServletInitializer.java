@@ -8,11 +8,9 @@ import org.springframework.boot.web.servlet.support.SpringBootServletInitializer
  * 
  * @author juyao
  */
-public class JuyaoServletInitializer extends SpringBootServletInitializer
-{
+public class JuyaoServletInitializer extends SpringBootServletInitializer{
     @Override
-    protected SpringApplicationBuilder configure(SpringApplicationBuilder application)
-    {
+    protected SpringApplicationBuilder configure(SpringApplicationBuilder application){
         return application.sources(JuyaoApplication.class);
     }
 }

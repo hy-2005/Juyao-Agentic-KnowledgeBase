@@ -25,8 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * 浏览器 / 前端应只访问 Java 侧 RAG 网关 Controller，由网关转发至 FastAPI。
  */
 @Component
-public class RagChatClient
-{
+public class RagChatClient{
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .version(HttpClient.Version.HTTP_1_1)
@@ -37,8 +36,7 @@ public class RagChatClient
     @Value("${juyao.rag.base-url:http://127.0.0.1:8000}")
     private String baseUrl;
 
-    public RagChatClient(ObjectMapper objectMapper)
-    {
+    public RagChatClient(ObjectMapper objectMapper){
         this.objectMapper = objectMapper;
     }
 
@@ -46,8 +44,7 @@ public class RagChatClient
      * 同步消费 SSE：每收到一行 event/data 即回调（阻塞直至流结束）。
      */
     public void streamChat(String userId, String sessionId, String message, Consumer<RagSseEvent> onEvent)
-            throws IOException, InterruptedException
-    {
+            throws IOException, InterruptedException{
         Map<String, String> body = new LinkedHashMap<>();
         body.put("user_id", userId);
         body.put("session_id", sessionId);
@@ -65,26 +62,19 @@ public class RagChatClient
                 .build();
 
         HttpResponse<java.util.stream.Stream<String>> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofLines());
-        if (resp.statusCode() != 200)
-        {
+        if (resp.statusCode() != 200){
             throw new IllegalStateException("RAG API HTTP " + resp.statusCode());
         }
 
         String currentEvent = "message";
-        try (java.util.stream.Stream<String> lines = resp.body())
-        {
-            for (String line : (Iterable<String>) lines::iterator)
-            {
-                if (line == null || line.isEmpty())
-                {
+        try (java.util.stream.Stream<String> lines = resp.body()){
+            for (String line : (Iterable<String>) lines::iterator){
+                if (line == null || line.isEmpty()){
                     continue;
                 }
-                if (line.startsWith("event:"))
-                {
+                if (line.startsWith("event:")){
                     currentEvent = line.substring(6).trim();
-                }
-                else if (line.startsWith("data:"))
-                {
+                } else if (line.startsWith("data:")){
                     String data = line.substring(5).trim();
                     onEvent.accept(new RagSseEvent(currentEvent, data));
                 }
@@ -92,8 +82,7 @@ public class RagChatClient
         }
     }
 
-    public String createSession(String userId) throws IOException, InterruptedException
-    {
+    public String createSession(String userId) throws IOException, InterruptedException{
         Map<String, String> body = new LinkedHashMap<>();
         body.put("user_id", userId);
         String json = objectMapper.writeValueAsString(body);
@@ -108,23 +97,19 @@ public class RagChatClient
                 .build();
 
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (resp.statusCode() != 200)
-        {
+        if (resp.statusCode() != 200){
             throw new IllegalStateException("RAG API HTTP " + resp.statusCode());
         }
-        Map<String, Object> data = objectMapper.readValue(resp.body(), new TypeReference<Map<String, Object>>()
-        {
+        Map<String, Object> data = objectMapper.readValue(resp.body(), new TypeReference<Map<String, Object>>(){
         });
         Object sessionId = data.get("session_id");
-        if (sessionId == null || String.valueOf(sessionId).isBlank())
-        {
+        if (sessionId == null || String.valueOf(sessionId).isBlank()){
             throw new IllegalStateException("RAG API 返回 session_id 为空");
         }
         return String.valueOf(sessionId);
     }
 
-    public List<Map<String, Object>> listSessions(String userId) throws IOException, InterruptedException
-    {
+    public List<Map<String, Object>> listSessions(String userId) throws IOException, InterruptedException{
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String queryUserId = URLEncoder.encode(userId, StandardCharsets.UTF_8);
         HttpRequest req = HttpRequest.newBuilder()
@@ -134,18 +119,15 @@ public class RagChatClient
                 .build();
 
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (resp.statusCode() != 200)
-        {
+        if (resp.statusCode() != 200){
             throw new IllegalStateException("RAG API HTTP " + resp.statusCode());
         }
-        List<Map<String, Object>> data = objectMapper.readValue(resp.body(), new TypeReference<List<Map<String, Object>>>()
-        {
+        List<Map<String, Object>> data = objectMapper.readValue(resp.body(), new TypeReference<List<Map<String, Object>>>(){
         });
         return data == null ? Collections.emptyList() : data;
     }
 
-    public List<Map<String, Object>> listMessages(String userId, String sessionId) throws IOException, InterruptedException
-    {
+    public List<Map<String, Object>> listMessages(String userId, String sessionId) throws IOException, InterruptedException{
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String queryUserId = URLEncoder.encode(userId, StandardCharsets.UTF_8);
         String querySessionId = URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
@@ -156,18 +138,15 @@ public class RagChatClient
                 .build();
 
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (resp.statusCode() != 200)
-        {
+        if (resp.statusCode() != 200){
             throw new IllegalStateException("RAG API HTTP " + resp.statusCode());
         }
-        List<Map<String, Object>> data = objectMapper.readValue(resp.body(), new TypeReference<List<Map<String, Object>>>()
-        {
+        List<Map<String, Object>> data = objectMapper.readValue(resp.body(), new TypeReference<List<Map<String, Object>>>(){
         });
         return data == null ? Collections.emptyList() : data;
     }
 
-    public void deleteSession(String userId, String sessionId) throws IOException, InterruptedException
-    {
+    public void deleteSession(String userId, String sessionId) throws IOException, InterruptedException{
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String queryUserId = URLEncoder.encode(userId, StandardCharsets.UTF_8);
         String sid = URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
@@ -179,15 +158,13 @@ public class RagChatClient
                 .build();
 
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (resp.statusCode() != 200)
-        {
+        if (resp.statusCode() != 200){
             throw new IllegalStateException("RAG API HTTP " + resp.statusCode());
         }
     }
 
     public void updateSessionTitle(String userId, String sessionId, String title)
-            throws IOException, InterruptedException
-    {
+            throws IOException, InterruptedException{
         Map<String, String> body = new LinkedHashMap<>();
         body.put("user_id", userId);
         body.put("title", title);
@@ -204,8 +181,7 @@ public class RagChatClient
                 .build();
 
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (resp.statusCode() != 200)
-        {
+        if (resp.statusCode() != 200){
             throw new IllegalStateException("RAG API HTTP " + resp.statusCode());
         }
     }

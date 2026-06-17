@@ -27,18 +27,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "用户信息管理")
 @RestController
 @RequestMapping("/test/user")
-public class TestController extends BaseController
-{
-    private final static Map<Integer, UserEntity> users = new LinkedHashMap<Integer, UserEntity>();
-    {
+public class TestController extends BaseController{
+    private final static Map<Integer, UserEntity> users = new LinkedHashMap<Integer, UserEntity>();{
         users.put(1, new UserEntity(1, "admin", "admin123", "15888888888"));
         users.put(2, new UserEntity(2, "ry", "admin123", "15666666666"));
     }
     
     @Operation(summary = "获取用户列表")
     @GetMapping("/list")
-    public R<List<UserEntity>> userList()
-    {
+    public R<List<UserEntity>> userList(){
         List<UserEntity> userList = new ArrayList<UserEntity>(users.values());
         return R.ok(userList);
     }
@@ -46,24 +43,18 @@ public class TestController extends BaseController
     @Operation(summary = "获取用户详细")
     @GetMapping("/{userId}")
     public R<UserEntity> getUser(@PathVariable(name = "userId")
-    Integer userId)
-    {
-        if (!users.isEmpty() && users.containsKey(userId))
-        {
+    Integer userId){
+        if (!users.isEmpty() && users.containsKey(userId)){
             return R.ok(users.get(userId));
-        }
-        else
-        {
+        } else {
             return R.fail("用户不存在");
         }
     }
     
     @Operation(summary = "新增用户")
     @PostMapping("/save")
-    public R<String> save(UserEntity user)
-    {
-        if (StringUtils.isNull(user) || StringUtils.isNull(user.getUserId()))
-        {
+    public R<String> save(UserEntity user){
+        if (StringUtils.isNull(user) || StringUtils.isNull(user.getUserId())){
             return R.fail("用户ID不能为空");
         }
         users.put(user.getUserId(), user);
@@ -73,14 +64,11 @@ public class TestController extends BaseController
     @Operation(summary = "更新用户")
     @PutMapping("/update")
     public R<String> update(@RequestBody
-    UserEntity user)
-    {
-        if (StringUtils.isNull(user) || StringUtils.isNull(user.getUserId()))
-        {
+    UserEntity user){
+        if (StringUtils.isNull(user) || StringUtils.isNull(user.getUserId())){
             return R.fail("用户ID不能为空");
         }
-        if (users.isEmpty() || !users.containsKey(user.getUserId()))
-        {
+        if (users.isEmpty() || !users.containsKey(user.getUserId())){
             return R.fail("用户不存在");
         }
         users.remove(user.getUserId());
@@ -91,23 +79,18 @@ public class TestController extends BaseController
     @Operation(summary = "删除用户信息")
     @DeleteMapping("/{userId}")
     public R<String> delete(@PathVariable(name = "userId")
-    Integer userId)
-    {
-        if (!users.isEmpty() && users.containsKey(userId))
-        {
+    Integer userId){
+        if (!users.isEmpty() && users.containsKey(userId)){
             users.remove(userId);
             return R.ok();
-        }
-        else
-        {
+        } else {
             return R.fail("用户不存在");
         }
     }
 }
 
 @Schema(description = "用户实体")
-class UserEntity
-{
+class UserEntity{
     @Schema(title = "用户ID")
     private Integer userId;
     
@@ -120,56 +103,46 @@ class UserEntity
     @Schema(title = "用户手机")
     private String mobile;
     
-    public UserEntity()
-    {
+    public UserEntity(){
         
     }
     
-    public UserEntity(Integer userId, String username, String password, String mobile)
-    {
+    public UserEntity(Integer userId, String username, String password, String mobile){
         this.userId = userId;
         this.username = username;
         this.password = password;
         this.mobile = mobile;
     }
     
-    public Integer getUserId()
-    {
+    public Integer getUserId(){
         return userId;
     }
     
-    public void setUserId(Integer userId)
-    {
+    public void setUserId(Integer userId){
         this.userId = userId;
     }
     
-    public String getUsername()
-    {
+    public String getUsername(){
         return username;
     }
     
-    public void setUsername(String username)
-    {
+    public void setUsername(String username){
         this.username = username;
     }
     
-    public String getPassword()
-    {
+    public String getPassword(){
         return password;
     }
     
-    public void setPassword(String password)
-    {
+    public void setPassword(String password){
         this.password = password;
     }
     
-    public String getMobile()
-    {
+    public String getMobile(){
         return mobile;
     }
     
-    public void setMobile(String mobile)
-    {
+    public void setMobile(String mobile){
         this.mobile = mobile;
     }
 }

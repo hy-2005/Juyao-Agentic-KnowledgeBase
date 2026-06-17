@@ -8,8 +8,7 @@ import com.juyao.common.core.domain.entity.SysRole;
  * 
  * @author juyao
  */
-public interface SysRoleMapper
-{
+public interface SysRoleMapper{
     /**
      * 根据条件分页查询角色数据
      * 

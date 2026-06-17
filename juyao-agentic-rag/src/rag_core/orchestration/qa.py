@@ -6,7 +6,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from rag_core.llm.factory import get_chat_llm
 from rag_core.llm.validators import require_dashscope_api_key
-from rag_core.orchestration.constants import DISCLAIMER, DISCLAIMER_NO_KB_REFERENCES, NO_KB_STREAM_PREFIX
+from rag_core.orchestration.constants import (
+    DISCLAIMER,
+    DISCLAIMER_NO_KB_REFERENCES,
+    KB_ANSWER_PREFIX,
+    NO_KB_STREAM_PREFIX,
+)
 from rag_core.prompts.templates import (
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_NO_KB_EVIDENCE,
@@ -42,7 +47,7 @@ def answer_question(question: str) -> QAResult:
     ]
     answer = llm.invoke(messages).content
 
-    prefix = "" if has_evidence else NO_KB_STREAM_PREFIX
+    prefix = KB_ANSWER_PREFIX if has_evidence else NO_KB_STREAM_PREFIX
     disclaimer = DISCLAIMER if has_evidence else DISCLAIMER_NO_KB_REFERENCES
     answer_with_guardrail = f"{prefix}{answer}\n\n{disclaimer}"
     return QAResult(answer=answer_with_guardrail, citations=citations, score=context.max_score)

@@ -8,8 +8,7 @@ import com.juyao.common.core.domain.entity.SysDictData;
  * 
  * @author juyao
  */
-public interface ISysDictDataService
-{
+public interface ISysDictDataService{
     /**
      * 根据条件分页查询字典数据
      * 

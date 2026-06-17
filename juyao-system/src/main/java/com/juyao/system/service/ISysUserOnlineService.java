@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysUserOnline;
  * 
  * @author juyao
  */
-public interface ISysUserOnlineService
-{
+public interface ISysUserOnlineService{
     /**
      * 通过登录地址查询信息
      * 

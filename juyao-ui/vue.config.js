@@ -40,6 +40,12 @@ module.exports = {
         changeOrigin: true,
         pathRewrite: {
           ['^' + process.env.VUE_APP_BASE_API]: ''
+        },
+        onProxyRes(proxyRes, req) {
+          if (req.url && req.url.includes('/rag/chat/stream')) {
+            proxyRes.headers['cache-control'] = 'no-cache, no-transform'
+            proxyRes.headers['x-accel-buffering'] = 'no'
+          }
         }
       },
       // springdoc proxy

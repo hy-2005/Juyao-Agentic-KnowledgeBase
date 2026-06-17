@@ -13,8 +13,7 @@ import com.juyao.system.service.ISysLogininforService;
  * @author juyao
  */
 @Service
-public class SysLogininforServiceImpl implements ISysLogininforService
-{
+public class SysLogininforServiceImpl implements ISysLogininforService{
 
     @Autowired
     private SysLogininforMapper logininforMapper;
@@ -25,8 +24,7 @@ public class SysLogininforServiceImpl implements ISysLogininforService
      * @param logininfor 访问日志对象
      */
     @Override
-    public void insertLogininfor(SysLogininfor logininfor)
-    {
+    public void insertLogininfor(SysLogininfor logininfor){
         logininforMapper.insertLogininfor(logininfor);
     }
 
@@ -37,8 +35,7 @@ public class SysLogininforServiceImpl implements ISysLogininforService
      * @return 登录记录集合
      */
     @Override
-    public List<SysLogininfor> selectLogininforList(SysLogininfor logininfor)
-    {
+    public List<SysLogininfor> selectLogininforList(SysLogininfor logininfor){
         return logininforMapper.selectLogininforList(logininfor);
     }
 
@@ -49,8 +46,7 @@ public class SysLogininforServiceImpl implements ISysLogininforService
      * @return 结果
      */
     @Override
-    public int deleteLogininforByIds(Long[] infoIds)
-    {
+    public int deleteLogininforByIds(Long[] infoIds){
         return logininforMapper.deleteLogininforByIds(infoIds);
     }
 
@@ -58,8 +54,7 @@ public class SysLogininforServiceImpl implements ISysLogininforService
      * 清空系统登录日志
      */
     @Override
-    public void cleanLogininfor()
-    {
+    public void cleanLogininfor(){
         logininforMapper.cleanLogininfor();
     }
 }

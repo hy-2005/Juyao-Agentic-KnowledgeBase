@@ -9,8 +9,7 @@ import com.juyao.common.core.domain.BaseEntity;
 /**
  * RAG 文档注册行（表 rag_document_hash）：幂等 Hash + 管理台列表字段。
  */
-public class RagDocumentHash extends BaseEntity
-{
+public class RagDocumentHash extends BaseEntity{
     @Serial
     private static final long serialVersionUID = 1L;
 
@@ -32,63 +31,51 @@ public class RagDocumentHash extends BaseEntity
     @Excel(name = "内容SHA256")
     private String contentSha256;
 
-    public Long getId()
-    {
+    public Long getId(){
         return id;
     }
 
-    public void setId(Long id)
-    {
+    public void setId(Long id){
         this.id = id;
     }
 
-    public Long getKbId()
-    {
+    public Long getKbId(){
         return kbId;
     }
 
-    public void setKbId(Long kbId)
-    {
+    public void setKbId(Long kbId){
         this.kbId = kbId;
     }
 
-    public String getDocLogicalKey()
-    {
+    public String getDocLogicalKey(){
         return docLogicalKey;
     }
 
-    public void setDocLogicalKey(String docLogicalKey)
-    {
+    public void setDocLogicalKey(String docLogicalKey){
         this.docLogicalKey = docLogicalKey;
     }
 
-    public String getFileExt()
-    {
+    public String getFileExt(){
         return fileExt;
     }
 
-    public void setFileExt(String fileExt)
-    {
+    public void setFileExt(String fileExt){
         this.fileExt = fileExt;
     }
 
-    public Long getFileSizeBytes()
-    {
+    public Long getFileSizeBytes(){
         return fileSizeBytes;
     }
 
-    public void setFileSizeBytes(Long fileSizeBytes)
-    {
+    public void setFileSizeBytes(Long fileSizeBytes){
         this.fileSizeBytes = fileSizeBytes;
     }
 
-    public String getContentSha256()
-    {
+    public String getContentSha256(){
         return contentSha256;
     }
 
-    public void setContentSha256(String contentSha256)
-    {
+    public void setContentSha256(String contentSha256){
         this.contentSha256 = contentSha256;
     }
 }

@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysConfig;
  * 
  * @author juyao
  */
-public interface ISysConfigService
-{
+public interface ISysConfigService{
     /**
      * 查询参数配置信息
      * 

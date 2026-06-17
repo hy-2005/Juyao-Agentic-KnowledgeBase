@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysLogininfor;
  * 
  * @author juyao
  */
-public interface ISysLogininforService
-{
+public interface ISysLogininforService{
     /**
      * 新增系统登录日志
      * 
