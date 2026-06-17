@@ -16,8 +16,7 @@ import com.juyao.common.enums.LimitType;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-public @interface RateLimiter
-{
+public @interface RateLimiter{
     /**
      * 限流key
      */

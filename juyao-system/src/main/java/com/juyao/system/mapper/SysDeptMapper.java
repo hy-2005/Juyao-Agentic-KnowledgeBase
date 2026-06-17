@@ -9,8 +9,7 @@ import com.juyao.common.core.domain.entity.SysDept;
  * 
  * @author juyao
  */
-public interface SysDeptMapper
-{
+public interface SysDeptMapper{
     /**
      * 查询部门管理数据
      * 

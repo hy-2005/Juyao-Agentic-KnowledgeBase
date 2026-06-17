@@ -79,11 +79,12 @@ services:
       - juyao-network
 
   # --------------------------------------------------------------------------
-  # Elasticsearch 8.4 — BM25 全文检索
+  # Elasticsearch 7.17.18 — BM25 全文检索（含 IK 中文分词，见 es_plugins/analysis-ik）
   # 安全功能已关闭（仅本地开发），生产环境请启用 xpack.security
+  # IK 插件安装：scripts/install-es-ik-plugin.ps1（es_plugins 不入 git）
   # --------------------------------------------------------------------------
   juyao-es:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.4.1
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.18
     container_name: juyao-es
     ports:
       - "9201:9200"
@@ -92,7 +93,6 @@ services:
       bootstrap.memory_lock: "true"
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
       xpack.security.enabled: "false"
-      xpack.security.enrollment.enabled: "false"
       TZ: "Asia/Shanghai"
     ulimits:
       memlock:
@@ -181,6 +181,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
     depends_on:
       - zookeeper
     restart: unless-stopped

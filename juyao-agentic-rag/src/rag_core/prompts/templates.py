@@ -67,7 +67,10 @@ def build_execute_user_prompt(question: str, observation_lines: list[str]) -> st
     return (
         f"用户问题：{question}\n\n"
         f"Observation 汇总（含知识库检索与可选图谱补充）：\n{obs_text}\n\n"
-        "请用中文作答。若使用了检索片段，请在文末列出 `引用:`；没有证据就写 `引用: 无`。"
+        "请用中文、Markdown 格式作答（章节标题、列表、代码块、表格）。"
+        "系统已在开头插入来源大标题，请勿重复。"
+        "若使用了检索片段，请在正文末尾单独一行列出 `引用:` 及 chunk_id；没有证据就写 `引用: 无`。"
+        "勿自行追加「提示：以上回答基于…」类说明，系统会在文末自动插入醒目的来源提示。"
     )
 
 

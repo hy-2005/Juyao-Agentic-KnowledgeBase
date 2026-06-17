@@ -5,8 +5,7 @@ package com.juyao.common.constant;
  * 
  * @author juyao
  */
-public class HttpStatus
-{
+public class HttpStatus{
     /**
      * 操作成功
      */

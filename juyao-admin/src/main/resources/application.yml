@@ -23,6 +23,7 @@ juyao:
       # 与 Python 默认 juyao-rag-ingest 相同则切换时 offset 连续；勿与 Python 消费者同时同组抢分区 unless intended
       listener-group-id: juyao-rag-ingest
       listener-concurrency: 3
+      # topic 分区数见 scripts/kafka-init-rag-topic.ps1，建议与 concurrency 一致
       # 与 FastAPI rag_ingest_internal_token 一致时可设环境变量 RAG_INGEST_INTERNAL_TOKEN；空表示不校验
       internal-token: ${RAG_INGEST_INTERNAL_TOKEN:}
 

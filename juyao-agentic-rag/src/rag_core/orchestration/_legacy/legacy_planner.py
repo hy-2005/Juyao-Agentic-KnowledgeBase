@@ -14,12 +14,24 @@ from langchain_core.tools import tool
 from rag_core.core.config import Settings, get_settings
 from rag_core.knowledge_graph.query import build_graph_observation_text
 from rag_core.llm.factory import get_chat_llm
+from rag_core.orchestration.constants import (
+    DISCLAIMER,
+    DISCLAIMER_NO_KB_REFERENCES,
+    KB_ANSWER_PREFIX,
+    NO_KB_STREAM_PREFIX,
+)
 from rag_core.orchestration.finalize import stream_final_answer
 from rag_core.orchestration.graph_route import should_invoke_graph_by_rules
 from rag_core.orchestration.history import history_dicts_to_messages
 from rag_core.orchestration.observations import build_graph_snapshot_meta, log_text_in_slices
 from rag_core.orchestration.retrieval_step import execute_retrieval_step
-from rag_core.prompts.templates import PLAN_SYSTEM_PROMPT, build_plan_user_prompt
+from rag_core.prompts.templates import (
+    PLAN_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_NO_KB_EVIDENCE,
+    build_execute_user_prompt,
+    build_plan_user_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -476,7 +488,10 @@ async def legacy_astream_chat_events(
     ]
 
     evidence_notice = ""
-    if not had_evidence:
+    if had_evidence:
+        evidence_notice = KB_ANSWER_PREFIX
+        yield ("token", {"content": evidence_notice})
+    else:
         evidence_notice = NO_KB_STREAM_PREFIX
         yield ("token", {"content": evidence_notice})
 

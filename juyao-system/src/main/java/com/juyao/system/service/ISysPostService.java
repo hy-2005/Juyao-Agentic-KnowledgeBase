@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysPost;
  * 
  * @author juyao
  */
-public interface ISysPostService
-{
+public interface ISysPostService{
     /**
      * 查询岗位信息集合
      * 

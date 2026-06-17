@@ -5,8 +5,7 @@ package com.juyao.common.enums;
  * 
  * @author juyao
  */
-public enum OperatorType
-{
+public enum OperatorType{
     /**
      * 其它
      */

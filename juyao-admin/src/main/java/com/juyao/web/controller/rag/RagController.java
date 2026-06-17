@@ -27,108 +27,82 @@ import com.juyao.rag.RagSseEvent;
  */
 @RestController
 @RequestMapping("/rag")
-public class RagController extends BaseController
-{
+public class RagController extends BaseController{
     @Autowired
     private RagChatClient ragChatClient;
 
     @GetMapping("/sessions")
-    public AjaxResult listSessions()
-    {
-        try
-        {
+    public AjaxResult listSessions(){
+        try{
             String userId = String.valueOf(getUserId());
             List<Map<String, Object>> sessions = ragChatClient.listSessions(userId);
             return success(sessions);
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error("获取会话列表失败: " + e.getMessage());
         }
     }
 
     @PostMapping("/sessions")
-    public AjaxResult createSession()
-    {
-        try
-        {
+    public AjaxResult createSession(){
+        try{
             String userId = String.valueOf(getUserId());
             String sessionId = ragChatClient.createSession(userId);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("sessionId", sessionId);
             return success(data);
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error("创建会话失败: " + e.getMessage());
         }
     }
 
     @GetMapping("/sessions/{sessionId}/messages")
-    public AjaxResult listMessages(@PathVariable String sessionId)
-    {
-        try
-        {
+    public AjaxResult listMessages(@PathVariable String sessionId){
+        try{
             String userId = String.valueOf(getUserId());
             List<Map<String, Object>> messages = ragChatClient.listMessages(userId, sessionId);
             return success(messages);
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error("获取历史消息失败: " + e.getMessage());
         }
     }
 
     @DeleteMapping("/sessions/{sessionId}")
-    public AjaxResult deleteSession(@PathVariable String sessionId)
-    {
-        try
-        {
+    public AjaxResult deleteSession(@PathVariable String sessionId){
+        try{
             String userId = String.valueOf(getUserId());
             ragChatClient.deleteSession(userId, sessionId);
             return success();
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error("删除会话失败: " + e.getMessage());
         }
     }
 
     @PutMapping("/sessions/{sessionId}")
-    public AjaxResult updateSessionTitle(@PathVariable String sessionId, @RequestBody SessionTitleBody body)
-    {
-        try
-        {
-            if (body == null || body.title() == null || body.title().isBlank())
-            {
+    public AjaxResult updateSessionTitle(@PathVariable String sessionId, @RequestBody SessionTitleBody body){
+        try{
+            if (body == null || body.title() == null || body.title().isBlank()){
                 return error("标题不能为空");
             }
             String userId = String.valueOf(getUserId());
             ragChatClient.updateSessionTitle(userId, sessionId, body.title().trim());
             return success();
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return error("更新会话标题失败: " + e.getMessage());
         }
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@RequestBody ChatRequest body)
-    {
+    public SseEmitter stream(@RequestBody ChatRequest body){
         SseEmitter emitter = new SseEmitter(30L * 60L * 1000L);
         String userId = String.valueOf(getUserId());
         String sessionId = body.sessionId();
         String message = body.message();
 
         Thread worker = new Thread(() -> {
-            try
-            {
+            try{
                 ragChatClient.streamChat(userId, sessionId, message, (RagSseEvent event) -> sendEvent(emitter, event));
                 emitter.complete();
-            }
-            catch (Exception e)
-            {
+            } catch (Exception e){
                 sendEvent(emitter, new RagSseEvent("error", "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}"));
                 emitter.completeWithError(e);
             }
@@ -138,31 +112,23 @@ public class RagController extends BaseController
         return emitter;
     }
 
-    private void sendEvent(SseEmitter emitter, RagSseEvent event)
-    {
-        try
-        {
+    private void sendEvent(SseEmitter emitter, RagSseEvent event){
+        try{
             emitter.send(SseEmitter.event().name(event.event()).data(event.dataJson()));
-        }
-        catch (IOException ignored)
-        {
+        } catch (IOException ignored){
         }
     }
 
-    private String escapeJson(String value)
-    {
-        if (value == null)
-        {
+    private String escapeJson(String value){
+        if (value == null){
             return "";
         }
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    public record ChatRequest(String sessionId, String message)
-    {
+    public record ChatRequest(String sessionId, String message){
     }
 
-    public record SessionTitleBody(String title)
-    {
+    public record SessionTitleBody(String title){
     }
 }

@@ -17,14 +17,12 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
 @EnableAspectJAutoProxy(exposeProxy = true)
 // 指定要扫描的Mapper类的包的路径
 @MapperScan("com.juyao.**.mapper")
-public class ApplicationConfig
-{
+public class ApplicationConfig{
     /**
      * 时区配置
      */
     @Bean
-    public Jackson2ObjectMapperBuilderCustomizer jacksonObjectMapperCustomization()
-    {
+    public Jackson2ObjectMapperBuilderCustomizer jacksonObjectMapperCustomization(){
         return jacksonObjectMapperBuilder -> jacksonObjectMapperBuilder.timeZone(TimeZone.getDefault());
     }
 }

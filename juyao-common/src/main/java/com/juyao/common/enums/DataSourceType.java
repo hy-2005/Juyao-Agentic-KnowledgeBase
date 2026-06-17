@@ -5,8 +5,7 @@ package com.juyao.common.enums;
  * 
  * @author juyao
  */
-public enum DataSourceType
-{
+public enum DataSourceType{
     /**
      * 主库
      */

@@ -11,8 +11,7 @@ import com.juyao.system.domain.SysNoticeRead;
  *
  * @author juyao
  */
-public interface SysNoticeReadMapper
-{
+public interface SysNoticeReadMapper{
     /**
      * 新增已读记录（忽略重复）
      *

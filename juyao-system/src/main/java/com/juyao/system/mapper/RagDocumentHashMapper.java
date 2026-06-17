@@ -8,8 +8,7 @@ import com.juyao.system.domain.RagDocumentHash;
 /**
  * RAG 文档 Hash 表数据层
  */
-public interface RagDocumentHashMapper
-{
+public interface RagDocumentHashMapper{
     RagDocumentHash selectByKbAndKey(@Param("kbId") Long kbId, @Param("docLogicalKey") String docLogicalKey);
 
     List<RagDocumentHash> selectRagDocumentHashList(RagDocumentHash query);

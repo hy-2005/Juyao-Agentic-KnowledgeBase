@@ -17,8 +17,7 @@ import org.springframework.stereotype.Component;
  * Java 消费 Kafka 后，将原始 JSON 消息 POST 至 Python FastAPI 内部入库接口。
  */
 @Component
-public class RagIngestFastApiClient
-{
+public class RagIngestFastApiClient{
     private static final Logger log = LoggerFactory.getLogger(RagIngestFastApiClient.class);
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -32,8 +31,7 @@ public class RagIngestFastApiClient
     @Value("${juyao.rag.ingest.internal-token:}")
     private String internalToken;
 
-    public void postIngestEvent(String jsonPayload) throws IOException, InterruptedException
-    {
+    public void postIngestEvent(String jsonPayload) throws IOException, InterruptedException{
         String root = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String url = root + "/api/v1/internal/rag/ingest/event";
         boolean withToken = internalToken != null && !internalToken.isBlank();
@@ -50,8 +48,7 @@ public class RagIngestFastApiClient
                 .timeout(Duration.ofMinutes(30))
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonPayload, StandardCharsets.UTF_8));
-        if (withToken)
-        {
+        if (withToken){
             b.header("X-Internal-Token", internalToken.trim());
         }
         HttpRequest req = b.build();
@@ -63,17 +60,14 @@ public class RagIngestFastApiClient
                 resp.statusCode(),
                 resp.body() != null ? resp.body().length() : 0,
                 ms);
-        if (resp.statusCode() < 200 || resp.statusCode() >= 300)
-        {
+        if (resp.statusCode() < 200 || resp.statusCode() >= 300){
             throw new IllegalStateException(
                     "RAG ingest API HTTP " + resp.statusCode() + " body=" + truncate(resp.body(), 500));
         }
     }
 
-    private static String truncate(String s, int max)
-    {
-        if (s == null)
-        {
+    private static String truncate(String s, int max){
+        if (s == null){
             return "";
         }
         return s.length() <= max ? s : s.substring(0, max) + "...";

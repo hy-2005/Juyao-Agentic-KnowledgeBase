@@ -8,8 +8,7 @@ import com.juyao.generator.domain.GenTableColumn;
  * 
  * @author juyao
  */
-public interface GenTableColumnMapper
-{
+public interface GenTableColumnMapper{
     /**
      * 根据表名称查询列信息
      * 

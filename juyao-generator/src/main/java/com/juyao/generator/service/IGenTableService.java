@@ -9,8 +9,7 @@ import com.juyao.generator.domain.GenTable;
  * 
  * @author juyao
  */
-public interface IGenTableService
-{
+public interface IGenTableService{
     /**
      * 查询业务列表
      * 

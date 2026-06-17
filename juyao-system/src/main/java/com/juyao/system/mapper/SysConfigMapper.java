@@ -8,8 +8,7 @@ import com.juyao.system.domain.SysConfig;
  * 
  * @author juyao
  */
-public interface SysConfigMapper
-{
+public interface SysConfigMapper{
     /**
      * 查询参数配置信息
      * 

@@ -8,8 +8,7 @@ import com.juyao.quartz.domain.SysJobLog;
  * 
  * @author juyao
  */
-public interface SysJobLogMapper
-{
+public interface SysJobLogMapper{
     /**
      * 获取quartz调度器日志的计划任务
      * 

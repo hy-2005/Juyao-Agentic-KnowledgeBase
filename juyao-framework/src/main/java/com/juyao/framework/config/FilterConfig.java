@@ -20,8 +20,7 @@ import com.juyao.common.utils.StringUtils;
  * @author juyao
  */
 @Configuration
-public class FilterConfig
-{
+public class FilterConfig{
     @Value("${xss.excludes}")
     private String excludes;
 
@@ -34,8 +33,7 @@ public class FilterConfig
     @SuppressWarnings({ "rawtypes", "unchecked" })
     @Bean
     @ConditionalOnProperty(value = "xss.enabled", havingValue = "true")
-    public FilterRegistrationBean xssFilterRegistration()
-    {
+    public FilterRegistrationBean xssFilterRegistration(){
         FilterRegistrationBean registration = new FilterRegistrationBean();
         registration.setDispatcherTypes(DispatcherType.REQUEST);
         registration.setFilter(new XssFilter());
@@ -51,8 +49,7 @@ public class FilterConfig
     @SuppressWarnings({ "rawtypes", "unchecked" })
     @Bean
     @ConditionalOnProperty(value = "referer.enabled", havingValue = "true")
-    public FilterRegistrationBean refererFilterRegistration()
-    {
+    public FilterRegistrationBean refererFilterRegistration(){
         FilterRegistrationBean registration = new FilterRegistrationBean();
         registration.setDispatcherTypes(DispatcherType.REQUEST);
         registration.setFilter(new RefererFilter());
@@ -67,8 +64,7 @@ public class FilterConfig
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
     @Bean
-    public FilterRegistrationBean someFilterRegistration()
-    {
+    public FilterRegistrationBean someFilterRegistration(){
         FilterRegistrationBean registration = new FilterRegistrationBean();
         registration.setFilter(new RepeatableFilter());
         registration.addUrlPatterns("/*");

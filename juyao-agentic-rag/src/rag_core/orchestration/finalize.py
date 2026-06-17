@@ -19,6 +19,7 @@ from rag_core.llm.factory import get_chat_llm
 from rag_core.orchestration.constants import (
     DISCLAIMER,
     DISCLAIMER_NO_KB_REFERENCES,
+    KB_ANSWER_PREFIX,
     NO_KB_STREAM_PREFIX,
 )
 from rag_core.orchestration.history import history_dicts_to_messages
@@ -51,7 +52,10 @@ async def stream_final_answer(
     ]
 
     evidence_notice = ""
-    if not had_evidence:
+    if had_evidence:
+        evidence_notice = KB_ANSWER_PREFIX
+        yield ("token", {"content": evidence_notice})
+    else:
         evidence_notice = NO_KB_STREAM_PREFIX
         yield ("token", {"content": evidence_notice})
 

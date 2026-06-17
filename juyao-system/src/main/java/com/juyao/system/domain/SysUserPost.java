@@ -8,31 +8,26 @@ import org.apache.commons.lang3.builder.ToStringStyle;
  * 
  * @author juyao
  */
-public class SysUserPost
-{
+public class SysUserPost{
     /** 用户ID */
     private Long userId;
     
     /** 岗位ID */
     private Long postId;
 
-    public Long getUserId()
-    {
+    public Long getUserId(){
         return userId;
     }
 
-    public void setUserId(Long userId)
-    {
+    public void setUserId(Long userId){
         this.userId = userId;
     }
 
-    public Long getPostId()
-    {
+    public Long getPostId(){
         return postId;
     }
 
-    public void setPostId(Long postId)
-    {
+    public void setPostId(Long postId){
         this.postId = postId;
     }
 

@@ -9,8 +9,7 @@ import com.juyao.common.core.domain.entity.SysUser;
  * 
  * @author juyao
  */
-public interface ISysUserService
-{
+public interface ISysUserService{
     /**
      * 根据条件分页查询用户列表
      * 

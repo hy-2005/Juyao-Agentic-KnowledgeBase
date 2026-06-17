@@ -18,30 +18,23 @@ import com.juyao.common.utils.SecurityUtils;
  *
  * @author juyao
  */
-public class SensitiveJsonSerializer extends JsonSerializer<String> implements ContextualSerializer
-{
+public class SensitiveJsonSerializer extends JsonSerializer<String> implements ContextualSerializer{
     private DesensitizedType desensitizedType;
 
     @Override
-    public void serialize(String value, JsonGenerator gen, SerializerProvider serializers) throws IOException
-    {
-        if (desensitization())
-        {
+    public void serialize(String value, JsonGenerator gen, SerializerProvider serializers) throws IOException{
+        if (desensitization()){
             gen.writeString(desensitizedType.desensitizer().apply(value));
-        }
-        else
-        {
+        } else {
             gen.writeString(value);
         }
     }
 
     @Override
     public JsonSerializer<?> createContextual(SerializerProvider prov, BeanProperty property)
-            throws JsonMappingException
-    {
+            throws JsonMappingException{
         Sensitive annotation = property.getAnnotation(Sensitive.class);
-        if (Objects.nonNull(annotation) && Objects.equals(String.class, property.getType().getRawClass()))
-        {
+        if (Objects.nonNull(annotation) && Objects.equals(String.class, property.getType().getRawClass())){
             this.desensitizedType = annotation.desensitizedType();
             return this;
         }
@@ -51,16 +44,12 @@ public class SensitiveJsonSerializer extends JsonSerializer<String> implements C
     /**
      * 是否需要脱敏处理
      */
-    private boolean desensitization()
-    {
-        try
-        {
+    private boolean desensitization(){
+        try{
             LoginUser securityUser = SecurityUtils.getLoginUser();
             // 管理员不脱敏
             return !securityUser.getUser().isAdmin();
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e){
             return true;
         }
     }

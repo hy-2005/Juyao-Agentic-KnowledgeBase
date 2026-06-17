@@ -10,8 +10,7 @@ import com.juyao.quartz.domain.SysJob;
  * 
  * @author juyao
  */
-public interface ISysJobService
-{
+public interface ISysJobService{
     /**
      * 获取quartz调度器的计划任务
      * 

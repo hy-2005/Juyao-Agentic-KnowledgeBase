@@ -11,8 +11,7 @@ import com.juyao.system.domain.vo.RouterVo;
  * 
  * @author juyao
  */
-public interface ISysMenuService
-{
+public interface ISysMenuService{
     /**
      * 根据用户查询系统菜单列表
      * 

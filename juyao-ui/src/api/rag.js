@@ -5,6 +5,103 @@ import { getToken } from '@/utils/auth'
 const BASE = '/rag'
 
 /**
+ * SSE 流式对话（fetch + ReadableStream，避免 axios XHR 长连接不结束导致 loading 卡死）。
+ */
+export function streamChat(payload, handlers = {}, options = {}) {
+  const { onEvent, onError, onDone } = handlers
+  const { signal } = options
+  const token = getToken()
+  const url = `${process.env.VUE_APP_BASE_API}${BASE}/chat/stream`
+
+  return new Promise((resolve, reject) => {
+    let eventName = 'message'
+    let buffer = ''
+    let finished = false
+
+    const finish = (handler, data) => {
+      if (finished) return
+      finished = true
+      handler && handler(data)
+      resolve()
+    }
+
+    const parseChunk = (text) => {
+      buffer += text
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line) continue
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim()
+          continue
+        }
+        if (!line.startsWith('data:')) continue
+        const raw = line.slice(5).trim()
+        let data = raw
+        try {
+          data = JSON.parse(raw)
+        } catch (e) {
+          // keep string
+        }
+        if (eventName === 'done') {
+          finish(onDone, data)
+        } else if (eventName === 'error') {
+          onError && onError(data)
+          finished = true
+          resolve()
+        } else {
+          onEvent && onEvent(eventName, data)
+        }
+      }
+    }
+
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8',
+        Authorization: token ? `Bearer ${token}` : ''
+      },
+      body: JSON.stringify(payload),
+      signal
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '')
+          throw new Error(errText || `HTTP ${response.status}`)
+        }
+        if (!response.body) {
+          finish(onDone, {})
+          return
+        }
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder('utf-8')
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          parseChunk(decoder.decode(value, { stream: true }))
+          if (finished) {
+            try {
+              await reader.cancel()
+            } catch (e) {
+              // ignore
+            }
+            break
+          }
+        }
+        if (buffer.trim()) parseChunk('\n')
+        if (!finished) finish(onDone, {})
+      })
+      .catch((err) => {
+        if (err && err.name === 'AbortError') {
+          resolve()
+          return
+        }
+        reject(err)
+      })
+  })
+}
+
+/**
  * RAG 文档异步入库（multipart，勿设 Content-Type，由浏览器带 boundary）
  */
 export function uploadRagDocument(formData) {
@@ -18,7 +115,6 @@ export function uploadRagDocument(formData) {
     headers: {
       Authorization: token ? `Bearer ${token}` : ''
     },
-    // 全局 axios.defaults 里写了 application/json，会盖掉 multipart；必须去掉，由浏览器自动带 boundary
     transformRequest: [
       (data, headers) => {
         if (typeof FormData !== 'undefined' && data instanceof FormData) {
@@ -93,91 +189,4 @@ export function updateSessionTitle(sessionId, title) {
     method: 'put',
     data: { title }
   })
-}
-
-/**
- * SSE 流式对话。axios + XHR 在长连接结束时可能不会立刻 resolve，导致页面 loading 卡死。
- * 解析到 done/error 后主动 cancel 请求，并在 HTTP 正常结束且无 done 时兜底触发 onDone。
- */
-export async function streamChat(payload, handlers = {}) {
-  const { onEvent, onError, onDone } = handlers
-  const token = getToken()
-  const source = axios.CancelToken.source()
-  let buffer = ''
-  let eventName = 'message'
-  let consumed = 0
-  /** 已从 SSE 收到结束帧 */
-  let streamFinished = false
-  let axiosOk = false
-
-  const parseSseText = (text) => {
-    buffer += text
-    const lines = buffer.split(/\r?\n/)
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line) continue
-      if (line.startsWith('event:')) {
-        eventName = line.slice(6).trim()
-        continue
-      }
-      if (line.startsWith('data:')) {
-        const raw = line.slice(5).trim()
-        let data = raw
-        try {
-          data = JSON.parse(raw)
-        } catch (e) {
-          // 非 JSON data 兜底保持字符串
-        }
-        if (eventName === 'done') {
-          streamFinished = true
-          onDone && onDone(data)
-          source.cancel('sse-done')
-        } else if (eventName === 'error') {
-          streamFinished = true
-          onError && onError(data)
-          source.cancel('sse-error')
-        } else {
-          onEvent && onEvent(eventName, data)
-        }
-      }
-    }
-  }
-
-  try {
-    await axios({
-      url: `${process.env.VUE_APP_BASE_API}${BASE}/chat/stream`,
-      method: 'post',
-      data: payload,
-      responseType: 'text',
-      cancelToken: source.token,
-      headers: {
-        'Content-Type': 'application/json;charset=utf-8',
-        Authorization: token ? `Bearer ${token}` : ''
-      },
-      onDownloadProgress: (event) => {
-        const xhr = event.currentTarget
-        if (!xhr || typeof xhr.responseText !== 'string') return
-        const fullText = xhr.responseText
-        if (fullText.length <= consumed) return
-        const chunk = fullText.slice(consumed)
-        consumed = fullText.length
-        parseSseText(chunk)
-      }
-    })
-    axiosOk = true
-  } catch (error) {
-    if (axios.isCancel(error)) {
-      return
-    }
-    const msg = error && error.message ? error.message : '请求失败'
-    throw new Error(msg)
-  } finally {
-    if (buffer.trim()) {
-      parseSseText('\n')
-    }
-    if (!streamFinished && axiosOk) {
-      onDone && onDone({})
-    }
-  }
 }

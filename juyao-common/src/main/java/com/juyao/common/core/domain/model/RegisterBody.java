@@ -5,7 +5,6 @@ package com.juyao.common.core.domain.model;
  * 
  * @author juyao
  */
-public class RegisterBody extends LoginBody
-{
+public class RegisterBody extends LoginBody{
 
 }

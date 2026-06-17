@@ -9,8 +9,7 @@ import com.juyao.common.core.domain.entity.SysMenu;
  *
  * @author juyao
  */
-public interface SysMenuMapper
-{
+public interface SysMenuMapper{
     /**
      * 查询系统菜单列表
      *
