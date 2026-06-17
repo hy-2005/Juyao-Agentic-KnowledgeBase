@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 
 from kafka import KafkaConsumer
 from kafka.errors import KafkaError
@@ -56,12 +57,23 @@ def _diagnose_subscription(consumer: KafkaConsumer, timeout_s: float = 30.0) -> 
         )
 
 
+def _drain_done(futures: set[Future[None]]) -> None:
+    done = {f for f in futures if f.done()}
+    for future in done:
+        try:
+            future.result()
+        except Exception as exc:
+            logger.exception("处理消息失败: %s", exc)
+    futures.difference_update(done)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     settings = get_settings()
+    workers = max(1, settings.ingest_kafka_workers)
     servers = [s.strip() for s in settings.kafka_bootstrap_servers.split(",") if s.strip()]
     signal.signal(signal.SIGINT, _handle_sig)
     signal.signal(signal.SIGTERM, _handle_sig)
@@ -76,32 +88,37 @@ def main() -> None:
         auto_offset_reset=settings.kafka_auto_offset_reset,
     )
     logger.info(
-        "Kafka 消费者已启动 topic=%s group=%s servers=%s",
+        "Kafka 消费者已启动 topic=%s group=%s servers=%s workers=%s",
         settings.kafka_topic,
         settings.kafka_consumer_group,
         servers,
+        workers,
     )
     _diagnose_subscription(consumer)
     idle_since: float | None = None
     idle_log_interval_s = 60.0
+    pending: set[Future[None]] = set()
     try:
-        while not _stop:
-            records = consumer.poll(timeout_ms=2000)
-            if not records:
-                now = time.monotonic()
-                if idle_since is None:
-                    idle_since = now
-                elif now - idle_since >= idle_log_interval_s:
-                    logger.info("[RAG-Kafka] 轮询中，约 %.0fs 内未收到新消息", idle_log_interval_s)
-                    idle_since = now
-                continue
-            idle_since = None
-            for _tp, batch in records.items():
-                for msg in batch:
-                    try:
-                        apply_kafka_ingest_payload(msg.value if isinstance(msg.value, dict) else {})
-                    except Exception as exc:
-                        logger.exception("处理消息失败 offset=%s: %s", msg.offset, exc)
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="rag-ingest") as pool:
+            while not _stop:
+                _drain_done(pending)
+                records = consumer.poll(timeout_ms=2000)
+                if not records:
+                    now = time.monotonic()
+                    if idle_since is None:
+                        idle_since = now
+                    elif now - idle_since >= idle_log_interval_s:
+                        logger.info("[RAG-Kafka] 轮询中，约 %.0fs 内未收到新消息", idle_log_interval_s)
+                        idle_since = now
+                    continue
+                idle_since = None
+                for _tp, batch in records.items():
+                    for msg in batch:
+                        payload = msg.value if isinstance(msg.value, dict) else {}
+                        pending.add(pool.submit(apply_kafka_ingest_payload, payload))
+            _drain_done(pending)
+            for future in list(pending):
+                future.result()
     except KafkaError as exc:
         logger.error("Kafka 错误：%s", exc)
         sys.exit(1)

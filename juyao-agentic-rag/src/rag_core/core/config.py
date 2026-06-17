@@ -25,11 +25,15 @@ class Settings(BaseSettings):
     # --- Ollama：Embedding 等本地服务 ---
     ollama_base_url: str = Field(default="http://localhost:11434")
     chunk_ai_split_enabled: bool = Field(default=True)
+    embed_provider: str = Field(default="ollama")  # ollama | dashscope
     embed_model: str = Field(default="mxbai-embed-large:latest")
+    embed_base_url: str = Field(default="https://dashscope.aliyuncs.com/compatible-mode/v1")
+    embed_batch_size: int = Field(default=10)  # 百炼 text-embedding 单次最多 10 条
     rerank_model: str = Field(default="bona/bge-reranker-v2-m3:latest")
     rerank_provider: str = Field(default="dashscope")
 
     dashscope_api_key: str = Field(default="")
+    llm_api_key: str = Field(default="")  # 对话/切分 LLM 专用 Key；空则回退 dashscope_api_key
     dashscope_rerank_url: str = Field(
         default="https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
     )
@@ -39,6 +43,14 @@ class Settings(BaseSettings):
     )
     gen_model: str = Field(default="qwen3.6-35b-a3b")
     dashscope_enable_thinking: bool = Field(default=False)
+    # 结构化 JSON 任务（图谱抽取、意图路由等）可单独指定百炼等模型
+    json_gen_model: str = Field(default="")
+    json_llm_base_url: str = Field(default="")
+    json_llm_api_key: str = Field(default="")
+    chunk_gen_model: str = Field(default="")
+    chunk_llm_base_url: str = Field(default="")
+    chunk_llm_api_key: str = Field(default="")
+    chunk_split_mode: str = Field(default="marker")  # marker | auto（auto 含 JSON 窗口断点）
 
     openai_api_key: str = Field(default="")
     openai_base_url: str = Field(default="https://api.openai.com/v1")
@@ -58,8 +70,9 @@ class Settings(BaseSettings):
     elasticsearch_index: str = Field(default="juyao_knowledge_chunks")
 
     # --- 切分与检索 ---
-    chunk_size: int = Field(default=300)
-    chunk_overlap: int = Field(default=60)
+    chunk_size: int = Field(default=800)  # LLM 软参考目标字数
+    chunk_max_chars: int = Field(default=0)  # 硬上限；0 表示自动（约 chunk_size * 1.5）
+    chunk_overlap: int = Field(default=120)
     top_k: int = Field(default=15)
     rrf_top_n: int = Field(default=8)
     rerank_top_n: int = Field(default=5)
@@ -114,6 +127,8 @@ class Settings(BaseSettings):
     kafka_consumer_group: str = Field(default="juyao-rag-ingest")
     kafka_auto_offset_reset: str = Field(default="earliest")
     rag_ingest_internal_token: str = Field(default="")
+    ingest_graph_workers: int = Field(default=4)  # GraphRAG 按 chunk 并行抽取
+    ingest_kafka_workers: int = Field(default=3)  # Python Kafka 消费者并行度
 
     @classmethod
     def settings_customise_sources(
@@ -152,3 +167,11 @@ def reload_settings(**overrides: Any) -> Settings:
     if overrides:
         return Settings(**overrides)
     return get_settings()
+
+
+def get_chunk_max_chars(settings: Settings | None = None) -> int:
+    """入库 chunk 硬上限（含 overlap 扩展前的语义 span 上限）。"""
+    s = settings or get_settings()
+    if s.chunk_max_chars > 0:
+        return s.chunk_max_chars
+    return max(s.chunk_size + 400, int(s.chunk_size * 1.5))

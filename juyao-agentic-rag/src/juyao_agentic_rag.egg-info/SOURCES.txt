@@ -35,6 +35,7 @@ src/rag_core/ingestion/__init__.py
 src/rag_core/ingestion/cleanup.py
 src/rag_core/ingestion/events.py
 src/rag_core/ingestion/graph_writer.py
+src/rag_core/ingestion/hash_guard.py
 src/rag_core/ingestion/loader.py
 src/rag_core/ingestion/pipeline.py
 src/rag_core/ingestion/split_ai.py
@@ -52,6 +53,7 @@ src/rag_core/knowledge_graph/question_seed.py
 src/rag_core/knowledge_graph/schema.py
 src/rag_core/knowledge_graph/store.py
 src/rag_core/llm/__init__.py
+src/rag_core/llm/dashscope_embeddings.py
 src/rag_core/llm/factory.py
 src/rag_core/llm/json_client.py
 src/rag_core/llm/validators.py

@@ -14,6 +14,7 @@ from rag_core.indexing.qdrant import ensure_collection_exists, get_vector_store
 from rag_core.ingestion.cleanup import delete_document_from_indexes
 from rag_core.ingestion.graph_writer import write_chunks_to_graph
 from rag_core.ingestion.loader import load_document
+from rag_core.ingestion.hash_guard import META_SHA_KEY, file_sha256_hex
 from rag_core.ingestion.splitter import split_into_chunks
 
 logger = logging.getLogger(__name__)
@@ -25,11 +26,13 @@ def ingest_file(
     source_name: str | None = None,
     enable_graph: bool = True,
     purge_before_write: bool = False,
+    content_sha256: str | None = None,
 ) -> tuple[int, int]:
     """导入单个文件，返回（向量侧 chunk 数，图侧关系数）。"""
     begin = time.time()
     path = Path(file_path)
     logical_name = source_name if source_name else path.name
+    doc_sha = (content_sha256 or file_sha256_hex(path)).strip().lower()
 
     if purge_before_write:
         logger.info("【入库】先按逻辑名清理旧索引：%s", logical_name)
@@ -39,6 +42,8 @@ def ingest_file(
     content = load_document(str(path))
     logger.info("【入库】原文读取完成：source=%s 字符数=%s", logical_name, len(content))
     chunks = split_into_chunks(source_name=logical_name, content=content)
+    for chunk in chunks:
+        chunk.metadata[META_SHA_KEY] = doc_sha
     logger.info("【入库】切块完成：source=%s chunks=%s", logical_name, len(chunks))
 
     logger.info("【入库】开始写入向量库 Qdrant")

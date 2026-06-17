@@ -11,7 +11,9 @@
 # --- Ollama：Embedding 等本地服务 ---
 ollama_base_url = "http://localhost:11434"
 chunk_ai_split_enabled = true
+embed_provider = "ollama"  # ollama | dashscope
 embed_model = "mxbai-embed-large:latest"
+embed_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 rerank_model = "bona/bge-reranker-v2-m3:latest"
 rerank_provider = "dashscope"  # dashscope | ollama
 
@@ -37,8 +39,9 @@ elasticsearch_url = "http://localhost:9201"
 elasticsearch_index = "juyao_knowledge_chunks"
 
 # --- 切分与检索 ---
-chunk_size = 300
-chunk_overlap = 60
+chunk_size = 800
+chunk_max_chars = 1400
+chunk_overlap = 120
 top_k = 15
 rrf_top_n = 8
 rerank_top_n = 5
@@ -91,3 +94,5 @@ kafka_bootstrap_servers = "127.0.0.1:9092"
 kafka_topic = "juyao.rag.documents"
 kafka_consumer_group = "juyao-rag-ingest"
 kafka_auto_offset_reset = "earliest"
+ingest_graph_workers = 4
+ingest_kafka_workers = 3
