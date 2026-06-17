@@ -67,6 +67,42 @@ function bannerHtml(type, icon, title, subtitle) {
   )
 }
 
+const BANNER_DEFS = {
+  kb: { type: 'kb', icon: '📚', title: '知识库依据回答', subtitle: '以下内容主要依据知识库检索结果整理，请结合原文核验' },
+  general: { type: 'general', icon: '🌐', title: '通用知识说明', subtitle: '知识库未命中可用片段，以下为模型通用知识，请勿当作内部权威依据' },
+  supplement: { type: 'supplement', icon: '💡', title: '补充说明（通用推断）', subtitle: '以下部分无直接检索依据，属于谨慎推断，请自行核实' }
+}
+
+/** 从 markdown 文本开头识别并抽出 banner（连同其后空行），返回 { bannerHtml, contentMarkdown }。
+ *  - 若开头命中已知的 banner 标题（## 📚 知识库依据回答 / ## 🌐 通用知识说明 / ## 💡 补充说明（通用推断）），剥离该标题并生成对应 bannerHtml。
+ *  - 若未命中但传入了 meta，则按 meta.had_evidence 兜底生成 KB / 通用 banner。
+ *  - 历史消息没有 meta 时返回 { bannerHtml: '', contentMarkdown }，由调用方按 markdown 自身渲染。
+ */
+export function extractBanner(markdown, meta) {
+  const src = (markdown || '').trim()
+  let contentMarkdown = src
+  let bannerHtmlResult = ''
+
+  const patterns = [
+    { regex: /^##\s*📚\s*知识库依据回答[^\n]*\n+/i, key: 'kb' },
+    { regex: /^##\s*🌐\s*通用知识说明[^\n]*\n+/i, key: 'general' },
+    { regex: /^##\s*💡\s*补充说明（通用推断）[^\n]*\n+/i, key: 'supplement' }
+  ]
+  for (const { regex, key } of patterns) {
+    if (regex.test(contentMarkdown)) {
+      contentMarkdown = contentMarkdown.replace(regex, '')
+      const def = BANNER_DEFS[key]
+      bannerHtmlResult = bannerHtml(def.type, def.icon, def.title, def.subtitle)
+      break
+    }
+  }
+  if (!bannerHtmlResult && meta && typeof meta === 'object') {
+    const def = meta.had_evidence ? BANNER_DEFS.kb : BANNER_DEFS.general
+    bannerHtmlResult = bannerHtml(def.type, def.icon, def.title, def.subtitle)
+  }
+  return { bannerHtml: bannerHtmlResult, contentMarkdown }
+}
+
 const BANNER_REPLACERS = [
   [
     /<h2>📚 知识库依据回答<\/h2>/,
@@ -144,13 +180,23 @@ function enhanceCitations(html) {
 }
 
 /** 助手消息 Markdown → HTML；用户消息保持纯文本。 */
-export function renderChatMarkdown(text) {
+export function renderChatMarkdown(text, meta) {
   const src = (text || '').trim()
   if (!src) return ''
   let html = marked.parse(src)
   BANNER_REPLACERS.forEach(([pattern, replacement]) => {
     html = html.replace(pattern, replacement)
   })
+  // LLM 不一定每次都生成「## 📚 知识库依据回答」之类的标题：若 meta 提示有/无证据但正文未带对应 banner，按 meta 兜底注入。
+  if (meta && typeof meta === 'object') {
+    const hasKbBanner = html.includes('md-banner-kb')
+    const hasGeneralBanner = html.includes('md-banner-general')
+    if (meta.had_evidence && !hasKbBanner) {
+      html = bannerHtml('kb', '📚', '知识库依据回答', '以下内容主要依据知识库检索结果整理，请结合原文核验') + html
+    } else if (!meta.had_evidence && !hasGeneralBanner && !hasKbBanner) {
+      html = bannerHtml('general', '🌐', '通用知识说明', '知识库未命中可用片段，以下为模型通用知识，请勿当作内部权威依据') + html
+    }
+  }
   html = enhancePlainTips(html)
   html = enhanceBlockquotes(html)
   html = enhanceCitations(html)
