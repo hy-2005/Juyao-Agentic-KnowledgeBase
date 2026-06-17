@@ -1,9 +1,11 @@
 # 模型工厂：Embedding 与对话模型实例化，供向量库与问答编排共用。
 
 import httpx
+from langchain_core.embeddings import Embeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_openai import ChatOpenAI
 from rag_core.core.config import get_settings
+from rag_core.llm.dashscope_embeddings import get_dashscope_embeddings
 
 
 def build_openai_http_client(*, timeout: float | None = None) -> httpx.Client:
@@ -12,9 +14,50 @@ def build_openai_http_client(*, timeout: float | None = None) -> httpx.Client:
     return httpx.Client(timeout=timeout, trust_env=settings.openai_trust_env)
 
 
-def get_embeddings() -> OllamaEmbeddings:
+def resolve_llm_api_key() -> str:
     settings = get_settings()
-    # Embedding 统一走 Ollama，保证入库与检索向量空间一致。
+    return (settings.llm_api_key or settings.dashscope_api_key or "").strip()
+
+
+def _resolve_dashscope_task_llm(
+    *,
+    base_url: str,
+    model: str,
+    api_key: str,
+    fallback_base_url: str,
+    fallback_model: str,
+    default_dashscope_model: str = "qwen-plus",
+) -> tuple[str, str, str, dict]:
+    settings = get_settings()
+    resolved_base = (base_url or fallback_base_url or settings.embed_base_url).rstrip("/")
+    is_dashscope = "dashscope" in resolved_base or "aliyuncs.com" in resolved_base
+    is_minimax = "minimaxi.com" in resolved_base or "minimax.io" in resolved_base
+
+    if api_key.strip():
+        resolved_key = api_key.strip()
+    elif is_dashscope:
+        resolved_key = settings.dashscope_api_key.strip() or resolve_llm_api_key()
+    else:
+        resolved_key = resolve_llm_api_key()
+
+    if model.strip():
+        resolved_model = model.strip()
+    elif fallback_model.strip():
+        resolved_model = fallback_model.strip()
+    elif is_dashscope:
+        resolved_model = default_dashscope_model
+    else:
+        resolved_model = settings.gen_model
+
+    extra_body = {"thinking": {"type": "disabled"}} if is_minimax else {"enable_thinking": False}
+    return resolved_model, resolved_base, resolved_key, extra_body
+
+
+def get_embeddings() -> Embeddings:
+    settings = get_settings()
+    provider = (settings.embed_provider or "ollama").strip().lower()
+    if provider == "dashscope":
+        return get_dashscope_embeddings()
     return OllamaEmbeddings(model=settings.embed_model, base_url=settings.ollama_base_url)
 
 
@@ -25,7 +68,7 @@ def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
     extra_body = {"enable_thinking": settings.dashscope_enable_thinking}
     return ChatOpenAI(
         model=settings.gen_model,
-        api_key=settings.dashscope_api_key,
+        api_key=resolve_llm_api_key(),
         base_url=settings.dashscope_compatible_base_url.rstrip("/"),
         timeout=timeout,
         http_client=build_openai_http_client(timeout=timeout),
@@ -36,15 +79,20 @@ def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
 
 
 def get_chunk_llm(**kwargs) -> ChatOpenAI:
-    # 语义切分：与聊天同一套百炼网关与模型名。
+    # 语义切分（<<<<CUT>>>> 直插）：默认走百炼千问，与对话 MiniMax 分离。
     settings = get_settings()
-
     timeout = kwargs.pop("timeout", settings.chunk_llm_timeout_s)
-    extra_body = {"enable_thinking": settings.dashscope_enable_thinking}
+    model, base_url, api_key, extra_body = _resolve_dashscope_task_llm(
+        base_url=settings.chunk_llm_base_url,
+        model=settings.chunk_gen_model,
+        api_key=settings.chunk_llm_api_key,
+        fallback_base_url=settings.json_llm_base_url,
+        fallback_model=settings.json_gen_model,
+    )
     return ChatOpenAI(
-        model=settings.gen_model,
-        api_key=settings.dashscope_api_key,
-        base_url=settings.dashscope_compatible_base_url.rstrip("/"),
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
         streaming=False,
         temperature=0,
         timeout=timeout,

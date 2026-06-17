@@ -7,6 +7,7 @@ from typing import Any
 
 from rag_core.ingestion.pipeline import ingest_file
 from rag_core.ingestion.cleanup import delete_document_from_indexes
+from rag_core.ingestion.hash_guard import prepare_upsert
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,17 @@ def apply_kafka_ingest_payload(payload: dict[str, Any]) -> None:
         if not path:
             logger.warning("UPSERT 缺少 localPath，跳过：%s", payload)
             return
-        logger.info("UPSERT 先删后写：logical=%s path=%s", logical, path)
-        ingest_file(path, source_name=logical, enable_graph=True, purge_before_write=True)
+        payload_sha = str(payload.get("contentSha256") or "")
+        decision, file_sha = prepare_upsert(logical, path, payload_sha256=payload_sha)
+        if decision != "proceed":
+            return
+        logger.info("UPSERT 先删后写：logical=%s path=%s sha=%s…", logical, path, file_sha[:12])
+        ingest_file(
+            path,
+            source_name=logical,
+            enable_graph=True,
+            purge_before_write=True,
+            content_sha256=file_sha,
+        )
         return
     logger.warning("未知 action=%s，跳过", action)

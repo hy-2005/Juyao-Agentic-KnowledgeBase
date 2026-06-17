@@ -90,14 +90,17 @@ class TripleExtractor:
 
     @staticmethod
     def _safe_parse_json(raw: str) -> dict[str, Any]:
-        """去掉 ```json 围栏后 json.loads；根必须是 dict，否则返回 {}。"""
+        """去掉围栏 / 思考文本后解析 JSON；根必须是 dict，否则返回 {}。"""
         if not raw:
             return {}
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.replace("```json", "").replace("```", "").strip()
-        try:
-            parsed = json.loads(cleaned)
+        for candidate in TripleExtractor._json_object_candidates(cleaned):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
             if isinstance(parsed, dict):
                 return parsed
             logger.warning(
@@ -105,10 +108,26 @@ class TripleExtractor:
                 type(parsed).__name__,
                 str(parsed)[:300],
             )
-            return {}
-        except json.JSONDecodeError:
-            logger.warning(
-                "【GraphRAG抽取】JSON 解析失败，原始预览=%s",
-                raw[:800] if raw else "(空)",
-            )
-            return {}
+        logger.warning(
+            "【GraphRAG抽取】JSON 解析失败，原始预览=%s",
+            raw[:800] if raw else "(空)",
+        )
+        return {}
+
+    @staticmethod
+    def _json_object_candidates(text: str) -> list[str]:
+        candidates = [text]
+        start = text.find("{")
+        while start >= 0:
+            depth = 0
+            for idx in range(start, len(text)):
+                ch = text[idx]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidates.append(text[start : idx + 1])
+                        break
+            start = text.find("{", start + 1)
+        return list(dict.fromkeys(candidates))
