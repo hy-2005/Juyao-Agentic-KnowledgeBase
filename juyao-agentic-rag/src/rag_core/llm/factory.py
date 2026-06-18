@@ -32,11 +32,15 @@ def _resolve_dashscope_task_llm(
     resolved_base = (base_url or fallback_base_url or settings.embed_base_url).rstrip("/")
     is_dashscope = "dashscope" in resolved_base or "aliyuncs.com" in resolved_base
     is_minimax = "minimaxi.com" in resolved_base or "minimax.io" in resolved_base
+    is_deepseek = "deepseek.com" in resolved_base or "deepseek.cn" in resolved_base
 
     if api_key.strip():
         resolved_key = api_key.strip()
     elif is_dashscope:
         resolved_key = settings.dashscope_api_key.strip() or resolve_llm_api_key()
+    elif is_deepseek and settings.openai_api_key.strip():
+        # 兼容：未单独配 deepseek key 时回退到 openai_api_key
+        resolved_key = settings.openai_api_key.strip()
     else:
         resolved_key = resolve_llm_api_key()
 
@@ -49,7 +53,13 @@ def _resolve_dashscope_task_llm(
     else:
         resolved_model = settings.gen_model
 
-    extra_body = {"thinking": {"type": "disabled"}} if is_minimax else {"enable_thinking": False}
+    # 不同供应商对 thinking 字段语义不同：仅在已知供应商时下发，避免 DeepSeek 等第三方拒绝请求。
+    if is_minimax:
+        extra_body = {"thinking": {"type": "disabled"}}
+    elif is_dashscope:
+        extra_body = {"enable_thinking": False}
+    else:
+        extra_body = {}
     return resolved_model, resolved_base, resolved_key, extra_body
 
 

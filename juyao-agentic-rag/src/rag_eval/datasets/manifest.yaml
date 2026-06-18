@@ -1,0 +1,18 @@
+# 人工标注测评集清单
+# 新增数据集：在对应子目录下添加 qa.jsonl，并在此登记。
+
+datasets:
+  - id: default
+    path: default/sample_qa.jsonl
+    description: 医疗样例（对应 sample_medical.txt 入库后测评）
+    source_docs:
+      - src/data/samples/sample_medical.txt
+    annotator: manual
+    version: "2025-06-01"
+  - id: story
+    path: default/story_qa.jsonl
+    description: 故事样例（对应 胸大熊二猎奇小故事.txt 入库后测评）
+    source_docs:
+      - src/data/samples/胸大熊二猎奇小故事.txt
+    annotator: manual
+    version: "2025-06-18"

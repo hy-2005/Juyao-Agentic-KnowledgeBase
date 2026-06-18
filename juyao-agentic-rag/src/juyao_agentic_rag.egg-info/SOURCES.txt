@@ -19,7 +19,6 @@ src/rag_core/api/routes/chat.py
 src/rag_core/api/routes/ingest.py
 src/rag_core/api/routes/sessions.py
 src/rag_core/cli/__init__.py
-src/rag_core/cli/eval_ragas.py
 src/rag_core/cli/ingest.py
 src/rag_core/cli/ingest_kg.py
 src/rag_core/cli/kafka_consumer.py
@@ -89,4 +88,19 @@ src/rag_core/retrieval/hyde.py
 src/rag_core/retrieval/query_rewrite.py
 src/rag_core/retrieval/reranker.py
 src/rag_core/retrieval/retriever.py
+src/rag_eval/__init__.py
+src/rag_eval/paths.py
+src/rag_eval/cli/__init__.py
+src/rag_eval/cli/main.py
+src/rag_eval/core/__init__.py
+src/rag_eval/core/answer_clean.py
+src/rag_eval/core/rag_runner.py
+src/rag_eval/core/ragas_client.py
+src/rag_eval/core/report.py
+src/rag_eval/core/runner.py
+src/rag_eval/datasets/__init__.py
+src/rag_eval/datasets/loader.py
+src/rag_eval/datasets/manifest.yaml
+src/rag_eval/datasets/default/sample_qa.jsonl
+src/rag_eval/datasets/default/story_qa.jsonl
 tests/test_core.py

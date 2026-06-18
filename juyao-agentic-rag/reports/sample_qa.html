@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>RAGAS 评测报告 · sample_qa.jsonl</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:24px;background:#f5f7fa;color:#303133}
+h1{margin:0 0 4px;font-size:22px}
+.subtitle{color:#909399;font-size:13px;margin-bottom:24px}
+.cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.card{background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.05);min-width:160px}
+.card-label{color:#606266;font-size:13px}
+.card-value{font-size:28px;font-weight:700;margin-top:6px}
+.card-value.good{color:#52c41a} .card-value.mid{color:#faad14} .card-value.bad{color:#f5222d} .card-value.muted{color:#909399}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+th,td{padding:10px 12px;border-bottom:1px solid #ebeef5;vertical-align:top;text-align:left;font-size:13px}
+th{background:#fafafa;font-weight:600;color:#606266}
+tr.ctx-row td{background:#fafbfc;border-top:0}
+.idx{width:36px;color:#909399;text-align:center}
+.q{font-weight:600;color:#1f2d3d}
+.a,.gt{white-space:pre-wrap;line-height:1.6}
+.gt{color:#606266;font-style:italic}
+.meta{color:#909399;font-size:12px;margin-top:4px}
+details{margin-top:6px}
+summary{cursor:pointer;color:#409eff;font-size:12px}
+ol{padding-left:18px;color:#606266;line-height:1.7}
+.chunk-id{font-family:Consolas,monospace;font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;color:#fff}
+.badge-good{background:#52c41a} .badge-mid{background:#faad14} .badge-bad{background:#f5222d} .badge-muted{background:#d9d9d9;color:#606266}
+</style></head><body>
+<h1>RAGAS 评测报告</h1>
+<div class="subtitle">数据集: D:\person_program\code\Juyao-Agentic-KnowledgeBase\juyao-agentic-rag\src\rag_eval\datasets\default\sample_qa.jsonl · 指标: faithfulness, answer_relevancy, context_recall, context_precision · 条数: 3</div>
+<div class="cards"><div class="card"><div class="card-label">faithfulness</div><div class="card-value badge-bad">0.310</div></div><div class="card"><div class="card-label">answer_relevancy</div><div class="card-value badge-good">0.814</div></div><div class="card"><div class="card-label">context_recall</div><div class="card-value badge-good">1.000</div></div><div class="card"><div class="card-label">context_precision</div><div class="card-value badge-good">1.000</div></div></div>
+<table><thead><tr><th>#</th><th>问题 / 检索</th><th>模型回答</th><th>参考答案</th><th>faithfulness</th><th>answer_relevancy</th><th>context_recall</th><th>context_precision</th></tr></thead>
+<tbody><tr><td class="idx">1</td><td><div class="q">感冒通常由什么引起？</div><div class="meta">检索 5 段 · max_score=0.875 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+感冒通常由**病毒感染**引起，最常见的病原体包括鼻病毒（rhinovirus）、冠状病毒、流感病毒、腺病毒等。普通感冒属于上呼吸道感染，多为自限性疾病。
+
+### 常见症状
+- 发热（多为低热）
+- 咳嗽
+- 咽痛
+- 乏力
+- 鼻塞、流涕、打喷嚏
+
+### 治疗原则
+- **休息**：保证充足睡眠，有助于免疫系统恢复
+- **补液**：多饮水，维持水电解质平衡
+- **对症处理**：根据症状使用退热、止咳、缓解咽痛等药物
+
+### 何时就医
+&gt; ⚠️ 若出现**持续高热**（如超过 3 天不退）、**呼吸困难**、胸痛、咳血、精神萎靡或症状加重等情况，应及时就医，以排除流感、肺炎、支气管炎等更严重的感染。
+
+### 补充说明（不属于感冒，需区分）
+- **流行性感冒（流感）**：由流感病毒引起，症状更重、传染性更强，可有高热、全身肌肉酸痛，建议尽早就医并考虑抗病毒治疗。
+- **细菌性上呼吸道感染**：如链球菌性咽炎，需要抗生素治疗。
+
+### 日常预防
+1. 勤洗手，避免用手接触口鼻。
+2. 保持室内通风。
+3. 流感季节避免去人群密集场所。
+4. 均衡饮食、适度运动、充足睡眠。
+5. 每年接种流感疫苗（针对流感，非普通感冒）。
+
+---
+
+**引用:** sample_medical.txt:678b60dd3c847198</div></td><td><div class="gt">感冒通常由病毒感染引起。</div></td><td><span class="badge badge-bad">0.173</span></td><td><span class="badge badge-good">0.938</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">，哥在。」
+「哥会救你。」
+「哥会救光头强。」
+「我们不要变成森林的傀儡。」
+可他话音刚落。
+整片森林，突然响起无数细碎笑声。
+风声、树叶声、水流声，全部变成人类的笑。
+阴冷、诡异、密密麻麻、无处不在。
+森林，听见了。
+它开始加速最终剧情。
+第二天开始，日常彻底崩坏。
+原本只会阻止伐木的熊大熊二，开始主动送木头给光头强…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">守护书，一个去追查真相。然后我自己给自己写信，让自己去找到那个不存在的数字，因为只有找到了，分裂才能合拢。”
+
+“但那个数字不存在，”埃德蒙说。
+
+“所以这是一个永远无法完成的任务，”伊琳娜说，“你永远会在七次循环之后忘记一切，重新开始。”
+
+窗外，雨停了。这是四十七天以来雨第一次停。
+
+马可拿起那只怀表，把它贴在自己…</span></li><li><span class="chunk-id">深秋的傍晚，冷风卷着落叶掠过青石板老街。巷口的老修车铺还亮着一盏昏黄的灯，年过六旬的陈爷爷正收拾工具，准备关门。
+这时，一个背着书包的小男孩站在门口，局促地攥着自行车把手，眼眶泛红。“爷爷，我的车链子掉了，天黑回不了家了。” 声音小小的，带着一丝慌张。
+陈爷爷连忙招手让孩子进来，放下手里的东西，蹲下身仔细摆弄起自行车。…</span></li></ol></details></td></tr><tr><td class="idx">2</td><td><div class="q">感冒有哪些常见症状？</div><div class="meta">检索 5 段 · max_score=0.867 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+根据医疗知识库示例，感冒通常由病毒感染引起，**常见症状**主要包括以下几类：
+
+### 一、核心常见症状
+
+| 症状 | 具体表现 |
+|------|---------|
+| **发热** | 体温升高，可伴随寒战 |
+| **咳嗽** | 可为干咳或有痰 |
+| **咽痛** | 喉咙不适、吞咽疼痛 |
+| **乏力** | 精神疲倦、四肢无力 |
+
+### 二、治疗与护理建议
+
+- **充分休息**：保证睡眠，避免劳累。
+- **补充水分**：多饮水，维持体液平衡。
+- **对症处理**：根据具体症状使用退热、止咳等药物缓解不适。
+
+&gt; ⚠️ **就医提示**：若出现**持续高热**（如退烧药效果不佳）、**呼吸困难**、胸闷、咳血、精神萎靡或症状持续加重等情况，应**及时就医**，排除肺炎、流感等更严重疾病的可能。
+
+---
+
+引用: `sample_medical.txt:678b60dd3c847198:0:66d7e8dcf31c`</div></td><td><div class="gt">常见症状包括发热、咳嗽、咽痛、乏力。</div></td><td><span class="badge badge-bad">0.350</span></td><td><span class="badge badge-mid">0.721</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">，哥在。」
+「哥会救你。」
+「哥会救光头强。」
+「我们不要变成森林的傀儡。」
+可他话音刚落。
+整片森林，突然响起无数细碎笑声。
+风声、树叶声、水流声，全部变成人类的笑。
+阴冷、诡异、密密麻麻、无处不在。
+森林，听见了。
+它开始加速最终剧情。
+第二天开始，日常彻底崩坏。
+原本只会阻止伐木的熊大熊二，开始主动送木头给光头强…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">。
+就是这一夜，一切彻底变了。
+熊二开始频繁做噩梦。
+梦里是无边无际的黑色林场，无数模糊人影在树间站立，全部背对他，一动不动。
+无论他怎么喊，怎么跑，那些人影永远不回头。
+只有风声，在重复一句模糊的话：
+「顶替。」
+「吃掉。」
+「补上空缺。」
+第二天醒来，熊二性格变了。
+他不再单纯贪吃，不再傻乎乎吵闹。
+他偶尔会发呆，…</span></li><li><span class="chunk-id">守护书，一个去追查真相。然后我自己给自己写信，让自己去找到那个不存在的数字，因为只有找到了，分裂才能合拢。”
+
+“但那个数字不存在，”埃德蒙说。
+
+“所以这是一个永远无法完成的任务，”伊琳娜说，“你永远会在七次循环之后忘记一切，重新开始。”
+
+窗外，雨停了。这是四十七天以来雨第一次停。
+
+马可拿起那只怀表，把它贴在自己…</span></li></ol></details></td></tr><tr><td class="idx">3</td><td><div class="q">感冒一般如何治疗？</div><div class="meta">检索 5 段 · max_score=0.839 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+根据检索到的医疗知识库示例，感冒的治疗原则如下：
+
+### 一、病因与常见症状
+
+感冒通常由**病毒感染**引起，常见症状包括：
+
+- 发热
+- 咳嗽
+- 咽痛
+- 乏力
+
+### 二、常规治疗原则
+
+治疗以**休息、补液、对症处理**为主，具体可归纳为：
+
+| 治疗措施 | 具体做法 |
+|---------|---------|
+| 充分休息 | 保证睡眠，避免劳累，帮助免疫系统恢复 |
+| 补充液体 | 多饮水，维持水电解质平衡，有助于退热和稀释痰液 |
+| 对症处理 | 根据症状选择退热、止咳、缓解咽痛等药物 |
+
+### 三、需及时就医的警示信号
+
+&gt; 若出现**持续高热**或**呼吸困难**等症状，应及时就医，避免延误病情（如继发细菌性肺炎等）。
+
+---
+
+## 💡 补充说明（通用推断）
+
+&gt; 以下为基于常见医学常识的补充建议，**非来自检索证据**，仅供参考。
+
+1. **饮食建议**：清淡易消化，适当补充维生素 C 和蛋白质。
+2. **环境护理**：保持室内空气流通，注意保暖但避免过度捂汗。
+3. **用药提示**：
+   - 抗生素对普通病毒性感冒无效，不建议自行服用。
+   - 复方感冒药含有多种成分，避免重复使用相同成分的药物。
+   - 儿童、孕妇、慢性病患者用药前建议咨询医生或药师。
+4. **病程预期**：普通感冒通常 7</div></td><td><div class="gt">治疗以休息、补液、对症处理为主。</div></td><td><span class="badge badge-bad">0.407</span></td><td><span class="badge badge-mid">0.782</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">守护书，一个去追查真相。然后我自己给自己写信，让自己去找到那个不存在的数字，因为只有找到了，分裂才能合拢。”
+
+“但那个数字不存在，”埃德蒙说。
+
+“所以这是一个永远无法完成的任务，”伊琳娜说，“你永远会在七次循环之后忘记一切，重新开始。”
+
+窗外，雨停了。这是四十七天以来雨第一次停。
+
+马可拿起那只怀表，把它贴在自己…</span></li><li><span class="chunk-id">工地建设工程落地手册
+第一章 工程概况与前期准备
+1.1 工程基本概况
+建设工程的顺利落地，首先依赖于对工程概况的精准把握与前期准备的充分落实。工程项目通
+常涉及土建、安装、装饰等多个专业环节，施工组织需采用分段流水施工方式，确保各专业协
+调推进。在工程概况梳理阶段，需明确项目的地理位置、建筑面积、结构类型（如现浇混凝…</span></li><li><span class="chunk-id">需办理工程移交手续，签署工程移交证书，明确工程实体、资料、备品
+备件等的移交清单。工程交付后，施工单位需履行保修义务，在保修期内对工程质量缺陷进行
+维修。需建立工程保修与后续服务机制，设立保修热线，及时响应业主的维修需求，提升客户
+满意度。
+第七章 项目风险与应急管理
+7.1 工程风险识别与评估
+工程项目面临的风险主要…</span></li><li><span class="chunk-id">需将所有项目资料（包括技术、经济、管理、影像等）进行系统整理、归
+档，确保资料的完整性和可追溯性。项目交付后，需进行一定期限的后续跟踪，了解工程的使
+用情况、业主的反馈意见、保修服务的落实情况等，为项目的持续改进和企业的品牌建设提供
+依据。
+附录：工地建设工程落地核心检查清单
+为确保本手册各项要求落到实处，特制定以下核…</span></li></ol></details></td></tr></tbody></table>
+</body></html>
