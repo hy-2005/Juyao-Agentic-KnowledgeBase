@@ -58,10 +58,6 @@ hyde_enabled = true
 hyde_timeout_s = 20.0
 
 # --- Agentic RAG ---
-agentic_rag_max_retrieval_rounds = 0
-agentic_rag_planner_max_iterations = 8
-agentic_rag_max_consecutive_empty_retrievals = 2
-agentic_rag_flow_mode = "routed"  # routed | legacy_planner
 vector_then_graph_supplement = true
 intent_route_mode = "llm"  # llm | rules
 intent_route_timeout_s = 15.0
@@ -86,8 +82,6 @@ graph_expand_max_edges = 40
 graph_max_hops = 5
 graph_expand_internal_path_cap = 120
 graph_question_extract_timeout_s = 30.0
-agentic_rag_max_graph_rounds = 0
-graph_invoke_policy = "with_each_retrieval"
 
 # --- Kafka ---
 kafka_bootstrap_servers = "127.0.0.1:9092"

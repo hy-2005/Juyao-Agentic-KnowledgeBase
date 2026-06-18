@@ -4,62 +4,11 @@ from rag_core.prompts.loader import load_prompt
 
 SYSTEM_PROMPT = load_prompt("system")
 SYSTEM_PROMPT_NO_KB_EVIDENCE = load_prompt("system_no_kb_evidence")
-PLAN_SYSTEM_PROMPT = load_prompt("plan_system")
 KG_TRIPLE_EXTRACTION_SYSTEM_PROMPT = load_prompt("kg_triple_extraction_system")
 QUESTION_INTENT_ROUTE_SYSTEM_PROMPT = load_prompt("question_intent_route_system")
 QUESTION_INTENT_ROUTE_FLOWCHART_STRICT_PROMPT = load_prompt("question_intent_route_flowchart_strict")
 RAG_SUFFICIENCY_EVAL_SYSTEM_PROMPT = load_prompt("rag_sufficiency_eval_system")
 QUESTION_GRAPH_SEED_SYSTEM_PROMPT = load_prompt("question_graph_seed_system")
-
-
-def build_plan_user_prompt(
-    question: str,
-    observation_lines: list[str],
-    remaining_retrievals: int,
-    remaining_graph_queries: int,
-    *,
-    graph_tool_available: bool = True,
-    has_chunk_anchors: bool = False,
-    graph_rounds_used: int = 0,
-    retrieval_unlimited: bool = False,
-    graph_unlimited: bool = False,
-) -> str:
-    obs_text = "\n\n".join(observation_lines) if observation_lines else "（尚无 Observation）"
-    graph_hint = ""
-    if not graph_tool_available:
-        graph_hint = "（当前配置未启用图谱工具，请勿调用 query_knowledge_graph。）\n\n"
-
-    schedule_nudge = ""
-    graph_ok = graph_unlimited or remaining_graph_queries > 0
-    if graph_tool_available and graph_ok and has_chunk_anchors and graph_rounds_used == 0:
-        schedule_nudge = (
-            "\n【调度提示】当前已有向量检索得到的 chunk 锚点，且本轮对话尚未调用 query_knowledge_graph。\n"
-            "若用户问题涉及具体地址、门牌、地点、实体关系、归属或多跳推理，请先发起 query_knowledge_graph；"
-            "正文片段未写明街道门牌时，仍可能在图谱中存在结构化关联。\n"
-        )
-
-    ret_line = (
-        "remaining_retrievals: 无上限（由你根据 Observation 与用户问题自行判断是否需要继续检索）"
-        if retrieval_unlimited
-        else f"remaining_retrievals: {remaining_retrievals}"
-    )
-    g_line = (
-        "remaining_graph_queries: 无上限（由你根据问题与已有锚点自行判断是否需要查图）"
-        if graph_unlimited
-        else f"remaining_graph_queries: {remaining_graph_queries}"
-    )
-
-    return (
-        f"用户问题：{question}\n\n"
-        f"已有 Observation（按时间顺序）：\n{obs_text}\n"
-        f"{schedule_nudge}\n"
-        f"{graph_hint}"
-        f"{ret_line}\n"
-        f"{g_line}\n\n"
-        "请根据规则决定是否调用工具。"
-        "若调用 search_knowledge_base，参数为 query；若调用 query_knowledge_graph，参数为 question。"
-        "若不调用工具，请直接返回一句短文本（例如：信息已足够，直接回答）。"
-    )
 
 
 def build_execute_user_prompt(question: str, observation_lines: list[str]) -> str:

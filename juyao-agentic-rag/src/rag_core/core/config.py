@@ -89,10 +89,6 @@ class Settings(BaseSettings):
     hyde_timeout_s: float = Field(default=20.0)
 
     # --- Agentic RAG ---
-    agentic_rag_max_retrieval_rounds: int = Field(default=0)
-    agentic_rag_planner_max_iterations: int = Field(default=8)
-    agentic_rag_max_consecutive_empty_retrievals: int = Field(default=2)
-    agentic_rag_flow_mode: str = Field(default="routed")
     vector_then_graph_supplement: bool = Field(default=True)
     intent_route_mode: str = Field(default="llm")
     intent_route_timeout_s: float = Field(default=15.0)
@@ -118,8 +114,6 @@ class Settings(BaseSettings):
     graph_max_hops: int = Field(default=5)
     graph_expand_internal_path_cap: int = Field(default=120)
     graph_question_extract_timeout_s: float = Field(default=30.0)
-    agentic_rag_max_graph_rounds: int = Field(default=0)
-    graph_invoke_policy: str = Field(default="with_each_retrieval")
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = Field(default="127.0.0.1:9092")

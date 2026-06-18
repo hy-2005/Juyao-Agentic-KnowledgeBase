@@ -28,6 +28,9 @@ Requires-Dist: python-docx>=1.1.0
 Provides-Extra: dev
 Requires-Dist: ruff>=0.8.0; extra == "dev"
 Requires-Dist: pytest>=8.0.0; extra == "dev"
+Provides-Extra: eval
+Requires-Dist: ragas>=0.2.14; extra == "eval"
+Requires-Dist: datasets>=2.14.0; extra == "eval"
 
 # juyao-agentic-rag
 

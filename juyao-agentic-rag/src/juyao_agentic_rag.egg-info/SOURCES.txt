@@ -19,6 +19,7 @@ src/rag_core/api/routes/chat.py
 src/rag_core/api/routes/ingest.py
 src/rag_core/api/routes/sessions.py
 src/rag_core/cli/__init__.py
+src/rag_core/cli/eval_ragas.py
 src/rag_core/cli/ingest.py
 src/rag_core/cli/ingest_kg.py
 src/rag_core/cli/kafka_consumer.py
@@ -72,13 +73,10 @@ src/rag_core/orchestration/retrieval_step.py
 src/rag_core/orchestration/routed_flow.py
 src/rag_core/orchestration/sufficiency.py
 src/rag_core/orchestration/types.py
-src/rag_core/orchestration/_legacy/__init__.py
-src/rag_core/orchestration/_legacy/legacy_planner.py
 src/rag_core/prompts/__init__.py
 src/rag_core/prompts/loader.py
 src/rag_core/prompts/templates.py
 src/rag_core/prompts/text/kg_triple_extraction_system.md
-src/rag_core/prompts/text/plan_system.md
 src/rag_core/prompts/text/question_graph_seed_system.md
 src/rag_core/prompts/text/question_intent_route_flowchart_strict.md
 src/rag_core/prompts/text/question_intent_route_system.md
