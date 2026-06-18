@@ -8,8 +8,7 @@
 POST /api/v1/chat/stream
   → api/routes/chat.py
   → orchestration/chat.astream_chat_events
-       ├─ routed_flow（默认，agentic_rag_flow_mode=routed）
-       └─ _legacy/legacy_planner（legacy_planner，非默认）
+  → orchestration/routed_flow
   → orchestration/finalize.stream_final_answer
   → SSE: meta → token → done
 ```

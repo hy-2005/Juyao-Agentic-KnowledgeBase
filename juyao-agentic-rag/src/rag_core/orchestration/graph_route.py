@@ -1,17 +1,8 @@
 """
 图谱「是否值得查」的确定性规则（不调用 LLM）。
 
-用途（见 chat_chain 与 config.graph_invoke_policy）：
-  - graph_invoke_policy == "rules_after_retrieval" 时：
-    在「向量检索已命中 chunk、且本轮尚未查过图」的前提下，
-    若用户问题匹配本文件中的正则，则编排层自动追加一次 build_graph_observation_text。
-  - graph_invoke_policy == "with_each_retrieval" 时：每次检索非空都可能自动查图，本模块不参与。
-  - graph_invoke_policy == "always_after_first_hit" 时：仅首次非空检索后自动查图，本模块不参与。
-  - graph_invoke_policy == "planner_only" 时：本模块不会被调用，仅靠模型 Function Calling。
-
-为何存在：
-  - 仅靠 Planner 主动点 query_knowledge_graph，模型常会漏调；
-  - 规则层用关键词兜底「地址 / 关系 / 组织」类问题，仍不侵入 retriever。
+用途：
+  - intent_router 在 rules / rules_fallback 模式下，用关键词判断问题是否更适合走 graph_only。
 
 扩展方式：
   - 在 _GRAPH_TRIGGER_RE 中增加业务词即可；注意误触成本（会多一次 Neo4j 往返）。

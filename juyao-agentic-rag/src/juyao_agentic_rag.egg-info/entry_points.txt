@@ -3,4 +3,5 @@ juyao-ingest = rag_core.cli.ingest:main
 juyao-ingest-kg = rag_core.cli.ingest_kg:main
 juyao-rag = rag_core.cli.qa:main
 juyao-rag-api = rag_core.api.app:run
+juyao-rag-eval = rag_core.cli.eval_ragas:main
 juyao-rag-kafka-consumer = rag_core.cli.kafka_consumer:main

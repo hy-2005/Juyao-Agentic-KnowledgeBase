@@ -37,11 +37,16 @@ dev = [
     "ruff>=0.8.0",
     "pytest>=8.0.0",
 ]
+eval = [
+    "ragas>=0.2.14",
+    "datasets>=2.14.0",
+]
 
 [project.scripts]
 juyao-ingest = "rag_core.cli.ingest:main"
 juyao-ingest-kg = "rag_core.cli.ingest_kg:main"
 juyao-rag = "rag_core.cli.qa:main"
+juyao-rag-eval = "rag_core.cli.eval_ragas:main"
 juyao-rag-api = "rag_core.api.app:run"
 juyao-rag-kafka-consumer = "rag_core.cli.kafka_consumer:main"
 
