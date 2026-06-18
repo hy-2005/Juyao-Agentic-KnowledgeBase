@@ -31,6 +31,7 @@ Requires-Dist: pytest>=8.0.0; extra == "dev"
 Provides-Extra: eval
 Requires-Dist: ragas>=0.2.14; extra == "eval"
 Requires-Dist: datasets>=2.14.0; extra == "eval"
+Requires-Dist: langchain-community==0.4.1; extra == "eval"
 
 # juyao-agentic-rag
 
@@ -73,10 +74,12 @@ Requires-Dist: datasets>=2.14.0; extra == "eval"
 
 ```powershell
 cd juyao-agentic-rag
-pip install -e .
+python -m pip install -e ".[dev,eval]"
+
 
 # 开发依赖（ruff、pytest）
-pip install -e ".[dev]"
+python -m pip install -e ".[dev,eval]"
+
 ```
 
 ## 配置
@@ -112,10 +115,22 @@ python -m rag_core.cli.qa --question "请简要介绍知识库中关于感冒处
 | `juyao-ingest` | 向量 + ES（+ 可选 Neo4j）入库 |
 | `juyao-ingest-kg` | 仅重建/补充知识图谱 |
 | `juyao-rag` | 命令行单次问答 |
+| `juyao-rag-eval` | RAGAS 离线测评（见 [docs/eval/](docs/eval/GETTING_STARTED.md)） |
 | `juyao-rag-api` | 启动 FastAPI 服务（默认 `0.0.0.0:8000`） |
 | `juyao-rag-kafka-consumer` | Kafka 消费异步入库 |
 
-等价模块调用：`python -m rag_core.cli.ingest` 等。
+等价模块调用：`python -m rag_core.cli.ingest`、`python -m rag_eval.cli.main` 等。
+
+## RAGAS 测评
+
+测评代码位于 `src/rag_eval/`（与 `rag_core` 并列），人工标注数据集在 `src/rag_eval/datasets/`。
+
+```powershell
+pip install -e ".[eval]"
+juyao-rag-eval --output reports/eval_run.json
+```
+
+详见 [测评快速启动](docs/eval/GETTING_STARTED.md) · [测评流程](docs/eval/WORKFLOW.md) · [指标说明](docs/eval/METRICS.md)。
 
 ## HTTP API
 
@@ -178,6 +193,9 @@ pytest
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 请求 / 入库 / 检索链路 |
 | [API.md](docs/API.md) | FastAPI 完整接口与 Java 网关对照 |
 | [KNOWLEDGE_GRAPH.md](docs/KNOWLEDGE_GRAPH.md) | GraphRAG 构建与配置 |
+| [eval/GETTING_STARTED.md](docs/eval/GETTING_STARTED.md) | RAGAS 测评安装与启动 |
+| [eval/WORKFLOW.md](docs/eval/WORKFLOW.md) | 测评完整流程 |
+| [eval/METRICS.md](docs/eval/METRICS.md) | RAGAS 指标说明 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发规范与 PR 流程 |
 
 ## 许可证

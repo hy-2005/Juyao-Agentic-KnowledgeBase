@@ -1,2 +1,4 @@
 data
 rag_core
+rag_eval
+ragas
