@@ -112,6 +112,18 @@ export const constantRoutes = [
         component: () => import('@/views/rag/ingest/index'),
         name: 'RagDocIngest',
         meta: { title: '文档管理', icon: 'documentation' }
+      },
+      {
+        path: 'chunks',
+        component: () => import('@/views/rag/chunks/index'),
+        name: 'RagChunks',
+        meta: { title: '切片管理', icon: 'tree-table' }
+      },
+      {
+        path: 'graph',
+        component: () => import('@/views/rag/graph/index'),
+        name: 'RagGraph',
+        meta: { title: '知识图谱', icon: 'guide' }
       }
     ]
   }

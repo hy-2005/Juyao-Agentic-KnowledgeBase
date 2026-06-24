@@ -161,3 +161,139 @@ def search_elasticsearch(query: str, k: int | None = None) -> list[tuple[Documen
         score = float(hit.get("_score") or 0.0)
         out.append((_hit_source_to_document(src), score))
     return out
+
+
+_CONTENT_PREVIEW_LEN = 200
+
+
+def _source_to_chunk_row(src: dict, *, include_full_content: bool = False) -> dict:
+    content = src.get("content") or ""
+    row = {
+        "chunk_id": src.get("chunk_id"),
+        "source_doc_id": src.get("source_doc_id"),
+        "source_name": src.get("source_name"),
+        "chunk_index": src.get("chunk_index"),
+        "start_char": src.get("start_char"),
+        "end_char": src.get("end_char"),
+        "overlap_left": src.get("overlap_left"),
+        "overlap_right": src.get("overlap_right"),
+    }
+    if include_full_content:
+        row["content"] = content
+    else:
+        row["content_preview"] = (
+            content[:_CONTENT_PREVIEW_LEN] + "..." if len(content) > _CONTENT_PREVIEW_LEN else content
+        )
+    return {k: v for k, v in row.items() if v is not None}
+
+
+def _es_index_ready(client: Elasticsearch, index: str) -> bool:
+    try:
+        return bool(client.indices.exists(index=index))
+    except Exception as exc:
+        logger.warning("ES 检查索引失败：%s", exc)
+        return False
+
+
+def _build_list_query(source_name: str | None, keyword: str | None) -> dict:
+    filters: list[dict] = []
+    if source_name:
+        filters.append({"term": {"source_name": source_name}})
+    must: list[dict] = []
+    if keyword:
+        must.append({"multi_match": {"query": keyword, "fields": ["content"]}})
+    if must and filters:
+        return {"bool": {"must": must, "filter": filters}}
+    if must:
+        return {"bool": {"must": must}}
+    if filters:
+        return {"bool": {"filter": filters}}
+    return {"match_all": {}}
+
+
+def list_chunks(
+    *,
+    source_name: str | None = None,
+    keyword: str | None = None,
+    page_num: int = 1,
+    page_size: int = 20,
+) -> tuple[list[dict], int]:
+    settings = get_settings()
+    client = get_elasticsearch_client()
+    if not _es_index_ready(client, settings.elasticsearch_index):
+        return [], 0
+    page_num = max(1, page_num)
+    page_size = max(1, min(page_size, 100))
+    from_idx = (page_num - 1) * page_size
+    query = _build_list_query(source_name, keyword)
+    sort = [{"_score": "desc"}, {"chunk_index": "asc"}] if keyword else [{"chunk_index": "asc"}]
+    body = {"query": query, "from": from_idx, "size": page_size, "sort": sort}
+    try:
+        resp = client.search(index=settings.elasticsearch_index, body=body)
+    except Exception as exc:
+        logger.warning("ES list_chunks 失败：%s", exc)
+        return [], 0
+    hits = (resp.get("hits") or {}).get("hits") or []
+    total_raw = (resp.get("hits") or {}).get("total")
+    if isinstance(total_raw, dict):
+        total = int(total_raw.get("value") or 0)
+    else:
+        total = int(total_raw or 0)
+    rows = [_source_to_chunk_row(hit.get("_source") or {}) for hit in hits]
+    return rows, total
+
+
+def get_chunk_by_id(chunk_id: str) -> dict | None:
+    settings = get_settings()
+    client = get_elasticsearch_client()
+    if not _es_index_ready(client, settings.elasticsearch_index):
+        return None
+    try:
+        resp = client.get(index=settings.elasticsearch_index, id=chunk_id, ignore=[404])
+    except Exception as exc:
+        logger.warning("ES get_chunk_by_id 失败：%s", exc)
+        return None
+    if not resp or not resp.get("found"):
+        return None
+    return _source_to_chunk_row(resp.get("_source") or {}, include_full_content=True)
+
+
+def count_chunks(source_name: str | None = None) -> int:
+    settings = get_settings()
+    client = get_elasticsearch_client()
+    if not _es_index_ready(client, settings.elasticsearch_index):
+        return 0
+    query = _build_list_query(source_name, None)
+    try:
+        resp = client.count(index=settings.elasticsearch_index, body={"query": query})
+    except Exception as exc:
+        logger.warning("ES count_chunks 失败：%s", exc)
+        return 0
+    return int(resp.get("count") or 0)
+
+
+def chunk_stats_by_source(source_name: str | None = None, top_n: int = 50) -> dict:
+    settings = get_settings()
+    client = get_elasticsearch_client()
+    if not _es_index_ready(client, settings.elasticsearch_index):
+        return {"total": 0, "by_source": []}
+    if source_name:
+        total = count_chunks(source_name)
+        return {"total": total, "by_source": [{"source_name": source_name, "count": total}]}
+    body = {
+        "size": 0,
+        "aggs": {
+            "by_source": {
+                "terms": {"field": "source_name", "size": top_n, "order": {"_count": "desc"}},
+            }
+        },
+    }
+    try:
+        resp = client.search(index=settings.elasticsearch_index, body=body)
+    except Exception as exc:
+        logger.warning("ES chunk_stats_by_source 失败：%s", exc)
+        return {"total": 0, "by_source": []}
+    buckets = (((resp.get("aggregations") or {}).get("by_source") or {}).get("buckets")) or []
+    by_source = [{"source_name": b.get("key"), "count": int(b.get("doc_count") or 0)} for b in buckets]
+    total = sum(item["count"] for item in by_source)
+    return {"total": total, "by_source": by_source}

@@ -82,8 +82,9 @@
           <span>{{ parseTime(scope.row.updateTime) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" align="center" width="120" class-name="small-padding fixed-width">
+      <el-table-column label="操作" align="center" width="180" class-name="small-padding fixed-width">
         <template slot-scope="scope">
+          <el-button size="mini" type="text" icon="el-icon-view" @click="goChunks(scope.row)">切片</el-button>
           <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -305,6 +306,12 @@ export default {
         if (!Number.isNaN(k)) q.kbId = k
       }
       this.download('rag/documents/export', this.addDateRange(q, this.dateRange), `rag_documents_${new Date().getTime()}.xlsx`)
+    },
+    goChunks(row) {
+      this.$router.push({
+        path: '/rag/chunks',
+        query: { sourceName: row.docLogicalKey }
+      })
     }
   }
 }

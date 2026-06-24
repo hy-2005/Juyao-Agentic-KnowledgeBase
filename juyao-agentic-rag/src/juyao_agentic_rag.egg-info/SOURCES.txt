@@ -14,8 +14,11 @@ src/rag_core/api/__init__.py
 src/rag_core/api/app.py
 src/rag_core/api/logging_config.py
 src/rag_core/api/schemas.py
+src/rag_core/api/schemas_admin.py
 src/rag_core/api/routes/__init__.py
 src/rag_core/api/routes/chat.py
+src/rag_core/api/routes/chunks.py
+src/rag_core/api/routes/graph.py
 src/rag_core/api/routes/ingest.py
 src/rag_core/api/routes/sessions.py
 src/rag_core/cli/__init__.py
@@ -42,6 +45,8 @@ src/rag_core/ingestion/split_ai.py
 src/rag_core/ingestion/split_spans.py
 src/rag_core/ingestion/splitter.py
 src/rag_core/knowledge_graph/__init__.py
+src/rag_core/knowledge_graph/admin_mutations.py
+src/rag_core/knowledge_graph/admin_queries.py
 src/rag_core/knowledge_graph/client.py
 src/rag_core/knowledge_graph/cypher.py
 src/rag_core/knowledge_graph/edge_queries.py
@@ -103,4 +108,5 @@ src/rag_eval/datasets/loader.py
 src/rag_eval/datasets/manifest.yaml
 src/rag_eval/datasets/default/sample_qa.jsonl
 src/rag_eval/datasets/default/story_qa.jsonl
+tests/test_admin.py
 tests/test_core.py

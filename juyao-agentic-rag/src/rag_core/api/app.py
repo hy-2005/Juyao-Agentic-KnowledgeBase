@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 
 from rag_core.api.logging_config import configure_rag_logging
 from rag_core.api.routes.chat import router as chat_router
+from rag_core.api.routes.chunks import router as chunks_router
+from rag_core.api.routes.graph import router as graph_router
 from rag_core.api.routes.ingest import router as ingest_router
 from rag_core.api.routes.sessions import router as sessions_router
 from rag_core.core.config import get_settings
@@ -48,6 +50,8 @@ app.add_middleware(
 app.include_router(sessions_router)
 app.include_router(chat_router)
 app.include_router(ingest_router)
+app.include_router(chunks_router)
+app.include_router(graph_router)
 
 
 @app.get("/health")

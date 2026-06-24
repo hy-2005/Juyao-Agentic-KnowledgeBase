@@ -190,3 +190,136 @@ export function updateSessionTitle(sessionId, title) {
     data: { title }
   })
 }
+
+/** 切片列表（只读） */
+export function listRagChunks(query) {
+  return request({
+    url: `${BASE}/chunks/list`,
+    method: 'get',
+    params: query
+  })
+}
+
+/** 切片详情 */
+export function getRagChunk(chunkId) {
+  return request({
+    url: `${BASE}/chunks/${encodeURIComponent(chunkId)}`,
+    method: 'get'
+  })
+}
+
+/** 切片统计 */
+export function getRagChunkStats(params) {
+  return request({
+    url: `${BASE}/chunks/stats`,
+    method: 'get',
+    params
+  })
+}
+
+/** 图谱统计 */
+export function getRagGraphStats(params) {
+  return request({
+    url: `${BASE}/graph/stats`,
+    method: 'get',
+    params
+  })
+}
+
+/** 图谱关系列表 */
+export function listRagGraphEdges(query) {
+  return request({
+    url: `${BASE}/graph/edges`,
+    method: 'get',
+    params: query
+  })
+}
+
+/** 图谱实体列表 */
+export function listRagGraphEntities(query) {
+  return request({
+    url: `${BASE}/graph/entities`,
+    method: 'get',
+    params: query
+  })
+}
+
+/** 子图数据（可视化） */
+export function getRagGraphSubgraph(params) {
+  return request({
+    url: `${BASE}/graph/subgraph`,
+    method: 'get',
+    params
+  })
+}
+
+/** 全图数据（可视化，limit=0 不截断） */
+export function getRagGraphFull(params) {
+  return request({
+    url: `${BASE}/graph/full`,
+    method: 'get',
+    params
+  })
+}
+
+/** 全部关系（无分页上限） */
+export function listAllRagGraphEdges() {
+  return request({
+    url: `${BASE}/graph/edges/all`,
+    method: 'get'
+  })
+}
+
+/** 新增实体 */
+export function createRagGraphEntity(data) {
+  return request({
+    url: `${BASE}/graph/entities`,
+    method: 'post',
+    data
+  })
+}
+
+/** 重命名实体 */
+export function renameRagGraphEntity(data) {
+  return request({
+    url: `${BASE}/graph/entities`,
+    method: 'put',
+    data
+  })
+}
+
+/** 删除实体 */
+export function deleteRagGraphEntity(name) {
+  return request({
+    url: `${BASE}/graph/entities`,
+    method: 'delete',
+    params: { name }
+  })
+}
+
+/** 新增关系 */
+export function createRagGraphEdge(data) {
+  return request({
+    url: `${BASE}/graph/edges`,
+    method: 'post',
+    data
+  })
+}
+
+/** 修改关系 */
+export function updateRagGraphEdge(data) {
+  return request({
+    url: `${BASE}/graph/edges`,
+    method: 'put',
+    data
+  })
+}
+
+/** 删除关系 */
+export function deleteRagGraphEdge(params) {
+  return request({
+    url: `${BASE}/graph/edges`,
+    method: 'delete',
+    params
+  })
+}
