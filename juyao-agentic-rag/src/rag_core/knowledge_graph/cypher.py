@@ -28,12 +28,14 @@ RETURN e.name AS name
 """
 
 
-def cy_expand_from_seeds(hops: int) -> str:
+def cy_expand_from_seeds(hops: int, *, unlimited: bool = False) -> str:
+    path_cap_clause = "" if unlimited else "WITH p LIMIT $path_cap"
+    limit_clause = "" if unlimited else "LIMIT $limit"
     return f"""
 MATCH (s:Entity)
 WHERE s.name IN $seed_names
 MATCH p=(s)-[:RELATED*1..{hops}]-()
-WITH p LIMIT $path_cap
+{path_cap_clause}
 UNWIND relationships(p) AS rel
 WITH DISTINCT rel AS r
 MATCH (h)-[r]->(t)
@@ -52,5 +54,5 @@ RETURN
   coalesce(r.relation_category_hints, []) AS relation_category_hints,
   coalesce(r.relation_full_hints, []) AS relation_full_hints,
   coalesce(r.modality_hints, []) AS modality_hints
-LIMIT $limit
+{limit_clause}
 """
