@@ -28,6 +28,13 @@ WHERE e.name IN $names
 RETURN e.name AS name
 """
 
+# 子串匹配兜底（P0-2 第二/三层）：问句称呼可能含库内全名，或库内名含问句词
+CY_ENTITY_NAMES_SUBSTR = """
+MATCH (e:Entity)
+WHERE ANY(kw IN $kws WHERE e.name CONTAINS kw OR kw CONTAINS e.name)
+RETURN e.name AS name
+"""
+
 
 def cy_expand_from_seeds(hops: int) -> str:
     return f"""
