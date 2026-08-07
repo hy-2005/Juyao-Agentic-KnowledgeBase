@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def format_edges_for_prompt(edges: list[GraphEdgeView]) -> str:
+    # 体积控制（P2）：evidence 摘录截到 120 字/条，关系表述 120 字，控制 Observation 总长
     lines: list[str] = []
     for e in edges:
         cite = ",".join(e.chunk_ids[:3])
@@ -28,15 +29,20 @@ def format_edges_for_prompt(edges: list[GraphEdgeView]) -> str:
             bits.append(f"尾类型: {' / '.join(e.tail_kinds[:2])}")
         if e.relation_category_hints:
             bits.append(f"关系大类: {' / '.join(e.relation_category_hints[:2])}")
+        # time/location hints 格式化（P2）：时间线/位置类问题可直接作答
+        if e.time_hints:
+            bits.append(f"时间: {' / '.join(e.time_hints[:2])}")
+        if e.location_hints:
+            bits.append(f"位置: {' / '.join(e.location_hints[:2])}")
         if e.relation_full_hints:
             rf = " | ".join(e.relation_full_hints[:1])
-            if len(rf) > 160:
-                rf = rf[:160] + "…"
+            if len(rf) > 120:
+                rf = rf[:120] + "…"
             bits.append(f"关系表述: {rf}")
         if e.evidence_snippets:
             ev = " | ".join(e.evidence_snippets[:2])
-            if sum(len(s) for s in e.evidence_snippets[:2]) > 220:
-                ev = ev[:220] + "…"
+            if sum(len(s) for s in e.evidence_snippets[:2]) > 120:
+                ev = ev[:120] + "…"
             bits.append(f"依据摘录: {ev}")
         lines.append(
             f"- {e.head_name} —[{e.relation_predicate}]→ {e.tail_name}（{'；'.join(bits)}）"

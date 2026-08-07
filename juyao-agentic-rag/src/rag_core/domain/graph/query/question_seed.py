@@ -79,15 +79,25 @@ class QuestionGraphSeedExtractor:
             enable_thinking=False,
         )
 
-    def extract(self, question: str) -> tuple[list[str], list[str]]:
+    def extract(self, question: str, kb: int | None = None) -> tuple[list[str], list[str]]:
         q = (question or "").strip()
         if not q:
             return [], []
 
+        # 名称解析（P1-2）：喂图谱现有实体候选，让 LLM 优先输出库内名称，
+        # 减少"问句称呼 vs 库内全名"的 mismatch（resolve_entity_names 三层匹配的补充）
+        candidates = _graph_entity_candidates(q, kb=kb)
+        user_text = q
+        if candidates:
+            user_text = (
+                f"{q}\n\n【知识库已有实体候选（尽量使用其中的名称，无法对应时仍用问题原文）】\n"
+                + "\n".join(f"- {name}" for name in candidates)
+            )
+
         response = self._llm.invoke(
             [
                 ("system", QUESTION_GRAPH_SEED_SYSTEM_PROMPT),
-                ("user", q),
+                ("user", user_text),
             ]
         )
         raw = (getattr(response, "content", "") or "").strip()
@@ -110,3 +120,32 @@ class QuestionGraphSeedExtractor:
         except json.JSONDecodeError:
             logger.warning("question_graph_seed JSON 解析失败，预览=%s", raw[:200])
             return {}
+
+
+def _graph_entity_candidates(question: str, kb: int | None, limit: int = 20) -> list[str]:
+    """按问句与实体名的字符重叠粗筛图谱实体，返回 top limit 个候选（名称解析用）。
+
+    中文无分词：用问句的 2-3 字 n-gram 与实体名重叠度排序；无重叠时返回空
+    （候选太多反而干扰 LLM 抽取）。
+    """
+    from rag_core.infrastructure.neo4j import get_read_graph
+
+    q_grams = {
+        question[i : i + n]
+        for n in (2, 3)
+        for i in range(len(question) - n + 1)
+        if question[i : i + n].strip()
+    }
+    rows = get_read_graph().query(
+        "MATCH (e:Entity) RETURN e.name AS name",
+    )
+    scored: list[tuple[int, str]] = []
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        overlap = sum(1 for g in q_grams if g in name)
+        if overlap > 0:
+            scored.append((overlap, name))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [name for _, name in scored[:limit]]
