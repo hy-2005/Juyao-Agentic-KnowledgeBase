@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from rag_core.core.config import Settings, get_settings
 from rag_core.infrastructure.neo4j import get_read_graph
-from rag_core.domain.graph.query.cypher import CY_ENTITY_NAMES, CY_RELATED_BY_CHUNKS, cy_expand_from_seeds
+from rag_core.domain.graph.query.cypher import (
+    CY_ENTITY_NAMES,
+    CY_ENTITY_NAMES_SUBSTR,
+    CY_RELATED_BY_CHUNKS,
+    cy_expand_from_seeds,
+)
 from rag_core.domain.graph.query.edge_view import GraphEdgeView, rows_to_views
 
 
@@ -39,18 +44,35 @@ def query_edges_for_chunks(
 
 
 def resolve_entity_names(names: list[str], *, settings: Settings | None = None) -> list[str]:
+    """问句实体 → 图谱实体名解析，三层递进（P0-2 消歧义）：
+
+    1. 精确匹配（库内名 IN 问句实体）
+    2. 归一化匹配（全角/括号修饰清洗后相等）
+    3. 子串匹配（问句称呼含库内全名，或库内名含问句词——"那台盾构机" vs "ZTE-9000型泥水平衡盾构机"）
+    """
+    from rag_core.domain.graph.schema import normalize_entity_name
+
     ids = [str(x).strip() for x in names if str(x).strip()]
     if not ids:
         return []
     rows = get_read_graph().query(CY_ENTITY_NAMES, params={"names": ids})
-    out: list[str] = []
-    seen: set[str] = set()
+    matched: set[str] = set()
     for row in rows:
         n = str(row.get("name") or "").strip()
-        if n and n not in seen:
-            seen.add(n)
-            out.append(n)
-    return out
+        if n:
+            matched.add(n)
+
+    # 未全命中时走归一化 + 子串兜底（避免问句称呼与库内全名对不上导致图谱白跑）
+    if len(matched) < len(ids):
+        norm_ids = {normalize_entity_name(i) for i in ids}
+        rows2 = get_read_graph().query(CY_ENTITY_NAMES_SUBSTR, params={"kws": ids})
+        for row in rows2:
+            n = str(row.get("name") or "").strip()
+            if not n or n in matched:
+                continue
+            if normalize_entity_name(n) in norm_ids or any(n in i or i in n for i in ids):
+                matched.add(n)
+    return sorted(matched)
 
 
 def _edge_matches_relation_hint(edge: GraphEdgeView, hint: str) -> bool:
