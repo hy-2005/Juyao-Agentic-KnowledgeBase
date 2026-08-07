@@ -607,7 +607,13 @@ export default {
             nodeSet.add(l.source)
             nodeSet.add(l.target)
           })
-          const nodes = Array.from(nodeSet).sort().map((name) => ({ id: name, name, category: 1 }))
+          // 保留后端注入的 community_id（社区着色/聚类/聚合视图都依赖它）
+          const cidMap = new Map((fullData.nodes || []).map((n) => [n.id || n.name, n.community_id]))
+          const nodes = Array.from(nodeSet).sort().map((name) => {
+            const node = { id: name, name, category: 1 }
+            if (cidMap.get(name)) node.community_id = cidMap.get(name)
+            return node
+          })
           this.fullGraphData = { nodes, links }
           this.graphMeta = {
             truncated: !!fullData.truncated,
