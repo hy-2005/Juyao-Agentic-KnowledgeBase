@@ -20,7 +20,7 @@ from rag_core.domain.graph.query.observation import (
 
 # 与「需要结构化关联」强相关的问法子串（中文）；命中即 should_invoke_graph_by_rules True
 _GRAPH_TRIGGER_RE = re.compile(
-    r"(地址|在哪|哪儿|哪里|门牌|街道|巷|弄|号|位于|坐标|"
+    r"(地址|在哪|哪儿|哪里|门牌号|街道|巷|弄|位于|坐标|"
     r"关联|关系|联系|因果|导致|引发|上下游|路径|多跳|"
     r"事务所|组织|公司|机构|归属|隶属于|老板|创始人|合伙人)",
 )
