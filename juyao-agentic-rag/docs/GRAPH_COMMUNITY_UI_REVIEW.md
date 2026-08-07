@@ -1,8 +1,15 @@
 # 知识图谱社区展示方案
 
-> 状态:🔄 进行中(待实施)
+> 状态:✅ 已完成(2026-08-08 实施并验证)
 > 创建:2026-08-08 · 更新:2026-08-08
 > 关联:[GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md)(社区检测是其中的待办项,现补展示层)
+
+## 实施验证(2026-08-08)
+
+- 安装 `leidenalg`/`igraph` 依赖,`build_communities()` 跑通:12 个社区 + LLM 主题摘要 + Community 节点/MEMBER_OF 边入库
+- 后端:全图/子图节点带 `community_id`;新接口 `GET /api/v1/admin/graph/communities`(Java 网关同步补 `/rag/graph/communities`)
+- 前端:社区面板(摘要 + 实体数 + 成员实体标签 + 聚焦子图按钮);全图节点按社区 12 色板着色,悬停显示所属社区
+- 验证:浏览器实测——社区面板 12 社区显示正常,展开见完整摘要与成员实体,全图渲染正常(测试单测 10 passed)
 
 ## 需求
 
