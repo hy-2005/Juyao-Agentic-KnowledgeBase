@@ -1,17 +1,16 @@
-"""Routed 对话流：意图路由 → 向量 / 图谱 → 最终作答。
+"""问答管线主流程：步骤驱动编排（替代原 routed_flow 单函数）。
 
 流程图节点（与产品定稿对齐）：
-  B  intent_router     → direct | graph_only | vector_only
-  C  graph_only        → build_graph_observation_question_driven
-  D  vector_only       → execute_retrieval_step
-  E  sufficiency       → decide_vector_path_needs_graph_supplement
-  F  graph supplement  → 向量不足时追加问句驱动查图
-  G  vector only       → 仅向量证据
-  H  finalize          → stream_final_answer
+  B  route            → direct | graph_only | vector_only
+  C  graph_query      → graph_only 分支：问句实体多跳
+  D  retrieve         → 向量检索
+  E  sufficiency      → 向量不足判断
+  F  graph_supplement → 补图（chunk 锚定优先 + 问句实体兜底）
+  G  vector only      → 仅向量证据
+  H  finalize         → stream_final_answer
 
-难点：
-  - had_evidence = 有向量片段 OR 图谱边数>0（direct 路径两者皆无）
-  - graph_snapshots 用于日志与用户可见【图谱明细】页脚
+SSE 契约：meta 事件保留旧全部 key（可增不可删），executed_steps 元素
+兼容旧字段（见 state.StepRecord.to_dict）。
 """
 
 from __future__ import annotations
@@ -21,17 +20,147 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from langchain_core.documents import Document
-
-from rag_core.core.config import get_settings
-from rag_core.domain.graph.query import build_graph_observation_question_driven
+from rag_core.application.chat_flow.observations import (
+    build_graph_snapshot_meta,
+    log_text_in_slices,
+)
+from rag_core.application.chat_flow.state import FlowState
 from rag_core.application.chat_flow.steps.finalize import stream_final_answer
-from rag_core.application.chat_flow.steps.route import RouteBranch, resolve_intent_route
-from rag_core.application.chat_flow.observations import build_graph_snapshot_meta, log_text_in_slices
-from rag_core.application.chat_flow.steps.retrieve import execute_retrieval_step
-from rag_core.application.chat_flow.steps.sufficiency import decide_vector_path_needs_graph_supplement
+from rag_core.application.chat_flow.steps.graph_supplement import (
+    run_graph_query_step,
+    run_graph_supplement_step,
+)
+from rag_core.application.chat_flow.steps.retrieve import run_retrieve_step
+from rag_core.application.chat_flow.steps.route import RouteBranch, run_route_step
+from rag_core.application.chat_flow.steps.sufficiency import run_sufficiency_step
+from rag_core.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _build_meta(state: FlowState) -> dict[str, Any]:
+    """组装 SSE meta 事件载荷（key 集合与旧版一致，只增不减）。"""
+    plan_steps: list[dict[str, Any]] = [
+        {
+            "step": "intent_route",
+            "branch": state.route.value if state.route else "",
+            "backend": state.intent_backend,
+            "flowchart_strict_mode": bool(get_settings().flowchart_strict_mode),
+            "meaning": "direct=不调工具；graph_only=图谱；vector_only=向量；backend=llm|rules|rules_fallback",
+        }
+    ]
+    if state.needs_graph or state.rag_e_backend:
+        plan_steps.append(
+            {
+                "step": "rag_sufficiency_eval",
+                "needs_graph_supplement": state.needs_graph,
+                "backend": state.rag_e_backend,
+            }
+        )
+    return {
+        "citations": sorted(state.merged_docs.keys()),
+        "score": state.max_score,
+        "retrieval_rounds": state.retrieval_rounds,
+        "graph_rounds": state.graph_rounds,
+        "had_evidence": state.had_evidence,
+        "planner_iterations": 1,
+        "stop_reason": state.stop_reason,
+        "plan": plan_steps,
+        "executed_steps": [s.to_dict() for s in state.executed_steps],
+        "graph_snapshot_meta": build_graph_snapshot_meta(state.graph_snapshots),
+        "route_branch": state.route.value if state.route else "",
+        "intent_route": state.route.value if state.route else "",
+        "intent_route_mode": (get_settings().intent_route_mode or "llm"),
+        "intent_route_backend": state.intent_backend,
+        "flowchart_strict_mode": bool(get_settings().flowchart_strict_mode),
+        "rag_sufficiency_mode": (get_settings().rag_sufficiency_mode or "llm"),
+        "rag_sufficiency_backend": state.rag_e_backend,
+    }
+
+
+def _log_graph_snapshots(state: FlowState) -> None:
+    """图谱快照日志（供排查；原 routed_flow 的日志行为保留）。"""
+    graph_steps = [s for s in state.executed_steps if s.tool == "query_knowledge_graph"]
+    total_edges = sum(int(s.edge_count or 0) for s in graph_steps)
+    if state.graph_snapshots:
+        meta_lens = [len(str(s.get("observation") or "")) for s in state.graph_snapshots]
+        logger.info(
+            "routed final_answer prep retrieval_rounds=%d graph_rounds=%d graph_steps=%d "
+            "total_edge_rows=%d had_graph_edges=%s snapshot_count=%d obs_char_lens=%s route=%s backend=%s",
+            state.retrieval_rounds,
+            state.graph_rounds,
+            len(graph_steps),
+            total_edges,
+            state.had_graph_edges,
+            len(state.graph_snapshots),
+            meta_lens,
+            state.route.value if state.route else "",
+            state.intent_backend,
+        )
+        combined = "\n\n".join(
+            f"--- snapshot {i + 1} ---\n{(s.get('observation') or '')}"
+            for i, s in enumerate(state.graph_snapshots)
+        )
+        log_text_in_slices("graph_observation_all_snapshots_combined", combined)
+    elif state.route == RouteBranch.DIRECT:
+        logger.info("routed branch=direct no retrieval")
+
+
+async def run_chat_flow(state: FlowState) -> AsyncIterator[tuple[str, dict]]:
+    """步骤管线主流程：route → 分支执行 → finalize；yield meta 后转 token 流。"""
+    settings = get_settings()
+
+    run_route_step(state)
+
+    if state.route == RouteBranch.DIRECT:
+        # B→H：不调检索/图谱，finalize 走无 KB 人设
+        state.observation_lines.append(
+            "（系统）路由判定为无需检索知识库或图谱；请直接依据对话与用户问题作答（勿虚构内部文档依据）。"
+        )
+        state.stop_reason = "route_direct_no_tools"
+
+    elif state.route == RouteBranch.GRAPH_ONLY and settings.graph_query_enabled:
+        # B→C→H：问句实体多跳；0 边降级向量（修复 P1-2，原实现直接判无证据）
+        # 步骤为同步函数，to_thread 避免阻塞事件循环（Neo4j 查询耗时）
+        await asyncio.to_thread(run_graph_query_step, state, 1)
+        if not state.had_graph_edges:
+            logger.info("【编排】graph_only 图谱 0 边，降级向量检索（P1-2 修复）")
+            await asyncio.to_thread(run_retrieve_step, state, 1)
+            state.stop_reason = "graph_only_fallback_vector"
+        else:
+            state.stop_reason = "route_graph_only"
+
+    elif state.route == RouteBranch.GRAPH_ONLY and not settings.graph_query_enabled:
+        # 图谱总开关关闭时降级向量
+        await asyncio.to_thread(run_retrieve_step, state, 1)
+        state.stop_reason = "graph_disabled_fallback_vector"
+
+    else:
+        # B→D→E→(F|G)→H：向量主路径
+        await asyncio.to_thread(run_retrieve_step, state, 1)
+        run_sufficiency_step(state)
+        if state.needs_graph and settings.graph_query_enabled:
+            await asyncio.to_thread(run_graph_supplement_step, state, 2)
+            state.stop_reason = "vector_then_graph_supplement"
+        else:
+            state.stop_reason = "route_vector_only"
+
+    state.had_evidence = len(state.merged_docs) > 0 or state.had_graph_edges
+    _log_graph_snapshots(state)
+
+    # meta 事件在 token 流前一次性发出（契约：meta 首个，done 最后）
+    yield ("meta", _build_meta(state))
+
+    async for ev in stream_final_answer(
+        question=state.question,
+        history=state.history,
+        observation_lines=state.observation_lines,
+        had_evidence=state.had_evidence,
+        graph_snapshots=state.graph_snapshots,
+        assistant_holder=state.assistant_holder,
+        log_prefix="routed ",
+    ):
+        yield ev
 
 
 async def routed_astream_chat_events(
@@ -42,239 +171,13 @@ async def routed_astream_chat_events(
     tool_messages_holder: list[dict[str, Any]] | None = None,
     kb_id: int = 0,
 ) -> AsyncIterator[tuple[str, dict]]:
-    """定稿流程：B 大模型（或规则）选支线 → C / D→E→F|G → H。"""
-    settings = get_settings()
-
-    observation_lines: list[str] = []
-    merged_docs: dict[str, Document] = {}
-    graph_snapshots: list[dict[str, Any]] = []
-    executed_steps: list[dict[str, Any]] = []
-    intent_res = resolve_intent_route(question)
-    route = intent_res.branch
-    rag_e_backend: str | None = None
-    plan_steps: list[dict[str, Any]] = [
-        {
-            "step": "intent_route",
-            "branch": route.value,
-            "backend": intent_res.backend,
-            "flowchart_strict_mode": bool(settings.flowchart_strict_mode),
-            "meaning": "direct=不调工具；graph_only=图谱；vector_only=向量；backend=llm|rules|rules_fallback",
-        }
-    ]
-    stop_reason = "routed_complete"
-    planner_iterations = 1
-    retrieval_rounds_used = 0
-    graph_rounds_used = 0
-    max_score_seen = 0.0
-    had_graph_edges = False
-
-    if route == RouteBranch.DIRECT:
-        # B→H：不调检索/图谱，finalize 走 SYSTEM_PROMPT_NO_KB_EVIDENCE 人设
-        observation_lines.append(
-            "（系统）路由判定为无需检索知识库或图谱；请直接依据对话与用户问题作答（勿虚构内部文档依据）。"
-        )
-        stop_reason = "route_direct_no_tools"
-
-    elif route == RouteBranch.GRAPH_ONLY and settings.graph_query_enabled:
-        # B→C→H：问句实体种子 → Neo4j 多跳，不走向量
-        obs_g, n_edges, seeds = await asyncio.to_thread(
-            build_graph_observation_question_driven,
-            question,
-            round_idx=1,
-            kb=kb_id,
-        )
-        observation_lines.append(obs_g)
-        graph_rounds_used = 1
-        if n_edges > 0:
-            had_graph_edges = True
-        snap = {
-            "edges": n_edges,
-            "anchors": len(seeds),
-            "source": "question_entities",
-            "entity_seeds": tuple(seeds),
-            "observation": obs_g,
-            "chunk_sample": (),
-        }
-        graph_snapshots.append(snap)
-        log_text_in_slices(
-            f"graph_observation_routed branch=graph_only edges={n_edges}",
-            obs_g,
-        )
-        executed_steps.append(
-            {
-                "tool": "query_knowledge_graph",
-                "source": "question_driven",
-                "edge_count": n_edges,
-                "entity_seeds": seeds,
-            }
-        )
-        if tool_messages_holder is not None:
-            tool_messages_holder.append({"role": "tool", "name": "query_knowledge_graph", "content": obs_g})
-        stop_reason = "route_graph_only"
-
-    elif route == RouteBranch.GRAPH_ONLY and not settings.graph_query_enabled:
-        result = await asyncio.to_thread(execute_retrieval_step, question, 1, kb_id)
-        retrieval_rounds_used = 1
-        merged_docs = result.documents
-        max_score_seen = float(result.max_score)
-        observation_lines.append(result.observation)
-        executed_steps.append(
-            {
-                "round": retrieval_rounds_used,
-                "tool": "search_knowledge_base",
-                "query": question,
-                "doc_count": len(result.documents),
-                "max_score": result.max_score,
-                "is_empty": result.is_empty,
-            }
-        )
-        if tool_messages_holder is not None:
-            tool_messages_holder.append(
-                {"role": "tool", "name": "search_knowledge_base", "content": result.observation}
-            )
-        stop_reason = "graph_disabled_fallback_vector"
-
-    else:
-        # B→D→E→(F|G)→H：vector_only 或 graph 关闭时的降级路径
-        result = await asyncio.to_thread(execute_retrieval_step, question, 1, kb_id)
-        retrieval_rounds_used = 1
-        merged_docs = result.documents
-        max_score_seen = float(result.max_score)
-        observation_lines.append(result.observation)
-        executed_steps.append(
-            {
-                "round": retrieval_rounds_used,
-                "tool": "search_knowledge_base",
-                "query": question,
-                "doc_count": len(result.documents),
-                "max_score": result.max_score,
-                "is_empty": result.is_empty,
-            }
-        )
-        if tool_messages_holder is not None:
-            tool_messages_holder.append(
-                {"role": "tool", "name": "search_knowledge_base", "content": result.observation}
-            )
-
-        need_g, rag_e_backend = await asyncio.to_thread(
-            decide_vector_path_needs_graph_supplement,
-            question=question,
-            retrieval_observation=result.observation,
-            is_empty=result.is_empty,
-            max_score=float(result.max_score),
-            doc_count=len(result.documents),
-            min_relevance_score=float(settings.min_relevance_score),
-            settings=settings,
-        )
-        plan_steps.append(
-            {
-                "step": "rag_sufficiency_eval",
-                "needs_graph_supplement": need_g,
-                "backend": rag_e_backend,
-            }
-        )
-        if need_g and settings.graph_query_enabled:
-            obs_g2, n_edges2, seeds2 = await asyncio.to_thread(
-                build_graph_observation_question_driven,
-                question,
-                round_idx=2,
-                kb=kb_id,
-            )
-            observation_lines.append(obs_g2)
-            graph_rounds_used = 1
-            if n_edges2 > 0:
-                had_graph_edges = True
-            graph_snapshots.append(
-                {
-                    "edges": n_edges2,
-                    "anchors": len(seeds2),
-                    "source": "question_entities_supplement",
-                    "entity_seeds": tuple(seeds2),
-                    "observation": obs_g2,
-                    "chunk_sample": (),
-                }
-            )
-            log_text_in_slices(
-                f"graph_observation_routed branch=vector_supplement edges={n_edges2}",
-                obs_g2,
-            )
-            executed_steps.append(
-                {
-                    "tool": "query_knowledge_graph",
-                    "source": "vector_supplement",
-                    "edge_count": n_edges2,
-                    "entity_seeds": seeds2,
-                }
-            )
-            if tool_messages_holder is not None:
-                tool_messages_holder.append(
-                    {"role": "tool", "name": "query_knowledge_graph", "content": obs_g2}
-                )
-            stop_reason = "vector_then_graph_supplement"
-        else:
-            stop_reason = "route_vector_only"
-
-    had_evidence = len(merged_docs) > 0 or had_graph_edges
-    citations = sorted(merged_docs.keys())
-
-    graph_steps = [s for s in executed_steps if s.get("tool") == "query_knowledge_graph"]
-    total_graph_edge_rows = sum(int(s.get("edge_count") or 0) for s in graph_steps)
-    if graph_snapshots:
-        meta_lens = [len(str(s.get("observation") or "")) for s in graph_snapshots]
-        logger.info(
-            "routed final_answer prep retrieval_rounds=%d graph_rounds=%d graph_steps=%d total_edge_rows=%d "
-            "had_graph_edges=%s snapshot_count=%d obs_char_lens=%s route=%s backend=%s",
-            retrieval_rounds_used,
-            graph_rounds_used,
-            len(graph_steps),
-            total_graph_edge_rows,
-            had_graph_edges,
-            len(graph_snapshots),
-            meta_lens,
-            route.value,
-            intent_res.backend,
-        )
-        combined = "\n\n".join(
-            f"--- snapshot {i + 1} ---\n{(s.get('observation') or '')}"
-            for i, s in enumerate(graph_snapshots)
-        )
-        log_text_in_slices("graph_observation_all_snapshots_combined", combined)
-    elif route == RouteBranch.DIRECT:
-        logger.info("routed branch=direct no retrieval")
-
-    graph_snapshot_meta = build_graph_snapshot_meta(graph_snapshots)
-    yield (
-        "meta",
-        {
-            "citations": citations,
-            "score": max_score_seen,
-            "retrieval_rounds": retrieval_rounds_used,
-            "graph_rounds": graph_rounds_used,
-            "had_evidence": had_evidence,
-            "planner_iterations": planner_iterations,
-            "stop_reason": stop_reason,
-            "plan": plan_steps,
-            "executed_steps": executed_steps,
-            "graph_snapshot_meta": graph_snapshot_meta,
-            "route_branch": route.value,
-            "intent_route": route.value,
-            "intent_route_mode": (settings.intent_route_mode or "llm"),
-            "intent_route_backend": intent_res.backend,
-            "flowchart_strict_mode": bool(settings.flowchart_strict_mode),
-            "rag_sufficiency_mode": (settings.rag_sufficiency_mode or "llm"),
-            "rag_sufficiency_backend": rag_e_backend,
-        },
-    )
-
-    async for ev in stream_final_answer(
+    """对外入口（兼容旧签名）：初始化 FlowState 后走步骤管线。"""
+    state = FlowState(
         question=question,
         history=history,
-        observation_lines=observation_lines,
-        had_evidence=had_evidence,
-        graph_snapshots=graph_snapshots,
+        kb_id=kb_id,
         assistant_holder=assistant_holder,
-        log_prefix="routed ",
-    ):
+        tool_messages_holder=tool_messages_holder,
+    )
+    async for ev in run_chat_flow(state):
         yield ev
-
-

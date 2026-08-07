@@ -137,3 +137,18 @@ def vector_needs_graph_supplement(
         doc_count=doc_count,
         min_relevance_score=min_relevance_score,
     )
+
+
+def run_sufficiency_step(state) -> None:
+    """步骤 3：判断向量证据是否充足，决定是否补图（节点 E）。"""
+    need_g, backend = decide_vector_path_needs_graph_supplement(
+        question=state.question,
+        retrieval_observation=state.observation_lines[-1] if state.observation_lines else "",
+        is_empty=state.retrieval_rounds == 0 or not state.merged_docs,
+        max_score=state.max_score,
+        doc_count=len(state.merged_docs),
+        min_relevance_score=float(get_settings().min_relevance_score),
+        settings=get_settings(),
+    )
+    state.needs_graph = need_g
+    state.rag_e_backend = backend
