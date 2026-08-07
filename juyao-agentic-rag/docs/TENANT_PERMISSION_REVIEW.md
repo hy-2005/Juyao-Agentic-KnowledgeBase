@@ -1,6 +1,6 @@
 # 租户（知识库）与权限评审
 
-> 状态：🔄 进行中（P0/P1/P2 全部实施：kbId 贯通、API 鉴权、kb 授权模型、kb 管理 API、上传删除 admin 校验、级联清理） · 更新：2026-08-07
+> 状态：🔄 进行中（P0/P1/P2 全部实施：kbId 贯通、API 鉴权、kb 授权模型、kb 管理 API、上传删除 admin 校验、级联清理） · 创建：2026-08-07 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 租户（知识库 kb）隔离与权限体系（Java 网关 → Python FastAPI → 三库数据）
 > 配套代码：`RagController.java`（聊天网关）、`RagDocIngestService.java`（上传/删除）、`RagChatClient.java`（Java→Python HTTP）、`api/routes/chat.py`、`api/routes/ingest.py`（Python API）、`retriever.py`（检索）、`memory/redis_session.py`（会话）、`sql/rag_document_registry.sql`（MySQL 注册表）
 > 关联文档：`INGESTION_UPDATE_REVIEW.md`（P0-1 kbId 入库，同一病根）、`RETRIEVAL_REVIEW.md`（检索链路）

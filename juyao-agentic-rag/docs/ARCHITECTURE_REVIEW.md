@@ -1,6 +1,6 @@
 # 代码架构评审与重构方案
 
-> 状态：✅ 已完成（阶段 0-7 全部执行） · 更新：2026-08-07
+> 状态：✅ 已完成（阶段 0-7 全部执行） · 创建：2026-08-07 · 更新：2026-08-07
 > 范围：juyao-agentic-rag Python 服务（rag_core）架构；Java 侧不动（若依标准结构）
 > 前置评审：CHUNK_SPLITTING / RETRIEVAL / GRAPH_QUERY / INGESTION_UPDATE / TENANT_PERMISSION 五份 REVIEW.md
 > 关键决策：**不套用 MVC（无 View 层 + Controller 会成上帝类），采用"分层 + 管线"结构**（MVC 精神：职责分离，适配 RAG 流水线形态）；§9 为全部决策定稿

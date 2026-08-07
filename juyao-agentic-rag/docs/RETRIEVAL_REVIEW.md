@@ -1,6 +1,6 @@
 # 检索层面评审与规划
 
-> 状态：🔄 进行中（P0-P3 路线图已完成；rerank 截断/结果缓存遗留） · 更新：2026-08-07
+> 状态：🔄 进行中（P0-P3 路线图已完成；rerank 截断/结果缓存遗留） · 创建：2026-08-07 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 检索链路（`rag_core/retrieval/` + `orchestration/`）
 > 配套代码：`retriever.py`（主流程）、`fusion.py`（RRF）、`reranker.py`（重排）、`query_rewrite.py`、`hyde.py`、`elasticsearch.py`（BM25）、`observations.py`
 > 关联文档：`CHUNK_SPLITTING_REVIEW.md`（chunk 拆分评审）、`GRAPH_QUERY_REVIEW.md`（图谱查询评审；P0 embedding 窗口问题与 sufficiency 阈值联动）、`TENANT_PERMISSION_REVIEW.md`（检索链路 kbId 隔离）
