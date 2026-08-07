@@ -210,3 +210,40 @@ class Neo4jTripleStore:
             """
         )
         self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
+
+    def purge_chunk_ids(self, chunk_ids: list[str], kb_id: int | None = None) -> None:
+        """按具体 chunk_id 列表移除边引用（先写后删差集清理用）。
+
+        与 purge_document_edges 的区别：后者按前缀 STARTS WITH 清（适合整文档），
+        这里是精确 id 列表——清空引用后删边、删孤立节点。
+        """
+        if not chunk_ids:
+            return
+        if kb_id is not None:
+            self._run(
+                """
+                MATCH ()-[r:RELATED]->()
+                WHERE $kb IN coalesce(r.kb_ids, [])
+                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids],
+                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d IN $chunk_ids]
+                """,
+                {"chunk_ids": chunk_ids, "kb": int(kb_id)},
+            )
+        else:
+            self._run(
+                """
+                MATCH ()-[r:RELATED]->()
+                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids],
+                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d IN $chunk_ids]
+                """,
+                {"chunk_ids": chunk_ids},
+            )
+        self._run(
+            """
+            MATCH ()-[r:RELATED]->()
+            WHERE size(coalesce(r.chunk_ids, [])) = 0 AND size(coalesce(r.doc_ids, [])) = 0
+            DELETE r
+            """
+        )
+        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
+

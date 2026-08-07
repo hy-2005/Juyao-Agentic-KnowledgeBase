@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     chunk_split_mode: str = Field(default="marker")  # marker | auto（auto 含 JSON 窗口断点）
     # LLM 语义切分单批上限（字符）：超长文本按段落贪心预分批，每批独立切分后拼接
     chunk_direct_max_chars: int = Field(default=4000)
+    # 父子分块（PARENT_CHILD_CHUNKING.md）：父块结构感知（标题/代码块/表格），
+    # 子块句边界切分做检索精度；子块进 Qdrant，父块进 ES/图谱
+    chunk_parent_enabled: bool = Field(default=False)
+    child_chunk_size: int = Field(default=200)  # 子块大小（字符）
 
     openai_api_key: str = Field(default="")
     openai_base_url: str = Field(default="https://api.openai.com/v1")

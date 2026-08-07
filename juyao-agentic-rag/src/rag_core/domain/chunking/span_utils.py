@@ -16,11 +16,127 @@ BLANK_LINE_RE = re.compile(r"(?:\r?\n[ \t]*){2,}")
 SOFT_CUT_LOOKBACK_RATIO = 0.7
 AI_CANDIDATE_UNIT_CHARS = 180
 
+# 结构化块识别（父子分块的结构感知）：md 标题 / 代码块围栏 / markdown 表格行
+MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+FENCE_RE = re.compile(r"^```")
+TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
+
 
 @dataclass
 class Span:
     start: int
     end: int
+
+
+@dataclass
+class StructuralBlock:
+    """文档结构化原子块：代码块 / 表格 / 标题行 / 普通段落。"""
+
+    start: int
+    end: int
+    block_type: str  # heading / code / table / paragraph
+    heading_level: int = 0  # heading 类型时：标题层级（1-6）
+
+
+def _line_offsets(content: str) -> list[int]:
+    """每行起始字符偏移（供结构块定位）。"""
+    offsets = [0]
+    for m in re.finditer(r"\n", content):
+        offsets.append(m.end())
+    return offsets
+
+
+def _find_fence_ranges(lines: list[str]) -> list[tuple[int, int]]:
+    """定位 ``` 围栏的行号区间（含起止行；未闭合到文末）。
+
+    代码块优先整体识别——代码内可能含 # 或 | 行，不能被误判为标题/表格。
+    """
+    ranges: list[tuple[int, int]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if FENCE_RE.match(lines[i]):
+            j = i + 1
+            while j < n and not FENCE_RE.match(lines[j]):
+                j += 1
+            end = j if j < n else n - 1
+            ranges.append((i, end))
+            i = end + 1
+        else:
+            i += 1
+    return ranges
+
+
+def split_structural_blocks(content: str) -> list[StructuralBlock]:
+    """识别代码块/表格/标题/段落的原子结构块。
+
+    规则：
+    - 代码块：``` 围栏区间整体（优先识别，代码内 #/| 行不误判）
+    - 表格：连续 | 行（含表头分隔行）
+    - 标题：^#{1,6} 行（只含标题行本身，内容归属由上层聚合）
+    - 其余：普通段落（空行分隔）
+    """
+    if not content:
+        return []
+    lines = content.split("\n")
+    offsets = _line_offsets(content)
+    n = len(lines)
+    fence_ranges = _find_fence_ranges(lines)
+
+    blocks: list[StructuralBlock] = []
+    i = 0
+    while i < n:
+        # 跳过代码块区间（整体作为一个 code 块）
+        if fence_ranges and i == fence_ranges[0][0]:
+            start_line, end_line = fence_ranges.pop(0)
+            start = offsets[start_line] if start_line < len(offsets) else 0
+            end = offsets[end_line] + len(lines[end_line]) if end_line < len(offsets) else len(content)
+            blocks.append(StructuralBlock(start=start, end=min(end, len(content)), block_type="code"))
+            i = end_line + 1
+            continue
+        line = lines[i]
+        # 表格：连续 | 行
+        if TABLE_LINE_RE.match(line):
+            start = offsets[i]
+            j = i + 1
+            while j < n and TABLE_LINE_RE.match(lines[j]):
+                j += 1
+            end = offsets[j - 1] + len(lines[j - 1])
+            blocks.append(StructuralBlock(start=start, end=min(end, len(content)), block_type="table"))
+            i = j
+            continue
+        # 标题行
+        m = MD_HEADING_RE.match(line)
+        if m:
+            start = offsets[i]
+            end = start + len(line)
+            blocks.append(
+                StructuralBlock(
+                    start=start,
+                    end=min(end, len(content)),
+                    block_type="heading",
+                    heading_level=len(m.group(1)),
+                )
+            )
+            i += 1
+            continue
+        # 普通段落（空行分隔；遇到代码块/表格/标题行停下，交给对应分支）
+        start = offsets[i]
+        j = i + 1
+        while (
+            j < n
+            and lines[j].strip()
+            and not FENCE_RE.match(lines[j])
+            and not TABLE_LINE_RE.match(lines[j])
+            and not MD_HEADING_RE.match(lines[j])
+        ):
+            j += 1
+        end = offsets[j - 1] + len(lines[j - 1]) if j - 1 < len(offsets) else len(content)
+        trimmed = trim_whitespace_span(content, start, min(end, len(content)))
+        if trimmed:
+            blocks.append(StructuralBlock(start=trimmed.start, end=trimmed.end, block_type="paragraph"))
+        i = j
+    return blocks
 
 
 def trim_whitespace_span(content: str, start: int, end: int) -> Span | None:

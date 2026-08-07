@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>RAGAS 评测报告 · story_qa.jsonl</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:24px;background:#f5f7fa;color:#303133}
+h1{margin:0 0 4px;font-size:22px}
+.subtitle{color:#909399;font-size:13px;margin-bottom:24px}
+.cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.card{background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.05);min-width:160px}
+.card-label{color:#606266;font-size:13px}
+.card-value{font-size:28px;font-weight:700;margin-top:6px}
+.card-value.good{color:#52c41a} .card-value.mid{color:#faad14} .card-value.bad{color:#f5222d} .card-value.muted{color:#909399}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+th,td{padding:10px 12px;border-bottom:1px solid #ebeef5;vertical-align:top;text-align:left;font-size:13px}
+th{background:#fafafa;font-weight:600;color:#606266}
+tr.ctx-row td{background:#fafbfc;border-top:0}
+.idx{width:36px;color:#909399;text-align:center}
+.q{font-weight:600;color:#1f2d3d}
+.a,.gt{white-space:pre-wrap;line-height:1.6}
+.gt{color:#606266;font-style:italic}
+.meta{color:#909399;font-size:12px;margin-top:4px}
+details{margin-top:6px}
+summary{cursor:pointer;color:#409eff;font-size:12px}
+ol{padding-left:18px;color:#606266;line-height:1.7}
+.chunk-id{font-family:Consolas,monospace;font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;color:#fff}
+.badge-good{background:#52c41a} .badge-mid{background:#faad14} .badge-bad{background:#f5222d} .badge-muted{background:#d9d9d9;color:#606266}
+</style></head><body>
+<h1>RAGAS 评测报告</h1>
+<div class="subtitle">数据集: D:\person_program\code\Juyao-Agentic-KnowledgeBase\juyao-agentic-rag\src\rag_eval\datasets\default\story_qa.jsonl · 指标: faithfulness, answer_relevancy, context_recall, context_precision · 条数: 7</div>
+<div class="cards"><div class="card"><div class="card-label">faithfulness</div><div class="card-value badge-bad">0.056</div></div><div class="card"><div class="card-label">answer_relevancy</div><div class="card-value badge-bad">0.000</div></div><div class="card"><div class="card-label">context_recall</div><div class="card-value badge-bad">0.000</div></div><div class="card"><div class="card-label">context_precision</div><div class="card-value badge-bad">0.000</div></div></div>
+<table><thead><tr><th>#</th><th>问题 / 检索</th><th>模型回答</th><th>参考答案</th><th>faithfulness</th><th>answer_relevancy</th><th>context_recall</th><th>context_precision</th></tr></thead>
+<tbody><tr><td class="idx">1</td><td><div class="q">狗熊岭被描述成什么样的森林？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+需要先提醒：**当前没有可用的检索片段**来直接回答&quot;狗熊岭被描述成什么样的森林&quot;，因此下面的内容是基于常识与公开作品的概括性描述，可能与您所指的特定作品细节存在差异，建议结合具体来源核实。
+
+## 关于&quot;狗熊岭&quot;的通用描述
+
+&quot;狗熊岭&quot;通常出现在国产动画《熊出没》系列及其相关作品中，在该系列里它被塑造为一个具有以下特征的森林场景：
+
+### 自然环境特征
+
+- **地理范围**：通常被描绘为一片面积较大、地形多样的山林地区，包含山谷、河流、湖泊以及茂密的植被。
+- **植被与生态**：以针叶林和阔叶林混合为主，林中常见高大的松树、桦树以及灌木丛，野生动物种类丰富。
+- **季节与氛围**：在剧集中既会出现阳光明媚的春日场景，也会出现白雪皑皑的冬季画面，整体氛围偏向童话式的森林。
+
+### 故事中的功能定位
+
+- **核心舞台**：是光头强、熊大、熊二以及其他动物角色日常生活和互动的主要场所。
+- **冲突中心**：由于伐木活动与动物保护之间的对立，狗熊岭常被呈现为&quot;人类活动与自然生态相互角力&quot;的象征性空间。
+- **情感基调**：一方面通过夸张的冲突制造喜剧效果，另一方面也传递出对森林生态和动物栖息地保护的正面价值观。
+
+## 补充提示
+
+&gt; 如果您是在询问某一特定剧集、漫画或衍生作品中对&quot;狗熊岭&quot;的描写，建议直接参考该作品的官方资料或原著文本，以获取最</div></td><td><div class="gt">狗熊岭被描述成会记仇、会饥饿、会模仿、会吞噬活物，把闯入者、居住者、所有活物一点点同化、消化的活森林。</div></td><td><span class="badge badge-bad">0.034</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr><tr><td class="idx">2</td><td><div class="q">熊大知道狗熊岭的真相吗？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+**⚠️ 证据不足提醒**
+当前未提供任何与&quot;熊大&quot;&quot;狗熊岭真相&quot;相关的检索片段，且该话题属于**国产动画《熊出没》**的虚构剧情范畴，不属于现实可核验的客观信息。因此无法基于文档或权威来源给出确切答案，仅能提供常识性的推测性说明。
+
+---
+
+## 关于这个问题的通用说明
+
+&quot;熊大&quot;是国产动画片《熊出没》系列中的主角之一（一只聪明的大狗熊），&quot;狗熊岭&quot;是动画中故事发生的虚构地点。
+
+关于&quot;狗熊岭的真相&quot;是否被熊大知晓，常见理解如下：
+
+1. **剧情设定层面**
+   动画中，熊大、熊二等角色**长期生活在狗熊岭**，它们对森林中的基本情况（如光头强的砍伐行为、各种动物的习性）非常熟悉，可以认为它们&quot;知道&quot;狗熊岭日常运作的真相。
+   但狗熊岭是否存在更深的&quot;隐藏真相&quot;（如幕后阴谋、神秘传说等），需根据**具体某一季/某一集**的剧情来判断，不同版本设定可能不同。
+
+2. **常见观众认知**
+   在多数剧场版或特别篇中，狗熊岭偶尔会出现新的谜团或反派，此时熊大往往是**最先察觉并推动解开真相**的角色之一。
+
+3. **无法直接回答的原因**
+   由于缺乏具体作品版本、剧集编号或剧情上下文，无法判断你所说的&quot;真相&quot;具体指代哪一段剧情。
+
+---
+
+&gt; 💡 **建议**：若你能补充具体的动画版本（如某部剧场版名称）或集数，我可以尝试给出更有针对性的回</div></td><td><div class="gt">熊大很早就知道狗熊岭活着，会记仇会吞噬，但他从来不敢告诉熊二。</div></td><td><span class="badge badge-bad">0.048</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr><tr><td class="idx">3</td><td><div class="q">熊大熊二在故事里真实身份是什么？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+### 先提醒：没有检索到可靠资料
+
+当前检索上下文没有提供任何可引用的片段，因此以下内容属于**通识层面的概括性说明**，并非来自特定文档或权威资料，相关细节可能存在偏差或简化，建议有兴趣的话查阅《熊出没》官方介绍或原始剧情资料进行核实。
+
+### 关于《熊出没》中熊大、熊二的&quot;真实身份&quot;
+
+从公开可见的动画剧情和人设来看（属通识总结）：
+
+- **熊大（Vink）**
+  - 物种设定：森林里的**棕熊**，通常被描述为体型相对较大的成年熊。
+  - 在故事中的定位：熊兄弟里的&quot;大哥&quot;，性格沉稳、谨慎、负责，扮演**守护森林、阻止光头强砍伐**的核心角色。
+- **熊二（Bramble）**
+  - 物种设定：同样是**棕熊**，但常以更憨厚、贪吃、冲动的形象出现。
+  - 在故事中的定位：弟弟角色，力量大但头脑简单，与熊大互补，是推进搞笑情节和冒险的重要角色。
+
+### 一些常见的&quot;身份&quot;延伸说法（仅供参考）
+
+在不同系列（如《熊出没之夺宝熊兵》《雪岭熊风》《奇幻空间》等剧场版）中，编剧会给两熊加入**额外背景**，比如：
+
+- 被设定为拥有某种**特殊能力或血脉**（如守护者、能量体等）；
+- 与森林中的其他动物（小动物、毛毛、吉吉等）形成**社区式的关系网**；
+- 部分版本会暗示它们有&quot;**过去的人类接触经历**&quot;或&quot;**被遗弃/成长的故事**</div></td><td><div class="gt">他们不是普通野熊，而是狗熊岭林地诞生的「容器」，是森林用来观察、模仿、学习、捕猎人类的活体人偶。</div></td><td><span class="badge badge-bad">0.048</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr><tr><td class="idx">4</td><td><div class="q">光头强入住木屋后第一晚发现了什么异常？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+需要先提醒您：**当前没有提供任何可用的检索片段**，因此我无法根据该作品的剧本、原作或官方资料来核实&quot;光头强入住木屋后第一晚发现了什么异常&quot;这一具体情节。该问题涉及某个故事版本或剧集中的具体桥段，**不同版本（如动画、漫画、电影、短剧等）的内容可能不一致**。
+
+---
+
+### 通用性回答思路
+
+如果您是在看某部《熊出没》系列的影视作品，光头强入住木屋的情节常见于其早期剧情，通常用来交代他作为伐木工的新生活。**常见的&quot;第一晚异常&quot;套路**包括：
+
+- 🏚️ **环境异常**：房屋老旧、地板吱呀作响、门窗因风吹晃动；
+- 🐻 **动物&quot;骚扰&quot;**：熊大、熊二对这位新邻居的试探（例如偷食物、翻东西）；
+- 🌙 **声音异常**：野外虫鸣、风声、远处动物嚎叫等让人难以入睡；
+- 💡 **心理不适**：对陌生环境的孤独感和不安全感。
+
+&gt; ⚠️ 这些只是&quot;通用推测&quot;，**不能视为对您问题的确切回答**。如需准确答案，建议核对具体作品的集数或原著。
+
+---
+
+### 建议
+
+如果您能告诉我：
+1. 这是哪一部《熊出没》作品（动画剧集/电影/短剧）？
+2. 大约是哪一季或哪一集？
+
+我可以基于常识进一步帮您回忆或梳理剧情脉络。
+
+引用: 无</div></td><td><div class="gt">半夜听见窗外有人类低语声贴着木屋墙壁绕圈，像无数人被封在墙里轻声呢喃。</div></td><td><span class="badge badge-bad">0.167</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr><tr><td class="idx">5</td><td><div class="q">光头强砍倒的松树第二天发生了什么？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+&gt; ⚠️ **证据不足提醒**：当前未检索到与&quot;光头强砍倒的松树第二天发生了什么&quot;这一问题直接相关的可引用资料。光头强是中国动画《熊出没》系列中的虚拟角色，其情节细节属于特定作品内容，通用知识范围内难以给出确切叙述。
+
+## 可能的剧情走向（仅作推测）
+
+《熊出没》动画中围绕光头强砍树的剧情通常具有较强的套路性，第二天可能出现的场景包括：
+
+1. **森林动物的阻止与冲突**
+   熊大、熊二发现倒下的松树后，通常会与光头强发生对峙或追逐情节。
+
+2. **松树被搬走或加工**
+   光头强可能将木材装车运往木材厂，或被李老板催促交货。
+
+3. **环保主题的转折**
+   剧中常通过&quot;树倒下后引发水土流失、小动物失去家园&quot;等桥段，强化保护森林的主题。
+
+4. **喜剧性的意外后果**
+   例如树木砸中光头强、机器故障、或者松树被动物们重新&quot;救活&quot;等夸张搞笑片段。
+
+&gt; 💡 由于缺乏确切剧集资料，以上内容仅为基于该系列常见叙事风格的**合理推测**，并非官方剧情确认。
+
+## 建议
+
+如需准确答案，可以：
+
+- 查阅《熊出没》对应集数的官方剧情介绍
+- 在视频平台（如爱奇艺、腾讯视频、B站）搜索具体集名
+- 关注华强方特（出品方）官方发布的剧集信息
+
+引用: 无</div></td><td><div class="gt">松树重新长回去了，断裂的树干笔直挺立，伤口愈合无痕，木屑全部消失，地上留下一圈浅浅的人形压痕。</div></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr><tr><td class="idx">6</td><td><div class="q">光头强为什么走不出狗熊岭？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+**提醒**：你询问的&quot;光头强为什么走不出狗熊岭&quot;，属于动画《熊出没》的剧情解读类问题。当前可用的知识库中并没有与此相关的检索片段，因此下面的回答是基于公开常识和剧情的概括性分析，**不构成官方权威解读**，具体细节请以动画原作为准。
+
+---
+
+### 可能的&quot;走不出去&quot;的原因（剧情角度分析）
+
+1. **职业绑定**
+   - 光头强是一名**伐木工**，李老板交给他的任务是在狗熊岭砍树。只要还有树木需要砍、有合同未完成，他就有理由继续留在这里。
+
+2. **与熊大、熊二的&quot;对手戏&quot;**
+   - 《熊出没》的核心冲突就是光头强 vs. 熊兄弟。
+   &gt; 熊大、熊二会不断破坏他的伐木计划，使他砍不成树，又离不开林子。如果他真的走了，故事的张力也就没了。
+
+3. **生活依赖**
+   - 他在狗熊岭有住所、工具、甚至一些朋友（赵琳、导游等），离开意味着**重新开始**，成本过高。
+
+4. **动画设定的&quot;闭环&quot;**
+   - 几乎所有的长寿动画角色都受限于&quot;设定地理&quot;——例如：
+     - 《猫和老鼠》的 Tom 离不开 Jerry 的房子
+     - 《喜羊羊与灰太狼》的灰太狼走不出青青草原
+   - 这是为了**保持角色关系的连续性**，并不是真实世界逻辑。
+
+5. **多次尝试离开均失败（剧情梗概）**
+   - 动画中曾出现光头强想离开或</div></td><td><div class="gt">只要他踏出狗熊岭边界，脑子就会剧烈眩晕、恶心、视线发黑，本能地强迫他回头，因为他从砍下第一棵树起就被森林登记在册，成了猎物。</div></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-muted">n/a</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr><tr><td class="idx">7</td><td><div class="q">熊大熊二最初表现出来的性格是真实还是伪装？</div><div class="meta">检索 0 段 · max_score=0.000 · had_evidence=False</div></td><td><div class="a">## 🌐 通用知识说明
+
+&gt; ⚠️ **证据不足提醒**：当前检索上下文未提供与&quot;熊大、熊二&quot;角色相关的可引用片段，因此以下内容基于对该动画作品的常识性了解，并非来自权威文档，可能存在理解偏差，建议以原作（《熊出没》系列动画）的官方信息为准。
+
+---
+
+### 关于熊大与熊二最初的性格表现
+
+从《熊出没》动画系列（自 2012 年首播起）的早期剧情来看，两位主角最初呈现出的性格特征 **主要是角色设定的真实表现，而非刻意伪装**，具体可以从以下几个维度理解：
+
+### 1. 性格设定本身就具有多面性
+
+- **熊大**：相对稳重、聪明、有责任感，常以&quot;大哥&quot;和&quot;保护者&quot;的姿态出现。
+- **熊二**：憨厚、贪吃、莽撞、乐观，情绪外放但缺乏深思熟虑。
+
+这些特质 **既非纯粹&quot;好&quot;也非纯粹&quot;坏&quot;**，而是复合的人（熊）格。早期看起来的某些&quot;缺点&quot;，本质上是性格的真实侧面。
+
+### 2. &quot;伪装&quot;解读的可能性
+
+如果一定要从&quot;伪装&quot;角度理解，可以参考以下两种剧情逻辑：
+
+- **对光头强的态度**：表面上是&quot;对立&quot;，但深层动机其实是**守护森林家园**的正当性。早期看似单纯的&quot;捣乱&quot;，其实是动物保护意识的真实流露。
+- **对彼此的态度**：熊大对熊二的包容与教导，看似是&quot;长兄的伪装&quot;，实则是**手足之情的自然表现**。
+
+### 3. 后期性格演变印证
+
+随着系列发展（例如《熊出</div></td><td><div class="gt">最初憨厚、善良、天真、护林、阻止伐木是森林给人类看的伪装人格，是演给外界、猎物和天道看的假面。</div></td><td><span class="badge badge-bad">0.095</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td><td><span class="badge badge-bad">0.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><em>无检索片段</em></li></ol></details></td></tr></tbody></table>
+</body></html>

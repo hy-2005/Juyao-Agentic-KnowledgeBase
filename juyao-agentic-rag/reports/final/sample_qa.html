@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>RAGAS 评测报告 · sample_qa.jsonl</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:24px;background:#f5f7fa;color:#303133}
+h1{margin:0 0 4px;font-size:22px}
+.subtitle{color:#909399;font-size:13px;margin-bottom:24px}
+.cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.card{background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.05);min-width:160px}
+.card-label{color:#606266;font-size:13px}
+.card-value{font-size:28px;font-weight:700;margin-top:6px}
+.card-value.good{color:#52c41a} .card-value.mid{color:#faad14} .card-value.bad{color:#f5222d} .card-value.muted{color:#909399}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+th,td{padding:10px 12px;border-bottom:1px solid #ebeef5;vertical-align:top;text-align:left;font-size:13px}
+th{background:#fafafa;font-weight:600;color:#606266}
+tr.ctx-row td{background:#fafbfc;border-top:0}
+.idx{width:36px;color:#909399;text-align:center}
+.q{font-weight:600;color:#1f2d3d}
+.a,.gt{white-space:pre-wrap;line-height:1.6}
+.gt{color:#606266;font-style:italic}
+.meta{color:#909399;font-size:12px;margin-top:4px}
+details{margin-top:6px}
+summary{cursor:pointer;color:#409eff;font-size:12px}
+ol{padding-left:18px;color:#606266;line-height:1.7}
+.chunk-id{font-family:Consolas,monospace;font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;color:#fff}
+.badge-good{background:#52c41a} .badge-mid{background:#faad14} .badge-bad{background:#f5222d} .badge-muted{background:#d9d9d9;color:#606266}
+</style></head><body>
+<h1>RAGAS 评测报告</h1>
+<div class="subtitle">数据集: D:\person_program\code\Juyao-Agentic-KnowledgeBase\juyao-agentic-rag\src\rag_eval\datasets\default\sample_qa.jsonl · 指标: faithfulness, answer_relevancy, context_recall, context_precision · 条数: 3</div>
+<div class="cards"><div class="card"><div class="card-label">faithfulness</div><div class="card-value badge-bad">0.268</div></div><div class="card"><div class="card-label">answer_relevancy</div><div class="card-value badge-good">0.891</div></div><div class="card"><div class="card-label">context_recall</div><div class="card-value badge-good">1.000</div></div><div class="card"><div class="card-label">context_precision</div><div class="card-value badge-good">1.000</div></div></div>
+<table><thead><tr><th>#</th><th>问题 / 检索</th><th>模型回答</th><th>参考答案</th><th>faithfulness</th><th>answer_relevancy</th><th>context_recall</th><th>context_precision</th></tr></thead>
+<tbody><tr><td class="idx">1</td><td><div class="q">感冒通常由什么引起？</div><div class="meta">检索 5 段 · max_score=0.873 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+感冒通常由**病毒感染**引起。常见的致病原包括鼻病毒、冠状病毒、流感病毒、副流感病毒等。普通感冒（上呼吸道感染）大多为病毒性，少数情况下可继发细菌感染。
+
+### 一、典型症状
+
+- 发热（多为低至中度）
+- 咳嗽
+- 咽痛
+- 乏力
+- 可伴有鼻塞、流涕、打喷嚏
+
+### 二、治疗原则
+
+感冒以**对症支持治疗**为主：
+
+| 措施 | 说明 |
+|------|------|
+| 休息 | 保证充足睡眠，避免劳累 |
+| 补液 | 多饮水，维持水电解质平衡 |
+| 对症处理 | 退热、止咳、缓解咽痛等 |
+| 抗病毒药物 | 一般不必常规使用，重症或高危人群可酌情考虑 |
+
+&gt; **就医提示**：若出现持续高热不退、呼吸困难、胸痛、咳脓痰、精神萎靡或症状持续加重等情况，应及时就医，警惕肺炎、心肌炎等并发症。
+
+---
+
+## 💡 补充说明（通用推断）
+
+以下为非来自检索证据的通用医学常识补充：
+
+### 1. 病毒种类（常见病原）
+
+- **鼻病毒（Rhinovirus）**：普通感冒最常见的病原，约占 30%–50%。
+- **冠状病毒（Coronavirus，非 SARS/MERS 类）**：也是常见致病原。
+- **流感病毒（Influenza virus）**：引起的&quot;流感&quot;症状通常更重，可高热、全身酸痛。
+- **副流感病毒、腺病毒、呼吸</div></td><td><div class="gt">感冒通常由病毒感染引起。</div></td><td><span class="badge badge-bad">0.324</span></td><td><span class="badge badge-good">0.992</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">等猎物彻底适应、彻底依赖、彻底不想走时 ——
+就是彻底吞噬的时刻。
+熊大浑身发抖。
+他看着那些布偶，看着那些死去的人。
+他们当年，一定也和光头强一样。
+一开始恐惧、想逃。
+后来习惯、依赖、舍不得。
+最后，被温柔包裹着，悄无声息融化在森林里。
+回到树洞后，熊大第一次主动找熊二谈话。
+深夜，兄弟俩坐在树洞门口，看着整片死寂…</span></li><li><span class="chunk-id">加出来的「复合拟态」。
+熊大承载的，是历代守林人、失踪工人的理智、隐忍、恐惧。
+熊二承载的，是所有死者的执念、孩童般的天真、疯狂、饥饿、残缺。
+而光头强 ——
+是这片森林最新的补全素材。
+布偶，是锁定标记。
+标记一旦落下，猎物永远无法逃离。
+接下来的日子，表面依旧是日常。
+白天，熊大熊二照旧阻止光头强伐木，打闹、搞笑、…</span></li><li><span class="chunk-id">的吞噬。
+熊大开始偷偷反抗。
+他故意破坏森林的规则。
+本该每晚去监视猎物的熊二，被熊大强行锁在树洞。
+本该让光头强逐渐沉沦的迷雾，被熊大刻意驱散。
+本该慢慢同化的剧情，被熊大一次次打断。
+森林察觉到反抗。
+它开始报复。
+首先异变的是动物们。
+涂涂的眼神永远浑浊，白天睡觉、黑夜睁眼，绕着树不停转圈，永远重复一句话：回家、…</span></li></ol></details></td></tr><tr><td class="idx">2</td><td><div class="q">感冒有哪些常见症状？</div><div class="meta">检索 5 段 · max_score=0.873 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+感冒（普通感冒）通常由病毒感染引起，常见的症状主要包括以下几类：
+
+### 一、常见症状一览
+
+| 症状类别 | 具体表现 |
+|---------|---------|
+| 全身症状 | 发热、乏力、全身酸痛 |
+| 呼吸道症状 | 咳嗽（干咳或有痰）、鼻塞、流涕、打喷嚏 |
+| 咽喉症状 | 咽痛、咽干、咽痒、声音嘶哑 |
+| 头部症状 | 轻度头痛 |
+| 消化道症状（部分）| 食欲减退、恶心 |
+
+### 二、症状特点
+
+1. **以局部症状为主**：鼻塞、流涕、咽痛、咳嗽最为常见。
+2. **全身症状相对较轻**：与流感相比，普通感冒发热和乏力通常不剧烈。
+3. **病程具有自限性**：一般在 5–7 天内可自行缓解。
+
+### 三、治疗与护理原则
+
+- **充分休息**：保证睡眠，避免劳累。
+- **补充液体**：多饮水，维持水电解质平衡。
+- **对症处理**：
+  - 发热可用退热药；
+  - 咽痛可含润喉片；
+  - 鼻塞可用通鼻喷雾；
+  - 咳嗽可用止咳祛痰药。
+- **不常规使用抗生素**：因感冒多为病毒引起，滥用抗生素既无效又可能产生耐药。
+
+### 四、需要就医的警示信号
+
+&gt; 若出现以下情况，应及时前往医院就诊：
+&gt; - 持续高热（&gt;39°C）超过 3 天不退；
+&gt; - 出现呼吸困难、胸痛、咯血；
+&gt; - 症状持续加重或超过</div></td><td><div class="gt">常见症状包括发热、咳嗽、咽痛、乏力。</div></td><td><span class="badge badge-bad">0.087</span></td><td><span class="badge badge-good">0.888</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">加出来的「复合拟态」。
+熊大承载的，是历代守林人、失踪工人的理智、隐忍、恐惧。
+熊二承载的，是所有死者的执念、孩童般的天真、疯狂、饥饿、残缺。
+而光头强 ——
+是这片森林最新的补全素材。
+布偶，是锁定标记。
+标记一旦落下，猎物永远无法逃离。
+接下来的日子，表面依旧是日常。
+白天，熊大熊二照旧阻止光头强伐木，打闹、搞笑、…</span></li><li><span class="chunk-id">他轻轻触碰光头强的眉心。
+重叠的无数人声，最终响起：
+「补全开始。」
+「三位一体成型。」
+「狗熊岭，闭环。」
+光头强的身体开始透明、虚化、闪烁。
+他的轮廓一点点变得虚幻，像像素消散。
+他的人格、记忆、意识，正在被整片森林抽取、拆解、同化。
+就在即将彻底消散的瞬间 ——
+一直沉默隐忍的熊大，彻底爆发。
+他挣脱了森林的行为…</span></li><li><span class="chunk-id">等猎物彻底适应、彻底依赖、彻底不想走时 ——
+就是彻底吞噬的时刻。
+熊大浑身发抖。
+他看着那些布偶，看着那些死去的人。
+他们当年，一定也和光头强一样。
+一开始恐惧、想逃。
+后来习惯、依赖、舍不得。
+最后，被温柔包裹着，悄无声息融化在森林里。
+回到树洞后，熊大第一次主动找熊二谈话。
+深夜，兄弟俩坐在树洞门口，看着整片死寂…</span></li></ol></details></td></tr><tr><td class="idx">3</td><td><div class="q">感冒一般如何治疗？</div><div class="meta">检索 5 段 · max_score=0.839 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+根据医疗知识库示例内容，感冒的治疗要点如下：
+
+### 一、感冒的基本认识
+
+感冒通常由**病毒感染**引起，常见症状包括：
+
+- 发热
+- 咳嗽
+- 咽痛
+- 乏力
+
+### 二、常规治疗原则
+
+治疗以**对症支持**为主，而非针对病原体（因为多数感冒由病毒引起，抗生素无效）：
+
+| 治疗方向 | 具体措施 |
+|---------|---------|
+| 休息 | 保证充足睡眠，避免劳累 |
+| 补液 | 多喝水或电解质饮料，避免脱水 |
+| 对症处理 | 根据症状选择相应药物缓解不适 |
+
+### 三、何时就医
+
+若出现以下情况，应**及时就医**，而非自行处理：
+
+&gt; - 持续高热（通常指体温超过 39℃，或发热数天不退）
+&gt; - 出现呼吸困难
+&gt; - 症状加重或迁延不愈
+&gt; - 出现其他严重或异常表现
+
+### 四、温馨提示
+
+- 冬季与气温变化大时为感冒高发期，建议注意保暖、规律作息。
+- 本回答依据来源较为简略，仅涵盖感冒的基础治疗方向；具体用药方案（如退热药、止咳药、感冒复方制剂等）建议咨询医生或药师。
+- 儿童、老人、孕妇及慢性病患者用药更需谨慎，不可自行滥用药物。
+
+---
+
+`引用: sample_medical.txt#678b60dd3c847198`</div></td><td><div class="gt">治疗以休息、补液、对症处理为主。</div></td><td><span class="badge badge-bad">0.394</span></td><td><span class="badge badge-mid">0.791</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">加出来的「复合拟态」。
+熊大承载的，是历代守林人、失踪工人的理智、隐忍、恐惧。
+熊二承载的，是所有死者的执念、孩童般的天真、疯狂、饥饿、残缺。
+而光头强 ——
+是这片森林最新的补全素材。
+布偶，是锁定标记。
+标记一旦落下，猎物永远无法逃离。
+接下来的日子，表面依旧是日常。
+白天，熊大熊二照旧阻止光头强伐木，打闹、搞笑、…</span></li><li><span class="chunk-id">等猎物彻底适应、彻底依赖、彻底不想走时 ——
+就是彻底吞噬的时刻。
+熊大浑身发抖。
+他看着那些布偶，看着那些死去的人。
+他们当年，一定也和光头强一样。
+一开始恐惧、想逃。
+后来习惯、依赖、舍不得。
+最后，被温柔包裹着，悄无声息融化在森林里。
+回到树洞后，熊大第一次主动找熊二谈话。
+深夜，兄弟俩坐在树洞门口，看着整片死寂…</span></li><li><span class="chunk-id">他轻轻触碰光头强的眉心。
+重叠的无数人声，最终响起：
+「补全开始。」
+「三位一体成型。」
+「狗熊岭，闭环。」
+光头强的身体开始透明、虚化、闪烁。
+他的轮廓一点点变得虚幻，像像素消散。
+他的人格、记忆、意识，正在被整片森林抽取、拆解、同化。
+就在即将彻底消散的瞬间 ——
+一直沉默隐忍的熊大，彻底爆发。
+他挣脱了森林的行为…</span></li></ol></details></td></tr></tbody></table>
+</body></html>

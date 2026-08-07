@@ -168,21 +168,98 @@ def _retrieve_for_single_query(
     return fused, max_vec_score
 
 
+def _fetch_parents_by_ids(parent_ids: set[str], kb_id: int) -> dict[str, Document]:
+    """按 chunk_id 从 Qdrant 取父块完整 Document（子块命中映射用）。
+
+    父块与子块都写在同 collection（ingest 步骤 1）；按 chunk_id 精确 scroll。
+    """
+    from rag_core.infrastructure.qdrant import get_qdrant_client
+
+    if not parent_ids:
+        return {}
+    client = get_qdrant_client()
+    flt = models.Filter(
+        must=[
+            models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id))),
+            models.FieldCondition(
+                key="metadata.chunk_id",
+                match=models.MatchAny(any=list(parent_ids)),
+            ),
+        ]
+    )
+    out: dict[str, Document] = {}
+    offset = None
+    while True:
+        records, offset = client.scroll(
+            collection_name=get_settings().qdrant_collection,
+            scroll_filter=flt,
+            limit=100,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        if not records:
+            break
+        for r in records:
+            p = r.payload or {}
+            meta = p.get("metadata") or p
+            cid = str(meta.get("chunk_id") or "")
+            if cid and cid not in out:
+                content = str(p.get("page_content") or "")
+                out[cid] = Document(page_content=content, metadata=dict(meta))
+        if offset is None:
+            break
+    return out
+
+
 def _vector_topk(query: str, k: int, kb_id: int = 0) -> list[tuple[Document, float]]:
     # 向量召回；float 为相似度 relevance（如 cosine），仅用于阈值过滤与 max_score 展示，
     # 不参与与 ES 分数的直接相加（RRF 只看名次）。索引尚未建好时返回空列表。
     # kb_id 始终过滤（含 0）——否则 kb=0 会串到 kb>0 的数据；旧数据无 kb_id 字段，
     # 在重灌后消失，过渡期 kb=0 检索不到旧数据属预期。
+    # 父子模式：检索子块（精度），命中后按 parent_chunk_id 映射聚合到父块（去重）。
     try:
         vector_store = get_vector_store()
         flt = models.Filter(
             must=[models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))]
         )
-        return vector_store.similarity_search_with_relevance_scores(query, k=k, filter=flt)
+        raw = vector_store.similarity_search_with_relevance_scores(query, k=k, filter=flt)
     except UnexpectedResponse as exc:
         if "doesn't exist" in str(exc) or "Not found" in str(exc):
             return []
         raise
+
+    if not get_settings().chunk_parent_enabled:
+        return raw
+
+    # 子块命中 → 映射父块：多子块命中同一父块合并（按名次取最优子块的分数）
+    parent_ids = {
+        doc.metadata.get("parent_chunk_id")
+        for doc, _ in raw
+        if doc.metadata.get("chunk_type") == "child" and doc.metadata.get("parent_chunk_id")
+    }
+    parents = _fetch_parents_by_ids(parent_ids, kb_id)
+    # 父块自身命中（chunk_type=parent）也保留
+    best_by_parent: dict[str, tuple[Document, float]] = {}
+    for doc, score in raw:
+        if doc.metadata.get("chunk_type") == "parent":
+            cid = doc.metadata.get("chunk_id")
+            if cid and cid not in best_by_parent:
+                best_by_parent[cid] = (doc, score)
+        else:
+            pid = doc.metadata.get("parent_chunk_id")
+            if pid and pid in parents and pid not in best_by_parent:
+                best_by_parent[pid] = (parents[pid], score)
+    merged = list(best_by_parent.values())
+    merged.sort(key=lambda t: t[1], reverse=True)
+    if len(merged) != len(raw):
+        logger.info(
+            "【父子检索】子块映射父块：%s 命中 → %s 父块（去重 %s）",
+            len(raw),
+            len(merged),
+            len(raw) - len(merged),
+        )
+    return merged
 
 
 def _log_cross_fusion(
