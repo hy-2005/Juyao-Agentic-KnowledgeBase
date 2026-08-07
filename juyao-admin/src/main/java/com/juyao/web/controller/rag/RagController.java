@@ -21,6 +21,7 @@ import com.juyao.common.core.controller.BaseController;
 import com.juyao.common.core.domain.AjaxResult;
 import com.juyao.rag.RagChatClient;
 import com.juyao.rag.RagSseEvent;
+import com.juyao.system.service.IRagKbService;
 
 /**
  * RAG 对话网关：浏览器 / 前端只请求本 Controller；由 {@link RagChatClient} HTTP 转发至 Python FastAPI，会话数据由 FastAPI 读写 Redis，Java 不经手 Redis。
@@ -30,6 +31,9 @@ import com.juyao.rag.RagSseEvent;
 public class RagController extends BaseController{
     @Autowired
     private RagChatClient ragChatClient;
+
+    @Autowired
+    private IRagKbService ragKbService;
 
     @GetMapping("/sessions")
     public AjaxResult listSessions(){
@@ -98,6 +102,10 @@ public class RagController extends BaseController{
         String sessionId = body.sessionId();
         String message = body.message();
         Long kbId = body.kbId();
+        // kb 权限校验（P1-2）：kbId 非空且 >0 时校验当前用户访问权；null/0 兼容单库旧前端
+        if (kbId != null && kbId > 0L){
+            ragKbService.checkAccess(kbId, getUserId());
+        }
 
         Thread worker = new Thread(() -> {
             try{
