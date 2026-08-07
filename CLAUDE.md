@@ -33,3 +33,21 @@ flt = models.Filter(
 - 本项目 Python 侧为 `juyao-agentic-rag/`，Java 侧为 `juyao-admin/` 等模块；两处同样适用本规范。
 - 评审/方案文档统一放 `juyao-agentic-rag/docs/`（REVIEW.md 系列），代码改动前先读对应评审文档。
 - **需求完成一项必须同步更新文档**：每完成一个功能/修复/重构项，须在对应 REVIEW.md 或 `docs/eval/RESULTS_*.md` 记录实现结果、验证数据与遗留问题；不允许代码完成而文档空白。
+
+### 踩坑记录规则（必须遵守）
+
+**每个踩坑必须记录到 `juyao-agentic-rag/docs/PITFALLS.md`**，包含：场景、现象、根因、修复、教训。以下情况必须记录：
+
+1. 运行时错误排查超过 15 分钟才定位的 bug
+2. 数据被误删/丢失/串库（隔离失效、清理误伤）
+3. 外部系统行为假设被推翻（Qdrant payload 结构、Neo4j 语法、模型输出格式）
+4. 修复后又复发或"修好但说不清为什么"的问题
+5. 任何导致评测/校准数据失效的问题
+
+记录后同步更新 PITFALLS.md 末尾的**踩坑模式总结**（提炼可复用教训）。
+
+### docs 目录索引规则
+
+- `juyao-agentic-rag/docs/README.md` 是**文档目录索引**（唯一入口）：每份文档一行（名称 + 一句话说明 + 状态标记 ✅已实施 / 📌待办 / ❌未实施）
+- **新增或改名文档时**：必须同步更新 README.md 索引；已有文档状态变化时同步更新状态标记
+- 文档命名约定：评审/方案用 `*_REVIEW.md`，实施记录用 `docs/eval/RESULTS_*.md`，踩坑统一 `PITFALLS.md`
