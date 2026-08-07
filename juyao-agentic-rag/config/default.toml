@@ -39,7 +39,7 @@ elasticsearch_url = "http://localhost:9201"
 elasticsearch_index = "juyao_knowledge_chunks"
 
 # --- 切分与检索 ---
-chunk_size = 800
+chunk_size = 600
 chunk_max_chars = 1400
 chunk_overlap = 120
 top_k = 15
