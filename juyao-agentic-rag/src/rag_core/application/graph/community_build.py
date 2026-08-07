@@ -69,7 +69,8 @@ def _store_community(
         """
         UNWIND $entities AS ename
         MATCH (e:Entity {name: ename})
-        MERGE (e)-[:MEMBER_OF]->(c:Community {id: $cid})
+        MATCH (c:Community {id: $cid})
+        MERGE (e)-[:MEMBER_OF]->(c)
         """,
         {"entities": entities, "cid": community_id},
         session=session,
