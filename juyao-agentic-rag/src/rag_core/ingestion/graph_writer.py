@@ -23,6 +23,7 @@ def _extract_and_write_one_chunk(
     source_name: str,
     idx: int,
     total: int,
+    kb_id: int = 0,
 ) -> tuple[int, int]:
     """单 chunk 抽取 + 写 Neo4j；每任务独立 LLM/Neo4j 连接，供线程池调用。"""
     metadata = chunk.metadata or {}
@@ -40,6 +41,7 @@ def _extract_and_write_one_chunk(
             source_doc_id=source_doc_id,
             chunk_id=chunk_id,
             source_name=source_name,
+            kb_id=kb_id,
         )
         logger.info(
             "【GraphRAG】chunk进度 %s/%s chunk_id=%s 抽取=%s 写入=%s",
@@ -61,16 +63,19 @@ def _extract_and_write_one_chunk(
         return 0, 0
 
 
-def write_chunks_to_graph(*, chunks: list[Document], source_name: str) -> tuple[int, int]:
+def write_chunks_to_graph(
+    *, chunks: list[Document], source_name: str, kb_id: int = 0
+) -> tuple[int, int]:
     """将已切块文档写入 Neo4j，返回 (处理 chunk 数, 关系条数)。"""
     settings = get_settings()
     workers = max(1, settings.ingest_graph_workers)
     total = len(chunks)
     logger.info(
-        "【GraphRAG】开始图谱构建：source=%s chunks=%s workers=%s",
+        "【GraphRAG】开始图谱构建：source=%s chunks=%s workers=%s kb=%s",
         source_name,
         total,
         workers,
+        kb_id,
     )
     Neo4jTripleStore().ensure_schema()
 
@@ -85,6 +90,7 @@ def write_chunks_to_graph(*, chunks: list[Document], source_name: str) -> tuple[
                 source_name=source_name,
                 idx=idx,
                 total=total,
+                kb_id=kb_id,
             )
             triple_count += written
             chunk_count += processed
@@ -101,6 +107,7 @@ def write_chunks_to_graph(*, chunks: list[Document], source_name: str) -> tuple[
                 source_name=source_name,
                 idx=idx,
                 total=total,
+                kb_id=kb_id,
             ): idx
             for idx, chunk in enumerate(chunks, start=1)
         }

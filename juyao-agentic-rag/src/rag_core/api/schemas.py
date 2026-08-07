@@ -7,6 +7,7 @@ class ChatStreamRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     session_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1)
+    kb_id: int = Field(default=0, ge=0)  # 知识库 ID；缺省 0（单库）
 
 
 class SessionCreateRequest(BaseModel):

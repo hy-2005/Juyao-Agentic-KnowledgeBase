@@ -27,6 +27,7 @@ def ingest_file(
     enable_graph: bool = True,
     purge_before_write: bool = False,
     content_sha256: str | None = None,
+    kb_id: int = 0,
 ) -> tuple[int, int]:
     """导入单个文件，返回（向量侧 chunk 数，图侧关系数）。"""
     begin = time.time()
@@ -36,12 +37,12 @@ def ingest_file(
 
     if purge_before_write:
         logger.info("【入库】先按逻辑名清理旧索引：%s", logical_name)
-        delete_document_from_indexes(logical_name, include_graph=enable_graph)
+        delete_document_from_indexes(logical_name, include_graph=enable_graph, kb_id=kb_id)
 
-    logger.info("【入库】开始处理文件：%s source_name=%s", file_path, logical_name)
+    logger.info("【入库】开始处理文件：%s source_name=%s kb=%s", file_path, logical_name, kb_id)
     content = load_document(str(path))
     logger.info("【入库】原文读取完成：source=%s 字符数=%s", logical_name, len(content))
-    chunks = split_into_chunks(source_name=logical_name, content=content)
+    chunks = split_into_chunks(source_name=logical_name, content=content, kb_id=kb_id)
     for chunk in chunks:
         chunk.metadata[META_SHA_KEY] = doc_sha
     logger.info("【入库】切块完成：source=%s chunks=%s", logical_name, len(chunks))
@@ -60,7 +61,7 @@ def ingest_file(
 
     triple_count = 0
     if enable_graph:
-        _, triple_count = write_chunks_to_graph(chunks=chunks, source_name=logical_name)
+        _, triple_count = write_chunks_to_graph(chunks=chunks, source_name=logical_name, kb_id=kb_id)
 
     cost = time.time() - begin
     logger.info(

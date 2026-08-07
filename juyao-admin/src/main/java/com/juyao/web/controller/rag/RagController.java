@@ -97,10 +97,12 @@ public class RagController extends BaseController{
         String userId = String.valueOf(getUserId());
         String sessionId = body.sessionId();
         String message = body.message();
+        Long kbId = body.kbId();
 
         Thread worker = new Thread(() -> {
             try{
-                ragChatClient.streamChat(userId, sessionId, message, (RagSseEvent event) -> sendEvent(emitter, event));
+                ragChatClient.streamChat(userId, sessionId, message, kbId,
+                        (RagSseEvent event) -> sendEvent(emitter, event));
                 emitter.complete();
             } catch (Exception e){
                 sendEvent(emitter, new RagSseEvent("error", "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}"));
@@ -126,7 +128,7 @@ public class RagController extends BaseController{
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    public record ChatRequest(String sessionId, String message){
+    public record ChatRequest(String sessionId, String message, Long kbId){
     }
 
     public record SessionTitleBody(String title){

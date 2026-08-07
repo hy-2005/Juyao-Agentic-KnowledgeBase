@@ -2,7 +2,10 @@
 # 说明：.md 按文本读入，保留 # 标题与列表符号，便于语义切块；.doc 不支持，请另存为 .docx 或 PDF。
 
 import csv
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def load_text(path: str) -> str:
@@ -53,6 +56,50 @@ def _load_docx_as_text(path: str) -> str:
     return "\n\n".join(blocks).strip() or ""
 
 
+# OCR 页面文本层判定阈值：低于该字符数且页面含图片视为扫描件页
+_OCR_TEXT_THRESHOLD = 20
+
+
+def _get_ocr_engine():
+    """懒加载 RapidOCR 单例；未安装时返回 None 并告警（不阻断入库）。
+
+    扫描件 PDF 无文本层，纯 get_text 会静默丢内容，必须走 OCR。
+    """
+    if not hasattr(_get_ocr_engine, "_engine"):
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+
+            _get_ocr_engine._engine = RapidOCR()
+            logger.info("RapidOCR 已加载（扫描件 PDF 识别启用）")
+        except ImportError:
+            logger.warning(
+                "未安装 rapidocr-onnxruntime，扫描件 PDF 将跳过 OCR（内容为空）。"
+                "安装：pip install rapidocr-onnxruntime"
+            )
+            _get_ocr_engine._engine = None
+    return _get_ocr_engine._engine
+
+
+def _ocr_page(engine, page) -> str:
+    """对单页做 OCR：渲染 PNG → rapidocr 识别 → 按行拼接文本。"""
+    try:
+        pix = page.get_pixmap(dpi=200)
+        result, _ = engine(pix.tobytes("png"))
+        if not result:
+            return ""
+        lines: list[str] = []
+        for item in result:
+            # rapidocr 返回 [[bbox, text, score], ...]
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                text = str(item[1]).strip()
+                if text:
+                    lines.append(text)
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.warning("PDF 第 %s 页 OCR 失败：%s", page.number + 1, exc)
+        return ""
+
+
 def load_document(path: str) -> str:
     """按扩展名加载为 UTF-8 纯文本；未知扩展名走 load_text（多编码兜底）。"""
     file_path = Path(path)
@@ -67,8 +114,23 @@ def load_document(path: str) -> str:
         doc = fitz.open(path)
         try:
             parts: list[str] = []
+            ocr_engine = None
             for page in doc:
-                parts.append(page.get_text() or "")
+                text = page.get_text() or ""
+                # 无文本层且含图片的页面（扫描件）：懒加载 OCR 兜底，避免内容静默丢失
+                if len(text.strip()) < _OCR_TEXT_THRESHOLD and page.get_images():
+                    if ocr_engine is None:
+                        ocr_engine = _get_ocr_engine()
+                    if ocr_engine is not None:
+                        ocr_text = _ocr_page(ocr_engine, page)
+                        if ocr_text:
+                            logger.info(
+                                "PDF 第 %s 页无文本层，OCR 提取 %s 字符",
+                                page.number + 1,
+                                len(ocr_text),
+                            )
+                            text = ocr_text
+                parts.append(text)
             return "\n\n".join(parts).strip() or ""
         finally:
             doc.close()

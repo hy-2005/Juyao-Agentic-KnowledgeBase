@@ -7,8 +7,8 @@ from rag_core.orchestration.types import ExecuteResult
 from rag_core.retrieval.retriever import search_context
 
 
-def execute_retrieval_step(query: str, round_idx: int) -> ExecuteResult:
-    ctx = search_context(query)
+def execute_retrieval_step(query: str, round_idx: int, kb_id: int = 0) -> ExecuteResult:
+    ctx = search_context(query, kb_id=kb_id)
     docs_by_id: dict[str, Document] = {}
     for doc in ctx.documents:
         cid = str(doc.metadata.get("chunk_id", "unknown_chunk"))

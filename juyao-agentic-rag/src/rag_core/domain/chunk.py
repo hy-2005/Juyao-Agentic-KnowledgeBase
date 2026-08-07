@@ -21,12 +21,13 @@ class ChunkContract:
     overlap_right: int
 
 
-def build_source_doc_id(content: str, source_name: str) -> str:
-    # 生成文档级 ID：文件名 + 全文内容 hash 前缀。
+def build_source_doc_id(content: str, source_name: str, kb_id: int = 0) -> str:
+    # 生成文档级 ID：kb_id + 文件名 + 全文内容 hash 前缀。
+    # kb 进 ID 前缀保证多知识库同名文档的 chunk_id/point id/ES _id 互不冲突；
     # 同一文件内容不变则 source_doc_id 稳定，便于增量更新比对。
     digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
     safe_name = source_name.replace(" ", "_")
-    return f"{safe_name}:{digest}"
+    return f"{kb_id}:{safe_name}:{digest}"
 
 
 def build_chunk_id(source_doc_id: str, chunk_index: int, chunk_text: str) -> str:
@@ -44,6 +45,7 @@ def enrich_chunk_metadata(
     end_char: int,
     overlap_left: int,
     overlap_right: int,
+    kb_id: int = 0,
 ) -> Document:
     # 把公约字段写入 LangChain Document.metadata，供检索与溯源展示。
     # chunk_id 依赖 chunk 文本本身：文本变更 -> ID 变更 -> 可触发增量更新策略。
@@ -60,4 +62,5 @@ def enrich_chunk_metadata(
             overlap_right=overlap_right,
         ).__dict__
     )
+    metadata["kb_id"] = kb_id
     return Document(page_content=document.page_content, metadata=metadata)

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>RAGAS 评测报告 · sample_qa.jsonl</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:24px;background:#f5f7fa;color:#303133}
+h1{margin:0 0 4px;font-size:22px}
+.subtitle{color:#909399;font-size:13px;margin-bottom:24px}
+.cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.card{background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.05);min-width:160px}
+.card-label{color:#606266;font-size:13px}
+.card-value{font-size:28px;font-weight:700;margin-top:6px}
+.card-value.good{color:#52c41a} .card-value.mid{color:#faad14} .card-value.bad{color:#f5222d} .card-value.muted{color:#909399}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+th,td{padding:10px 12px;border-bottom:1px solid #ebeef5;vertical-align:top;text-align:left;font-size:13px}
+th{background:#fafafa;font-weight:600;color:#606266}
+tr.ctx-row td{background:#fafbfc;border-top:0}
+.idx{width:36px;color:#909399;text-align:center}
+.q{font-weight:600;color:#1f2d3d}
+.a,.gt{white-space:pre-wrap;line-height:1.6}
+.gt{color:#606266;font-style:italic}
+.meta{color:#909399;font-size:12px;margin-top:4px}
+details{margin-top:6px}
+summary{cursor:pointer;color:#409eff;font-size:12px}
+ol{padding-left:18px;color:#606266;line-height:1.7}
+.chunk-id{font-family:Consolas,monospace;font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;color:#fff}
+.badge-good{background:#52c41a} .badge-mid{background:#faad14} .badge-bad{background:#f5222d} .badge-muted{background:#d9d9d9;color:#606266}
+</style></head><body>
+<h1>RAGAS 评测报告</h1>
+<div class="subtitle">数据集: D:\person_program\code\Juyao-Agentic-KnowledgeBase\juyao-agentic-rag\src\rag_eval\datasets\default\sample_qa.jsonl · 指标: faithfulness, answer_relevancy, context_recall, context_precision · 条数: 3</div>
+<div class="cards"><div class="card"><div class="card-label">faithfulness</div><div class="card-value badge-bad">0.242</div></div><div class="card"><div class="card-label">answer_relevancy</div><div class="card-value badge-good">0.871</div></div><div class="card"><div class="card-label">context_recall</div><div class="card-value badge-good">1.000</div></div><div class="card"><div class="card-label">context_precision</div><div class="card-value badge-good">1.000</div></div></div>
+<table><thead><tr><th>#</th><th>问题 / 检索</th><th>模型回答</th><th>参考答案</th><th>faithfulness</th><th>answer_relevancy</th><th>context_recall</th><th>context_precision</th></tr></thead>
+<tbody><tr><td class="idx">1</td><td><div class="q">感冒通常由什么引起？</div><div class="meta">检索 5 段 · max_score=0.848 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+感冒通常由**病毒感染**引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以**休息、补液、对症处理**为主。
+
+&gt; **风险提示**：若出现持续高热或呼吸困难，应及时就医，避免延误病情。
+
+---
+
+## 💡 补充说明（通用推断）
+
+基于上述证据并结合通用医学常识，可补充以下信息（属于通用医学知识，非来自检索上下文）：
+
+| 项目 | 说明 |
+|------|------|
+| **常见病原体** | 鼻病毒、流感病毒、副流感病毒、冠状病毒、腺病毒等 |
+| **传播途径** | 主要通过飞沫传播，也可经接触污染物体后接触口鼻传播 |
+| **病程特点** | 普通感冒多为自限性，通常 7–10 天可自行缓解 |
+| **易感因素** | 疲劳、受凉、免疫力下降、季节交替等可增加发病风险 |
+| **预防建议** | 注意手卫生、保持通风、适度锻炼、充足睡眠 |
+
+---
+
+引用:
+- sample_medical.txt:678b60dd3c847198:0:66d7e8dcf31c</div></td><td><div class="gt">感冒通常由病毒感染引起。</div></td><td><span class="badge badge-bad">0.370</span></td><td><span class="badge badge-good">0.837</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">耿志超
+
+应聘岗位：售前产品经理360339564@qq.com (+86) 155-1512-2370
+
+个人博客：https://blog.csdn.net/weixin_73756947?type=blog（持续更新中）
+
+教育背景
+
+2022.09 - 2026.06	重庆工程学院	软件工程	本科
+
+学习课程：…</span></li><li><span class="chunk-id">。
+就是这一夜，一切彻底变了。
+熊二开始频繁做噩梦。
+梦里是无边无际的黑色林场，无数模糊人影在树间站立，全部背对他，一动不动。
+无论他怎么喊，怎么跑，那些人影永远不回头。
+只有风声，在重复一句模糊的话：
+「顶替。」
+「吃掉。」
+「补上空缺。」
+第二天醒来，熊二性格变了。
+他不再单纯贪吃，不再傻乎乎吵闹。
+他偶尔会发呆，…</span></li><li><span class="chunk-id">守护书，一个去追查真相。然后我自己给自己写信，让自己去找到那个不存在的数字，因为只有找到了，分裂才能合拢。”
+
+“但那个数字不存在，”埃德蒙说。
+
+“所以这是一个永远无法完成的任务，”伊琳娜说，“你永远会在七次循环之后忘记一切，重新开始。”
+
+窗外，雨停了。这是四十七天以来雨第一次停。
+
+马可拿起那只怀表，把它贴在自己…</span></li></ol></details></td></tr><tr><td class="idx">2</td><td><div class="q">感冒有哪些常见症状？</div><div class="meta">检索 5 段 · max_score=0.867 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+感冒（通常由病毒感染引起）常见的症状主要包括以下几类：
+
+| 症状类型 | 具体表现 |
+|---------|---------|
+| **全身症状** | 发热、乏力、疲倦 |
+| **呼吸道症状** | 咳嗽 |
+| **咽喉症状** | 咽痛 |
+
+### 处理建议（依据检索内容）
+
+- 以**休息**为主
+- 注意**补液**（多喝水）
+- 进行**对症处理**（如退热、止咳等）
+
+&gt; ⚠️ **需要警惕的情况**：若出现**持续高热**或**呼吸困难**，应及时就医，避免延误。
+
+---
+
+引用:
+- sample_medical.txt:678b60dd3c847198:0:66d7e8dcf31c</div></td><td><div class="gt">常见症状包括发热、咳嗽、咽痛、乏力。</div></td><td><span class="badge badge-bad">0.333</span></td><td><span class="badge badge-good">0.927</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">，哥在。」
+「哥会救你。」
+「哥会救光头强。」
+「我们不要变成森林的傀儡。」
+可他话音刚落。
+整片森林，突然响起无数细碎笑声。
+风声、树叶声、水流声，全部变成人类的笑。
+阴冷、诡异、密密麻麻、无处不在。
+森林，听见了。
+它开始加速最终剧情。
+第二天开始，日常彻底崩坏。
+原本只会阻止伐木的熊大熊二，开始主动送木头给光头强…</span></li><li><span class="chunk-id">像一个完美的假人，学着人类笑、学着人类闹、学着人类守护山林。
+可它的内核，永远只有饥饿。
+无尽的、冰冷的、永不满足的饥饿。
+熊大一直隐忍。
+他清醒，他痛苦，他知道终有一天，森林会彻底吞噬光头强。
+而他和弟弟，会彻底变成没有自我的森林傀儡。
+真正的崩坏爆发，发生在一个雨夜。
+暴雨倾盆，雷声轰鸣，整片狗熊岭风声凄厉，像无数…</span></li><li><span class="chunk-id">耿志超
+
+应聘岗位：售前产品经理360339564@qq.com (+86) 155-1512-2370
+
+个人博客：https://blog.csdn.net/weixin_73756947?type=blog（持续更新中）
+
+教育背景
+
+2022.09 - 2026.06	重庆工程学院	软件工程	本科
+
+学习课程：…</span></li><li><span class="chunk-id">。
+就是这一夜，一切彻底变了。
+熊二开始频繁做噩梦。
+梦里是无边无际的黑色林场，无数模糊人影在树间站立，全部背对他，一动不动。
+无论他怎么喊，怎么跑，那些人影永远不回头。
+只有风声，在重复一句模糊的话：
+「顶替。」
+「吃掉。」
+「补上空缺。」
+第二天醒来，熊二性格变了。
+他不再单纯贪吃，不再傻乎乎吵闹。
+他偶尔会发呆，…</span></li></ol></details></td></tr><tr><td class="idx">3</td><td><div class="q">感冒一般如何治疗？</div><div class="meta">检索 5 段 · max_score=0.839 · had_evidence=True</div></td><td><div class="a">## 📚 知识库依据回答
+
+感冒（多由病毒感染引起）的治疗原则以**休息、补液、对症处理**为主，具体可参考以下要点：
+
+### 一、一般治疗（基础且关键）
+
+1. **充分休息**：保证每日 8 小时以上睡眠，避免劳累和剧烈运动，让免疫系统集中对抗病毒。
+2. **补充水分**：每日饮水 1500–2000 ml，温水为宜，可适量补充电解质（淡盐水、果汁），防止脱水、稀释痰液。
+3. **清淡饮食**：多摄入富含维生素 C 的蔬果（橙子、猕猴桃、青菜），保证蛋白质摄入（鸡蛋、瘦肉、粥），避免油腻、辛辣。
+4. **注意隔离与卫生**：勤洗手、戴口罩，咳嗽/打喷嚏时用纸巾遮挡，防止传染他人。
+
+### 二、对症治疗（针对主要症状）
+
+&gt; 普通感冒若无并发症，通常 7–10 天可自愈；以下药物用于缓解不适，不能&quot;缩短病程&quot;。
+
+| 症状 | 常用药物（OTC） | 说明 |
+|------|-----------------|------|
+| 发热、头痛、咽痛 | 对乙酰氨基酚、布洛芬 | 体温 ≥38.5℃ 或明显不适时使用 |
+| 鼻塞 | 生理盐水喷鼻、伪麻黄碱 | 短期使用，避免长期依赖 |
+| 流涕/打喷嚏 | 马来酸氯苯那敏（扑尔敏） | 可能引起嗜睡 |
+| 咳嗽 | 右美沙芬（干咳）、氨溴索（湿咳） | 区分干咳与有痰咳嗽 |
+| 咽痛 | 西吡氯铵含片、金银花等 </div></td><td><div class="gt">治疗以休息、补液、对症处理为主。</div></td><td><span class="badge badge-bad">0.022</span></td><td><span class="badge badge-good">0.849</span></td><td><span class="badge badge-good">1.000</span></td><td><span class="badge badge-good">1.000</span></td></tr><tr class="ctx-row"><td></td><td colspan="7"><details><summary>查看检索片段</summary><ol><li><span class="chunk-id">医疗知识库示例：感冒通常由病毒感染引起。常见症状包括发热、咳嗽、咽痛、乏力。治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。…</span></li><li><span class="chunk-id">耿志超
+
+应聘岗位：售前产品经理360339564@qq.com (+86) 155-1512-2370
+
+个人博客：https://blog.csdn.net/weixin_73756947?type=blog（持续更新中）
+
+教育背景
+
+2022.09 - 2026.06	重庆工程学院	软件工程	本科
+
+学习课程：…</span></li><li><span class="chunk-id">守护书，一个去追查真相。然后我自己给自己写信，让自己去找到那个不存在的数字，因为只有找到了，分裂才能合拢。”
+
+“但那个数字不存在，”埃德蒙说。
+
+“所以这是一个永远无法完成的任务，”伊琳娜说，“你永远会在七次循环之后忘记一切，重新开始。”
+
+窗外，雨停了。这是四十七天以来雨第一次停。
+
+马可拿起那只怀表，把它贴在自己…</span></li><li><span class="chunk-id">需办理工程移交手续，签署工程移交证书，明确工程实体、资料、备品
+备件等的移交清单。工程交付后，施工单位需履行保修义务，在保修期内对工程质量缺陷进行
+维修。需建立工程保修与后续服务机制，设立保修热线，及时响应业主的维修需求，提升客户
+满意度。
+第七章 项目风险与应急管理
+7.1 工程风险识别与评估
+工程项目面临的风险主要…</span></li><li><span class="chunk-id">狗熊岭的日出，从来都不是暖色的。
+至少从那一年秋天开始，再也不是了。
+林场的风永远带着枯叶腐烂的腥气，整片森林像一具巨大、沉默、正在缓慢发酵的尸体。树干发黑，树叶暗红，溪水泛着铁锈般的浑浊，常年弥漫一层薄薄的灰白雾气。
+外人以为这里只是普通深山。
+只有真正住在狗熊岭的生灵知道 ——
+这座森林，活着。
+它会记仇，会饥饿，…</span></li></ol></details></td></tr></tbody></table>
+</body></html>

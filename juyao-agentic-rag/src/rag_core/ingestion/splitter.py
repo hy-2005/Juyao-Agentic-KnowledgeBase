@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 
-def split_into_chunks(source_name: str, content: str) -> list[Document]:
+def split_into_chunks(source_name: str, content: str, kb_id: int = 0) -> list[Document]:
 
     settings = get_settings()
 
@@ -84,7 +84,7 @@ def split_into_chunks(source_name: str, content: str) -> list[Document]:
 
 
 
-    source_doc_id = build_source_doc_id(content=content, source_name=source_name)
+    source_doc_id = build_source_doc_id(content=content, source_name=source_name, kb_id=kb_id)
 
     chunks: list[Document] = []
 
@@ -131,6 +131,8 @@ def split_into_chunks(source_name: str, content: str) -> list[Document]:
                 overlap_left=overlap_left,
 
                 overlap_right=overlap_right,
+
+                kb_id=kb_id,
 
             )
 

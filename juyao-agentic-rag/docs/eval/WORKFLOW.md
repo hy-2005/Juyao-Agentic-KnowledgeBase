@@ -18,7 +18,7 @@ flowchart LR
 
 ```powershell
 docker compose up -d
-ollama pull mxbai-embed-large:latest
+# 实际 embedding 走 dashscope（EMBED_PROVIDER=dashscope, text-embedding-v4），无需 ollama pull
 ```
 
 ## 2. 文档入库
@@ -45,7 +45,7 @@ juyao-ingest --file src/data/samples/sample_medical.txt
 ## 4. 执行测评
 
 ```powershell
-juyao-rag-eval --dataset default/sample_qa.jsonl --output reports/run_001.json
+juyao-rag-eval --dataset default/sample_qa.jsonl --output-dir reports/baseline
 ```
 
 可选指标（默认全开）：
@@ -56,12 +56,12 @@ juyao-rag-eval --metrics faithfulness,answer_relevancy
 
 ## 5. 解读结果
 
-终端输出汇总均值与逐条明细；`--output` 生成 JSON，便于版本对比。
+终端输出汇总均值与逐条明细；`--output-dir` 同时生成 JSON + HTML 报告，便于版本对比。
 
 ## 6. 迭代
 
 - 调整检索、切分、Prompt 后重新入库 / 重跑测评
-- 对比多次 `--output` JSON 的 `summary` 字段
+- 对比多次 `--output-dir` 下 JSON 的 `summary` 字段
 
 ## 当前测评范围
 

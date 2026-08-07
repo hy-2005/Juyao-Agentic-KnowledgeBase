@@ -25,6 +25,7 @@ def query_edges_for_chunks(
     *,
     settings: Settings | None = None,
     max_edges: int | None = None,
+    kb: int | None = None,
 ) -> list[GraphEdgeView]:
     ids = [c.strip() for c in chunk_ids if str(c).strip()]
     if not ids:
@@ -32,7 +33,7 @@ def query_edges_for_chunks(
     cfg = settings or get_settings()
     rows = get_read_graph().query(
         CY_RELATED_BY_CHUNKS,
-        params={"chunk_ids": ids, "limit": _clamp_limit(max_edges, cfg)},
+        params={"chunk_ids": ids, "limit": _clamp_limit(max_edges, cfg), "kb": kb},
     )
     return rows_to_views(rows)
 
@@ -77,6 +78,7 @@ def query_edges_from_entity_seeds(
     settings: Settings | None = None,
     max_edges: int | None = None,
     relation_hints: list[str] | None = None,
+    kb: int | None = None,
 ) -> list[GraphEdgeView]:
     seeds = [s.strip() for s in seed_names if str(s).strip()]
     if not seeds:
@@ -90,6 +92,7 @@ def query_edges_from_entity_seeds(
             "seed_names": seeds,
             "path_cap": path_cap,
             "limit": _clamp_limit(max_edges, cfg),
+            "kb": kb,
         },
     )
     return _filter_edges_by_relation_hints(rows_to_views(rows), relation_hints)

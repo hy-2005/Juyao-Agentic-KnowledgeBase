@@ -6,3 +6,6 @@ dist/
 build/
 .env
 config/local.toml
+
+# Claude Code
+.ruff_cache/

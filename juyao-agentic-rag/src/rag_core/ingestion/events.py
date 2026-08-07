@@ -23,9 +23,11 @@ def apply_kafka_ingest_payload(payload: dict[str, Any]) -> None:
     if not logical:
         logger.warning("缺少 docLogicalKey，跳过：%s", payload)
         return
+    # Java 侧 payload 用 camelCase kbId（见 RagDocIngestService）；缺省 0（单库）
+    kb_id = int(payload.get("kbId") or 0)
     if action == "DELETE":
-        logger.info("DELETE 索引：%s", logical)
-        delete_document_from_indexes(logical, include_graph=True)
+        logger.info("DELETE 索引：%s kb=%s", logical, kb_id)
+        delete_document_from_indexes(logical, include_graph=True, kb_id=kb_id)
         return
     if action == "UPSERT":
         path = str(payload.get("localPath") or "").strip()
@@ -33,16 +35,17 @@ def apply_kafka_ingest_payload(payload: dict[str, Any]) -> None:
             logger.warning("UPSERT 缺少 localPath，跳过：%s", payload)
             return
         payload_sha = str(payload.get("contentSha256") or "")
-        decision, file_sha = prepare_upsert(logical, path, payload_sha256=payload_sha)
+        decision, file_sha = prepare_upsert(logical, path, payload_sha256=payload_sha, kb_id=kb_id)
         if decision != "proceed":
             return
-        logger.info("UPSERT 先删后写：logical=%s path=%s sha=%s…", logical, path, file_sha[:12])
+        logger.info("UPSERT 先删后写：logical=%s kb=%s path=%s sha=%s…", logical, kb_id, path, file_sha[:12])
         ingest_file(
             path,
             source_name=logical,
             enable_graph=True,
             purge_before_write=True,
             content_sha256=file_sha,
+            kb_id=kb_id,
         )
         return
     logger.warning("未知 action=%s，跳过", action)
