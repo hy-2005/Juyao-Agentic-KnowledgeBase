@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request
 
 from rag_core.core.config import get_settings
+from rag_core.api.security import require_internal_token
+from rag_core.application.ingest_flow.cleanup import purge_kb
 from rag_core.application.ingest_flow.events import apply_kafka_ingest_payload
 
 logger = logging.getLogger(__name__)
@@ -35,4 +37,15 @@ async def internal_rag_ingest_event(request: Request, body: dict[str, Any] = Bod
     t0 = time.perf_counter()
     await asyncio.to_thread(apply_kafka_ingest_payload, body)
     logger.info("[RAG-HTTP] ingest done doc=%s elapsedMs=%.0f", doc, (time.perf_counter() - t0) * 1000)
+    return {"ok": True}
+
+
+
+@router.delete("/api/v1/internal/rag/kb/{kb_id}")
+async def internal_rag_purge_kb(kb_id: int, request: Request):
+    """删除知识库的级联清理（TENANT_PERMISSION P2）：清空该 kb 的三库数据。"""
+    require_internal_token(request)
+    logger.info("[RAG-HTTP] 清空知识库开始 kb_id=%s", kb_id)
+    await asyncio.to_thread(purge_kb, kb_id)
+    logger.info("[RAG-HTTP] 清空知识库完成 kb_id=%s", kb_id)
     return {"ok": True}

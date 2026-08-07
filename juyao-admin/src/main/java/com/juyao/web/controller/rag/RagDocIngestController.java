@@ -21,6 +21,7 @@ import com.juyao.common.utils.poi.ExcelUtil;
 import com.juyao.rag.ingest.RagDocIngestService;
 import com.juyao.system.domain.RagDocumentHash;
 import com.juyao.system.service.IRagDocumentHashService;
+import com.juyao.system.service.IRagKbService;
 
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -35,6 +36,9 @@ public class RagDocIngestController extends BaseController{
 
     @Autowired
     private IRagDocumentHashService ragDocumentHashService;
+
+    @Autowired
+    private IRagKbService ragKbService;
 
     @GetMapping("/list")
     public TableDataInfo list(RagDocumentHash query){
@@ -57,6 +61,8 @@ public class RagDocIngestController extends BaseController{
             @RequestParam(value = "kbId", required = false, defaultValue = "0") Long kbId,
             @RequestParam(value = "logicalKey", required = false) String logicalKey){
         try{
+            // kb 权限校验（P1-2）：kbId>0 时需 admin 角色才能上传
+            checkKbAdmin(kbId);
             Map<String, Object> data = ragDocIngestService.upload(file, kbId, logicalKey);
             return success(data);
         } catch (Exception e){
@@ -69,9 +75,19 @@ public class RagDocIngestController extends BaseController{
             @RequestParam(value = "kbId", required = false, defaultValue = "0") Long kbId,
             @RequestParam("logicalKey") String logicalKey){
         try{
+            checkKbAdmin(kbId);
             return success(ragDocIngestService.deleteAndNotify(kbId, logicalKey));
         } catch (Exception e){
             return error(e.getMessage());
         }
     }
+
+
+    /** kb 权限校验：kbId>0 时需 admin 角色（member 只读，不可上传/删除文档）。 */
+    private void checkKbAdmin(Long kbId){
+        if (kbId != null && kbId > 0L){
+            ragKbService.checkAdmin(kbId, getUserId());
+        }
+    }
+
 }

@@ -25,4 +25,24 @@ public interface RagKbMapper{
      * 用户可访问的知识库列表（owner 或授权命中）。
      */
     List<RagKb> selectAccessibleKbs(@Param("userId") Long userId);
+
+    /**
+     * 创建知识库（返回自增 id）。
+     */
+    int insertKb(RagKb kb);
+
+    /**
+     * 授权用户访问知识库。
+     */
+    int insertKbUser(@Param("kbId") Long kbId, @Param("userId") Long userId, @Param("role") String role);
+
+    /**
+     * 删除知识库（连带清授权；数据清理由 Python purge_kb 完成）。
+     */
+    int deleteKb(@Param("kbId") Long kbId);
+
+    /**
+     * 删除知识库的全部授权记录。
+     */
+    int deleteKbUsers(@Param("kbId") Long kbId);
 }

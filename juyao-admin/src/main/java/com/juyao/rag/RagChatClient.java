@@ -173,6 +173,23 @@ public class RagChatClient{
         }
     }
 
+/**
+     * 删除知识库的级联清理：调 Python 清空该 kb 的三库数据（TENANT_PERMISSION P2）。
+     */
+    public void purgeKb(Long kbId) throws IOException, InterruptedException{
+        String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/api/v1/internal/rag/kb/" + kbId))
+                .header("X-Internal-Token", internalToken)
+                .timeout(Duration.ofSeconds(120))
+                .DELETE()
+                .build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() != 200){
+            throw new IllegalStateException("RAG API purge kb HTTP " + resp.statusCode());
+        }
+    }
+
     public void updateSessionTitle(String userId, String sessionId, String title)
             throws IOException, InterruptedException{
         Map<String, String> body = new LinkedHashMap<>();
