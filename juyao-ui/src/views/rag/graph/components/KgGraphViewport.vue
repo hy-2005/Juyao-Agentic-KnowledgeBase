@@ -48,7 +48,9 @@
         ref="panel"
         :graph-data="graphData"
         :graph-mode="graphMode"
+        :community-view="communityView"
         height="100%"
+        @community-click="$emit('community-click', $event)"
       />
       <el-empty v-else :description="emptyText" />
     </div>
@@ -78,6 +80,7 @@ export default {
     totalEdges: { type: Number, default: 0 },
     returnedEdges: { type: Number, default: 0 },
     bodyHeight: { type: Number, default: 420 },
+    communityView: { type: Boolean, default: false },
     resizable: { type: Boolean, default: true },
     fullscreen: { type: Boolean, default: false },
     showHeader: { type: Boolean, default: true },

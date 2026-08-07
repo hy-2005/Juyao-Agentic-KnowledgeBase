@@ -19,6 +19,12 @@
           <el-radio-button label="overview">图谱总览</el-radio-button>
           <el-radio-button label="list">关系清单</el-radio-button>
         </el-radio-group>
+        <el-button
+          v-if="viewMode === 'overview'"
+          size="mini"
+          :type="communityView ? 'warning' : 'default'"
+          @click="communityView = !communityView"
+        >{{ communityView ? '社区视图：开' : '社区视图' }}</el-button>
         <el-button v-if="fullscreen" type="text" icon="el-icon-close" size="mini" @click="$emit('exit-fullscreen')">退出全屏</el-button>
       </div>
     </div>
@@ -35,8 +41,10 @@
           :graph-data="graphData"
           graph-mode="full"
           :highlight-keyword="localKeyword"
+          :community-view="communityView"
           height="100%"
           @node-click="onNodeClick"
+          @community-click="$emit('community-click', $event)"
         />
         <el-empty v-else description="暂无图谱数据" />
       </template>
@@ -129,7 +137,8 @@ export default {
       listPage: 1,
       listPageSize: 50,
       nodeDrawerOpen: false,
-      selectedNode: ''
+      selectedNode: '',
+      communityView: false
     }
   },
   computed: {

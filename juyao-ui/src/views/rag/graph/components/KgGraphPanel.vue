@@ -128,7 +128,8 @@ export default {
     height: { type: String, default: '100%' },
     graphData: { type: Object, default: () => ({ nodes: [], links: [] }) },
     graphMode: { type: String, default: 'subgraph' },
-    highlightKeyword: { type: String, default: '' }
+    highlightKeyword: { type: String, default: '' },
+    communityView: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -145,6 +146,7 @@ export default {
     graphData: { deep: true, handler() { this.renderChart() } },
     graphMode() { this.renderChart() },
     highlightKeyword() { this.renderChart() },
+    communityView() { this.renderChart() },
     height() { this.$nextTick(() => this.resize()) },
     width() { this.$nextTick(() => this.resize()) }
   },
@@ -178,6 +180,11 @@ export default {
       this.chart = echarts.init(this.$refs.chartEl)
       this.chart.on('click', (params) => {
         if (params.dataType === 'node' && params.name) {
+          // 社区视图：点击社区节点 → 展开该社区（emit community-click）
+          if (this.communityView && params.data && params.data.community_id) {
+            this.$emit('community-click', params.data.community_id)
+            return
+          }
           this.$emit('node-click', params.name)
         }
       })
@@ -216,6 +223,161 @@ export default {
       }).catch(() => {})
     },
     // #endregion
+    // 社区聚合视图：节点=社区（圆点+实体数），边=社区间关系；点击社区节点 → community-click
+    renderCommunityView(aggData, originalData) {
+      const aggNodes = aggData.nodes || []
+      const aggLinks = aggData.links || []
+      if (!aggNodes.length) {
+        this.chart.clear()
+        return
+      }
+      const width = this.chart.getWidth()
+      const height = this.chart.getHeight()
+      const cx = width / 2
+      const cy = height / 2
+      const ringR = Math.min(width, height) * 0.32
+      const summaryOf = (cid) => {
+        const c = (originalData && originalData.nodes || []).find((n) => n.community_id === cid)
+        return c || null
+      }
+      const seriesData = aggNodes.map((n, i) => {
+        const angle = (i / aggNodes.length) * Math.PI * 2 - Math.PI / 2
+        const x = cx + ringR * Math.cos(angle)
+        const y = cy + ringR * Math.sin(angle)
+        const color = communityColor(n.community_id)
+        return {
+          id: n.community_id,
+          name: `${n.name}\n${n.entityCount} 实体`,
+          community_id: n.community_id,
+          x,
+          y,
+          symbolSize: Math.max(34, Math.min(80, 18 + n.entityCount * 1.6)),
+          itemStyle: {
+            color,
+            borderColor: '#fff',
+            borderWidth: 3,
+            shadowBlur: 12,
+            shadowColor: color + '66'
+          },
+          label: {
+            show: true,
+            position: 'bottom',
+            formatter: `${n.name} · ${n.entityCount}实体`,
+            fontSize: 11,
+            color: '#303133'
+          }
+        }
+      })
+      const links = aggLinks.map((l) => ({
+        source: l.source,
+        target: l.target,
+        relation: `关联 × ${l.count}`,
+        lineStyle: { color: COLORS.edge, width: 1.5, curveness: 0.15, opacity: 0.6 }
+      }))
+      const option = {
+        backgroundColor: '#f0f2f5',
+        tooltip: {
+          confine: true,
+          formatter: (params) => {
+            if (params.dataType === 'edge') {
+              return `<strong>${params.data.relation}</strong><div style="font-size:12px;color:#909399;margin-top:4px">社区间关系</div>`
+            }
+            const cid = params.data && params.data.community_id
+            const c = summaryOf(cid)
+            const summary = c && c.summary ? c.summary : ''
+            return `<strong>${params.name || ''}</strong><div style="margin-top:4px;font-size:12px;color:#606266">${summary.slice(0, 60)}…</div><div style="margin-top:4px;font-size:12px;color:#909399">点击展开该社区</div>`
+          }
+        },
+        series: [{
+          type: 'graph',
+          layout: 'none',
+          roam: true,
+          draggable: true,
+          symbol: 'circle',
+          edgeSymbol: ['none', 'arrow'],
+          edgeSymbolSize: [0, 8],
+          data: seriesData,
+          links,
+          label: { show: true },
+          emphasis: { focus: 'adjacency', scale: true }
+        }]
+      }
+      this.chart.setOption(option, true)
+    },
+
+    // 社区聚类布局：社区中心均匀分布大圆，成员在社区内同心圆展开；返回 Map(nodeId -> {x,y})
+    computeCommunityLayout(nodes, width, height) {
+      const groups = new Map()
+      nodes.forEach((n) => {
+        const cid = n.community_id
+        if (!cid) return
+        if (!groups.has(cid)) groups.set(cid, [])
+        groups.get(cid).push(n)
+      })
+      const positions = new Map()
+      const communityIds = Array.from(groups.keys())
+      const cx = width / 2
+      const cy = height / 2
+      const ringR = Math.min(width, height) * 0.32
+      communityIds.forEach((cid, i) => {
+        const members = groups.get(cid)
+        const angle = (i / communityIds.length) * Math.PI * 2 - Math.PI / 2
+        const ccx = cx + ringR * Math.cos(angle)
+        const ccy = cy + ringR * Math.sin(angle)
+        // 成员同心圆展开：半径按 √成员数
+        const n = members.length
+        const baseR = Math.max(18, Math.min(70, 14 * Math.sqrt(n)))
+        members.forEach((m, j) => {
+          const ring = Math.floor(Math.sqrt(j))
+          const onRing = Math.max(1, 2 * ring + 1)
+          const posInRing = j - ring * ring
+          const a = (posInRing / onRing) * Math.PI * 2 + (ring % 2) * (Math.PI / onRing)
+          const r = baseR + ring * 16
+          positions.set(m.id || m.name, {
+            x: ccx + r * Math.cos(a),
+            y: ccy + r * Math.sin(a)
+          })
+        })
+      })
+      return positions
+    },
+
+    // 社区气泡：每个社区一个半透明椭圆（fill 社区色 10% 透明度）
+    communityBubbles(nodes, positions) {
+      const groups = new Map()
+      nodes.forEach((n) => {
+        const cid = n.community_id
+        const pos = positions.get(n.id || n.name)
+        if (!cid || !pos) return
+        if (!groups.has(cid)) groups.set(cid, [])
+        groups.get(cid).push(pos)
+      })
+      const bubbles = []
+      groups.forEach((pts, cid) => {
+        if (!pts.length) return
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length
+        const maxD = Math.max(
+          40,
+          Math.sqrt(pts.reduce((s, p) => s + (p.x - cx) ** 2 + (p.y - cy) ** 2, 0) / pts.length) * 1.8
+        )
+        bubbles.push({
+          type: 'ellipse',
+          shape: { cx, cy, rx: maxD, ry: maxD * 0.72 },
+          style: {
+            fill: communityColor(cid) + '1A', // 10% 透明度
+            stroke: communityColor(cid),
+            lineWidth: 1,
+            lineDash: [4, 3],
+            fillOpacity: 0.12
+          },
+          silent: true,
+          z: 1
+        })
+      })
+      return bubbles
+    },
+
     renderForceGraph() {
       const nodes = (this.graphData && this.graphData.nodes) || []
       const links = (this.graphData && this.graphData.links) || []
@@ -249,6 +411,45 @@ export default {
       }, 'L,M')
       // #endregion
 
+      // 社区视图（聚合）：节点=社区，边=社区间关系（纯前端从 fullGraphData 计算）
+      const communityAggView = isFull && this.communityView
+      let layoutPositions = new Map()
+      let bubbles = []
+      const cidOf = (n) => (n && n.community_id) || ''
+      if (communityAggView) {
+        const aggNodes = new Map() // cid -> {community_id, entityCount, summaryPrefix}
+        const aggLinks = new Map() // "cidA||cidB" -> {source, target, count}
+        nodes.forEach((n) => {
+          const cid = cidOf(n)
+          if (!cid) return
+          if (!aggNodes.has(cid)) {
+            aggNodes.set(cid, { community_id: cid, entityCount: 0, name: cid.replace('kb0:community:', '社区') })
+          }
+          aggNodes.get(cid).entityCount += 1
+        })
+        links.forEach((l) => {
+          const s = cidOf(nodes.find((n) => (n.id || n.name) === l.source))
+          const t = cidOf(nodes.find((n) => (n.id || n.name) === l.target))
+          if (s && t && s !== t) {
+            const key = s < t ? `${s}||${t}` : `${t}||${s}`
+            if (!aggLinks.has(key)) aggLinks.set(key, { source: s, target: t, count: 0 })
+            aggLinks.get(key).count += 1
+          }
+        })
+        const aggData = {
+          nodes: Array.from(aggNodes.values()),
+          links: Array.from(aggLinks.values())
+        }
+        return this.renderCommunityView(aggData, this.graphData)
+      }
+      if (isFull) {
+        // 全图模式：有 community_id 的节点用聚类布局，无归属节点不参与布局（force 兜底）
+        layoutPositions = this.computeCommunityLayout(nodes, this.chart.getWidth(), this.chart.getHeight())
+        if (layoutPositions.size > 1) {
+          bubbles = this.communityBubbles(nodes, layoutPositions)
+        }
+      }
+
       const seriesData = nodes.map((n, idx) => {
         const name = n.name || n.id
         const cat = n.category != null ? n.category : 1
@@ -260,10 +461,14 @@ export default {
         const color = isFull && n.community_id
           ? communityColor(n.community_id)
           : (isHighlight ? COLORS.seed : COLORS.related)
+        // 社区聚类布局坐标（固定位置，layout 'none'）
+        const pos = layoutPositions.get(n.id || name)
 
         return {
           id: n.id || name,
           name,
+          ...(pos ? { x: pos.x, y: pos.y } : {}),
+          ...(n.community_id ? { community_id: n.community_id } : {}),
           category: isFull ? undefined : cat,
           symbolSize,
           itemStyle: {
@@ -285,6 +490,8 @@ export default {
         animation: true,
         animationDuration: 750,
         animationEasing: 'cubicOut',
+        // 社区气泡绘制在 series 底层（z 值小于 series）
+        ...(bubbles.length ? { graphic: bubbles } : {}),
         tooltip: {
           confine: true,
           formatter: (params) => {
@@ -305,7 +512,8 @@ export default {
           : undefined,
         series: [{
           type: 'graph',
-          layout: 'force',
+          // 社区聚类布局用固定坐标（节点带 x/y），无布局数据时退回 force
+          layout: layoutPositions.size ? 'none' : 'force',
           roam: true,
           draggable: true,
           categories: categories || undefined,
