@@ -124,8 +124,16 @@ def route_question_intent_llm(question: str) -> RouteBranch:
                 len(q),
             )
             return RouteBranch.VECTOR_ONLY
-        logger.info("intent_route_llm branch=direct question_len=%d", len(q))
-        return RouteBranch.DIRECT
+        # 规则保护（意图路由误判修复）：direct 仅允许问候/寒暄，
+        # 其余一律强制 vector_only——知识库系统"漏检索"比"多检索"代价高
+        if _DIRECT_GREETING_RE.match(q.strip()):
+            logger.info("intent_route_llm branch=direct（问候确认） question_len=%d", len(q))
+            return RouteBranch.DIRECT
+        logger.warning(
+            "intent_route_llm branch=direct 但非问候，强制 vector_only：%s",
+            q[:60],
+        )
+        return RouteBranch.VECTOR_ONLY
     if branch_raw in ("graph_only", "graph"):
         logger.info("intent_route_llm branch=graph_only question_len=%d", len(q))
         return RouteBranch.GRAPH_ONLY
