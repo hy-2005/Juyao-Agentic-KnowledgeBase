@@ -67,7 +67,7 @@ def _chunk_to_source(doc: Document) -> dict:
     chunk_id = meta.get("chunk_id")
     if not chunk_id:
         raise ValueError("Document 缺少 chunk_id，无法写入 Elasticsearch")
-    return {
+    src = {
         "content": doc.page_content,
         "chunk_id": chunk_id,
         "source_doc_id": meta.get("source_doc_id"),
@@ -78,7 +78,11 @@ def _chunk_to_source(doc: Document) -> dict:
         "end_char": meta.get("end_char"),
         "overlap_left": meta.get("overlap_left"),
         "overlap_right": meta.get("overlap_right"),
+        "chunk_type": meta.get("chunk_type"),
+        "child_ids": meta.get("child_ids"),
     }
+    # 过滤 None：普通 chunk 不带空字段，父/子块只写各自存在的父子字段
+    return {k: v for k, v in src.items() if v is not None}
 
 
 def _bulk_actions(settings: Settings, chunks: list[Document]):
@@ -210,6 +214,10 @@ def _source_to_chunk_row(src: dict, *, include_full_content: bool = False) -> di
         row["content_preview"] = (
             content[:_CONTENT_PREVIEW_LEN] + "..." if len(content) > _CONTENT_PREVIEW_LEN else content
         )
+    if src.get("chunk_type"):
+        row["chunk_type"] = src.get("chunk_type")
+    if src.get("child_ids"):
+        row["child_ids"] = src.get("child_ids")
     return {k: v for k, v in row.items() if v is not None}
 
 
