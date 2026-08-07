@@ -14,6 +14,7 @@
 | [TENANT_PERMISSION_REVIEW.md](TENANT_PERMISSION_REVIEW.md) | 租户/权限评审：kbId 贯通/API 鉴权/kb 授权模型 | 📌 kbId 贯通已实施，权限模型待办 |
 | [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 已完成 |
 | [PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md) | 父子分块 + 结构化识别方案 | 🔄 进行中（PDF 表格布局/子块大小验证遗留） |
+| [PARENT_CHILD_UI_REVIEW.md](PARENT_CHILD_UI_REVIEW.md) | 父切片展开查看子切片 UI 方案 | 🔄 进行中（待实施） |
 | [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（12 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） |
 
 ## 评测（docs/eval/）
