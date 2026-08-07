@@ -16,23 +16,18 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from enum import Enum
 
-from rag_core.application.chat_flow.steps.graph_supplement import should_invoke_graph_by_rules
 from rag_core.prompts.templates import (
     QUESTION_INTENT_ROUTE_FLOWCHART_STRICT_PROMPT,
     QUESTION_INTENT_ROUTE_SYSTEM_PROMPT,
 )
+from rag_core.application.chat_flow.state import RouteBranch
 from rag_core.core.config import get_settings
+from rag_core.application.chat_flow.steps.graph_supplement import should_invoke_graph_by_rules
 from rag_core.infrastructure.llm.json_client import get_json_chat_llm
 
 logger = logging.getLogger(__name__)
 
-
-class RouteBranch(str, Enum):
-    DIRECT = "direct"
-    GRAPH_ONLY = "graph_only"
-    VECTOR_ONLY = "vector_only"
 
 
 @dataclass(frozen=True)
@@ -162,3 +157,10 @@ def resolve_intent_route(question: str) -> IntentRouteResult:
 def route_question_intent(question: str) -> RouteBranch:
     """兼容旧调用：仅返回支线。"""
     return resolve_intent_route(question).branch
+
+
+def run_route_step(state) -> None:
+    """步骤 1：意图路由，产出 route 分支与 backend（写入 FlowState）。"""
+    intent_res = resolve_intent_route(state.question)
+    state.route = intent_res.branch
+    state.intent_backend = intent_res.backend

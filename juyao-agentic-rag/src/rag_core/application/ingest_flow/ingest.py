@@ -29,15 +29,16 @@ def ingest_file(
     content_sha256: str | None = None,
     kb_id: int = 0,
 ) -> tuple[int, int]:
-    """导入单个文件，返回（向量侧 chunk 数，图侧关系数）。"""
+    """导入单个文件，返回（向量侧 chunk 数，图侧关系数）。
+
+    purge_before_write=True 时先写后删：新 chunk_id 与旧 chunk_id 天然不同
+    （含 content hash 前缀），三库全部写成功后再清旧数据（P0-2 原子性修复）；
+    任一步失败抛错且旧数据保留。
+    """
     begin = time.time()
     path = Path(file_path)
     logical_name = source_name if source_name else path.name
     doc_sha = (content_sha256 or file_sha256_hex(path)).strip().lower()
-
-    if purge_before_write:
-        logger.info("【入库】先按逻辑名清理旧索引：%s", logical_name)
-        delete_document_from_indexes(logical_name, include_graph=enable_graph, kb_id=kb_id)
 
     logger.info("【入库】开始处理文件：%s source_name=%s kb=%s", file_path, logical_name, kb_id)
     content = load_document(str(path))
@@ -47,21 +48,28 @@ def ingest_file(
         chunk.metadata[META_SHA_KEY] = doc_sha
     logger.info("【入库】切块完成：source=%s chunks=%s", logical_name, len(chunks))
 
+    # 步骤 1：向量（Qdrant point id 用 chunk_id 的 UUID5，同 id 幂等覆盖）
     logger.info("【入库】开始写入向量库 Qdrant")
     ensure_collection_exists()
     vector_store = get_vector_store()
-    # Qdrant point id 用 chunk_id 的 UUID5：同一 chunk_id 重复写入会覆盖，实现幂等
     ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, chunk.metadata["chunk_id"])) for chunk in chunks]
     vector_store.add_documents(documents=tqdm(chunks, desc="写入向量库"), ids=ids)
     logger.info("【入库】Qdrant 写入完成：%s 条", len(chunks))
 
+    # 步骤 2：全文（ES _id=chunk_id，幂等覆盖）
     logger.info("【入库】开始同步 Elasticsearch")
     sync_chunks_to_elasticsearch(chunks)
     logger.info("【入库】Elasticsearch 同步完成：%s 条", len(chunks))
 
+    # 步骤 3：图谱（MERGE 幂等累加 chunk_ids）
     triple_count = 0
     if enable_graph:
         _, triple_count = write_chunks_to_graph(chunks=chunks, source_name=logical_name, kb_id=kb_id)
+
+    # 步骤 4：先写后删——全部写成功后清理旧索引（失败则保留旧数据）
+    if purge_before_write:
+        logger.info("【入库】新数据写入完成，清理旧索引：%s", logical_name)
+        delete_document_from_indexes(logical_name, include_graph=enable_graph, kb_id=kb_id)
 
     cost = time.time() - begin
     logger.info(
