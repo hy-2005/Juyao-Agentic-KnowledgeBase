@@ -31,7 +31,7 @@
 |---|---|---|
 | graph_query_enabled | true | 图谱总开关 |
 | graph_expand_max_edges | 40 | 单次查询边数上限 |
-| graph_max_hops | 5 | 多跳扩展跳数（上限 10） |
+| graph_max_hops | 4 | 多跳扩展跳数（P1-1 后用户定稿；上限 10） |
 | graph_expand_internal_path_cap | 120 | 路径数上限（结果上限，非遍历上限） |
 | graph_question_extract_timeout_s | 30 | 问句实体抽取 LLM 超时 |
 | vector_then_graph_supplement | true | 向量不足时补图开关 |
@@ -94,7 +94,7 @@
 |---|---|---|---|
 | P0-1 | F 补强改用 chunk 锚定查询 | ✅ 已实施 | graph_supplement 步骤 chunk 锚定优先（query_edges_for_chunks 接线），0 边问句实体兜底；SSE 契约 diff 验证通过 |
 | P0-2 | 实体匹配三层递进兜底 | ✅ 已实施 | resolve_entity_names 精确→归一化→子串；实测"盾构机"/"ZTE-9000"命中库内全名 |
-| P1-1 | Cypher 下沉 hints + hops 约束 | ✅ 已实施 | graph_max_hops 5→2；relation_hints 参数化下沉 Cypher（遍历时按谓词/大类过滤）；实测 2 跳查询正常 |
+| P1-1 | Cypher 下沉 hints + hops 约束 | ✅ 已实施 | graph_max_hops 5→4（用户定稿，平衡多跳能力与遍历成本）；relation_hints 参数化下沉 Cypher（遍历时按谓词/大类过滤）；实测 2 跳查询正常 |
 | P1-2 | graph_only 未命中降级向量 | ✅ 已实施 | flow.py 0 边自动降级（stop_reason=graph_only_fallback_vector） |
 | P2 | Observation 体积 + time_hints | ✅ 已实施 | evidence/关系表述截到 120 字；time_hints/location_hints 格式化输出（时间线/位置问题可答） |
 | P2 | 实体消歧 | 📌 设计限制 | 同名不同义需 sense 进节点主键（成本高）；现状：入库 MERGE 按 name 合并 sense_hints 列表、查询侧用 sense_hints 辅助——已覆盖常见场景，完整消歧待业务确认 |

@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     neo4j_password: str = Field(default="12345678")
     graph_query_enabled: bool = Field(default=True)
     graph_expand_max_edges: int = Field(default=40)
-    graph_max_hops: int = Field(default=2)  # 多跳上限（P1-1：2 跳防密集图遍历爆炸）
+    graph_max_hops: int = Field(default=4)  # 多跳上限（P1-1 防爆炸；用户定稿 4 跳平衡多跳能力与遍历成本）
     graph_expand_internal_path_cap: int = Field(default=120)
     graph_question_extract_timeout_s: float = Field(default=30.0)
 
