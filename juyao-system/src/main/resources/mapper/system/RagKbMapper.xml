@@ -28,4 +28,22 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ORDER BY k.id
     </select>
 
+    <insert id="insertKb" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO rag_kb (name, owner_id) VALUES (#{name}, #{ownerId})
+    </insert>
+
+    <insert id="insertKbUser">
+        INSERT INTO rag_kb_user (kb_id, user_id, role)
+        VALUES (#{kbId}, #{userId}, #{role})
+        ON DUPLICATE KEY UPDATE role = VALUES(role)
+    </insert>
+
+    <delete id="deleteKb">
+        DELETE FROM rag_kb WHERE id = #{kbId}
+    </delete>
+
+    <delete id="deleteKbUsers">
+        DELETE FROM rag_kb_user WHERE kb_id = #{kbId}
+    </delete>
+
 </mapper>

@@ -140,3 +140,77 @@ def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb
         )
     if include_graph:
         Neo4jTripleStore().purge_chunk_ids(chunk_ids, kb_id=kb_id)
+
+
+def purge_kb(kb_id: int) -> None:
+    """按知识库清空全部数据（删除 kb 的级联清理，TENANT_PERMISSION P2）。
+
+    Qdrant 按 kb_id 删全部点；ES delete_by_query；Neo4j 清该 kb 的边 + 孤立节点。
+    """
+    from rag_core.infrastructure.neo4j import Neo4jTripleStore
+
+    settings = get_settings()
+    client = get_qdrant_client()
+    try:
+        client.get_collection(collection_name=settings.qdrant_collection)
+        flt = models.Filter(
+            must=[models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))]
+        )
+        cnt = 0
+        offset = None
+        while True:
+            records, offset = client.scroll(
+                collection_name=settings.qdrant_collection,
+                scroll_filter=flt,
+                limit=256,
+                offset=offset,
+                with_payload=False,
+                with_vectors=False,
+            )
+            if not records:
+                break
+            ids = [r.id for r in records]
+            client.delete(
+                collection_name=settings.qdrant_collection,
+                points_selector=models.PointIdsList(points=ids),
+            )
+            cnt += len(ids)
+            if offset is None:
+                break
+        logger.info("【清空 kb】Qdrant 删除 %s 个点", cnt)
+    except UnexpectedResponse as exc:
+        if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
+            pass
+        else:
+            raise
+
+    es = get_elasticsearch_client()
+    if es.indices.exists(index=settings.elasticsearch_index):
+        resp = es.delete_by_query(
+            index=settings.elasticsearch_index,
+            body={"query": {"term": {"kb_id": int(kb_id)}}},
+            refresh=True,
+        )
+        logger.info("【清空 kb】ES 删除 %s 条", resp.get("deleted", 0))
+
+    store = Neo4jTripleStore()
+    with store._driver.session() as session:
+        session.run(
+            """
+            MATCH ()-[r:RELATED]->()
+            WHERE $kb IN coalesce(r.kb_ids, [])
+            SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $prefix],
+                r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $prefix],
+                r.kb_ids = [k IN coalesce(r.kb_ids, []) WHERE k <> $kb]
+            """,
+            {"kb": int(kb_id), "prefix": f"{kb_id}:"},
+        )
+        session.run(
+            """
+            MATCH ()-[r:RELATED]->()
+            WHERE size(coalesce(r.kb_ids, [])) = 0 AND size(coalesce(r.chunk_ids, [])) = 0
+            DELETE r
+            """
+        )
+        session.run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
+    logger.info("【清空 kb】Neo4j 清理完成 kb=%s", kb_id)
