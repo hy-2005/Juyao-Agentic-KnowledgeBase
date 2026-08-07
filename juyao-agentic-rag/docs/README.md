@@ -1,20 +1,20 @@
 # 文档目录索引
 
 > 维护规则（见 CLAUDE.md）：新增/改名文档必须同步本索引；状态变化同步更新标记。
-> 状态标记：✅ 已实施 / 📌 部分实施 / ❌ 待办
+> 状态标记（严格三态，见 CLAUDE.md）：✅ 已完成 / 🔄 进行中 / ❌ 未完成
 
 ## 评审与方案（docs/）
 
 | 文档 | 说明 | 状态 |
 |---|---|---|
-| [CHUNK_SPLITTING_REVIEW.md](CHUNK_SPLITTING_REVIEW.md) | chunk 拆分评审：预分批/规则主通道/父子分块/多模态规划 | ✅ 已实施（多模态待办） |
-| [RETRIEVAL_REVIEW.md](RETRIEVAL_REVIEW.md) | 检索评审：相对截断/漏斗扩容/多样性/match_phrase/query 分级 | ✅ 已实施 |
-| [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底） | ✅ 核心已实施 |
+| [CHUNK_SPLITTING_REVIEW.md](CHUNK_SPLITTING_REVIEW.md) | chunk 拆分评审：预分批/规则主通道/父子分块/多模态规划 | 🔄 进行中（多模态待办） |
+| [RETRIEVAL_REVIEW.md](RETRIEVAL_REVIEW.md) | 检索评审：相对截断/漏斗扩容/多样性/match_phrase/query 分级 | 🔄 进行中（rerank 截断/缓存遗留） |
+| [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底） | 🔄 进行中（hops 约束/实体合并等 6 项待办） |
 | [INGESTION_UPDATE_REVIEW.md](INGESTION_UPDATE_REVIEW.md) | 文档更新/增量评审：先写后删差集/chunk_id 内容寻址方案 | 📌 先写后删已实施，增量 chunk_id 待办 |
 | [TENANT_PERMISSION_REVIEW.md](TENANT_PERMISSION_REVIEW.md) | 租户/权限评审：kbId 贯通/API 鉴权/kb 授权模型 | 📌 kbId 贯通已实施，权限模型待办 |
-| [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 阶段 4/5/6 已实施 |
-| [PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md) | 父子分块 + 结构化识别方案 | ✅ 已实施（开关默认关） |
-| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（12 个坑 + 模式总结，必须持续维护） | ✅ 持续更新 |
+| [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 已完成 |
+| [PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md) | 父子分块 + 结构化识别方案 | 🔄 进行中（PDF 表格布局/子块大小验证遗留） |
+| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（12 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） |
 
 ## 评测（docs/eval/）
 

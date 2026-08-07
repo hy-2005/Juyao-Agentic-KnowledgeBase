@@ -1,6 +1,7 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：**全部核心已完成**（查询侧 P0-1/P1-2/三层匹配 + 入库侧归一化/闭集/批量 + 社区检测/摘要/global 兜底）；跨 chunk 实体合并与查询名称解析待办 · 更新：2026-08-07
+> 状态：🔄 进行中（查询侧 P0-1/P1-2/三层匹配 ✅、入库侧归一化/闭集/批量 ✅、社区检测/摘要/持久化/global 兜底 ✅）
+> 未完成：P1-1 Cypher hops 约束、P2 Observation 体积+time_hints、P2 实体消歧、P0-2 跨 chunk 实体合并、P1-2 查询侧名称解析、P2 重灌策略 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
