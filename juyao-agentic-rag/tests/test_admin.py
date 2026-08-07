@@ -38,3 +38,26 @@ def test_edge_view_to_dict() -> None:
     d = _edge_view_to_dict(view)
     assert d["head_name"] == "甲"
     assert d["chunk_ids"] == ["c1"]
+
+
+def test_source_to_chunk_row_parent_fields() -> None:
+    # 父块 _source 行映射应透出 chunk_type 与 child_ids
+    src = {
+        "chunk_id": "doc.txt:abc:0:def",
+        "source_name": "doc.txt",
+        "content": "正文",
+        "chunk_index": 0,
+        "chunk_type": "parent",
+        "child_ids": ["doc.txt:abc:0:def:sub:aaa111bbb222"],
+    }
+    row = _source_to_chunk_row(src)
+    assert row["chunk_type"] == "parent"
+    assert row["child_ids"] == src["child_ids"]
+
+
+def test_source_to_chunk_row_without_parent_fields() -> None:
+    # 普通 chunk:无 chunk_type 字段时 row 不含该 key
+    src = {"chunk_id": "a:1:h", "source_name": "doc", "content": "x", "chunk_index": 0}
+    row = _source_to_chunk_row(src)
+    assert "chunk_type" not in row
+    assert "child_ids" not in row
