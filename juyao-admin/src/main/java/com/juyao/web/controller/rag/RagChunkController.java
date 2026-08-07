@@ -68,4 +68,20 @@ public class RagChunkController extends BaseController{
             return error("查询切片详情失败: " + e.getMessage());
         }
     }
+
+    @GetMapping("/{chunkId}/children")
+    public TableDataInfo children(@PathVariable String chunkId){
+        try{
+            // chunkId 含中文:与 /{chunkId} 详情端点一致,原样拼入 path
+            // (HttpClient 发送时会按 URI 规范做百分号编码,FastAPI 侧自动解码)
+            return ragAdminClient.getTable(
+                    "/api/v1/admin/chunks/" + chunkId + "/children",
+                    RagAdminClient.params());
+        } catch (Exception e){
+            TableDataInfo empty = new TableDataInfo();
+            empty.setCode(500);
+            empty.setMsg("查询子切片失败: " + e.getMessage());
+            return empty;
+        }
+    }
 }

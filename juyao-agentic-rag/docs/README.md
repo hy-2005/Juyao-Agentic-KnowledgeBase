@@ -2,7 +2,7 @@
 
 > 维护规则（见 CLAUDE.md）：新增/改名文档必须同步本索引；状态变化同步更新标记。
 > 状态标记（严格三态，见 CLAUDE.md）：✅ 已完成 / 🔄 进行中 / ❌ 未完成
-> 创建：2026-08-07 · 更新：2026-08-07
+> 创建：2026-08-07 · 更新：2026-08-08
 
 ## 评审与方案（docs/）
 
@@ -15,8 +15,8 @@
 | [TENANT_PERMISSION_REVIEW.md](TENANT_PERMISSION_REVIEW.md) | 租户/权限评审：kbId 贯通/API 鉴权/kb 授权模型 | 📌 kbId 贯通已实施，权限模型待办 |
 | [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 已完成 |
 | [PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md) | 父子分块 + 结构化识别方案 | 🔄 进行中（PDF 表格布局/子块大小验证遗留） |
-| [PARENT_CHILD_UI_REVIEW.md](PARENT_CHILD_UI_REVIEW.md) | 父切片展开查看子切片 UI 方案 | 🔄 进行中（待实施） |
-| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（12 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） |
+| [PARENT_CHILD_UI_REVIEW.md](PARENT_CHILD_UI_REVIEW.md) | 父切片展开查看子切片已实施 | ✅ 已完成 |
+| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（14 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） |
 
 ## 评测（docs/eval/）
 

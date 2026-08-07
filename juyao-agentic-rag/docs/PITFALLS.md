@@ -2,7 +2,7 @@
 
 > 维护规则（见 CLAUDE.md）：**每个踩坑必须记录到本文件**——现象、根因、修复、教训。
 > 创建：2026-08-07
-> 更新：2026-08-07
+> 更新：2026-08-08
 
 ---
 
@@ -116,6 +116,14 @@
 - **验证**：55 测试全绿（含 4 个 admin 测试）；admin API 实调（stats/list/mutation）；Java 编译；前端构建
 - **教训**：合并前先 `git diff` 确认受影响文件；合并后**三端全量验证**（compileall + pytest + mvn + npm build）——特别是**被修改过的文件**（api/rag.js、elasticsearch.py）要 diff 确认我们的改动还在
 
+## 14. qdrant-client 的 scroll() 返回 pydantic Record 对象而非 dict
+
+- **场景**：实现子块查询（children 接口 scroll `metadata.parent_chunk_id`）时
+- **现象**：冒烟 `AttributeError`——`point.get("payload")` 报错，point 不是 dict
+- **根因**：对 qdrant-client 返回类型假设错误——`scroll()` 返回的是 pydantic `Record` 对象而非 dict，直接按 dict 取字段必崩
+- **修复**：取字段前先归一化——`if not isinstance(point, dict): point = point.model_dump()`
+- **教训**：调用外部 SDK 前先确认返回对象类型（或先跑一次真实调用），不能凭经验假设返回 dict
+
 ## 踩坑模式总结（教训提炼）
 
 1. **"先 X 后 Y"的顺序改动，Y 的删除/清理条件必须精确到原子键**（坑 2）
@@ -127,3 +135,4 @@
 7. **评测/校准的"数据状态"与"文件时间戳"先核对**（坑 11）
 8. **临时配置改动必须配套恢复步骤**（坑 12）
 9. **合并分支前先 diff 受影响文件，合并后三端全量验证**（坑 13）
+10. **外部 SDK 返回 pydantic 对象而非 dict，先归一化（model_dump）再取字段**（坑 14）
