@@ -1,6 +1,6 @@
 # Chunk 拆分方案评审与规划
 
-> 状态：评审中（待讨论） · 更新：2026-08-07
+> 状态：已实施（预分批/规则主通道/父子分块完成）；多模态与 Contextual Retrieval 待办 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 文档切分链路（`rag_core/ingestion/`）
 > 配套代码：`splitter.py`（入口）、`split_ai.py`（LLM 语义切分）、`split_spans.py`（span 算法）、`loader.py`（解析）、`config.py`（配置）
 > 关联文档：`RETRIEVAL_REVIEW.md`（检索层面评审）、`GRAPH_QUERY_REVIEW.md`（图谱查询评审）、`INGESTION_UPDATE_REVIEW.md`（文档更新/增量入库；chunk_id 改造方案）
@@ -56,15 +56,12 @@
 
 ## 3. 问题清单
 
-### 🔴 P0：chunk 长度远超 embedding 模型上下文窗口
+### 🔴 P0：chunk 长度远超 embedding 模型上下文窗口（✅ 事实修正 2026-08-07：不成立）
 
 - **位置**：config.toml（chunk_size=800 / chunk_max_chars=1400）；dashscope_embeddings.py:32 无截断处理
-- **问题**：embedding 模型 mxbai-embed-large 窗口仅 **512 token**，而 1400 中文字符 ≈ 1400-2100+ token，为窗口 3-4 倍
-- **影响**：每个 chunk 的向量只编码前 ~512 token，尾部语义全部丢失；所有超长 chunk 都在"编码开头"，区分度严重劣化。**对检索质量影响最大的一条**
-- **修复**：
-  1. 立即：chunk_size 压到 400-600 字符（按 512 token 窗口折算中文 1 字 ≈ 1-1.5 token）
-  2. 或换窗口更大的 embedding 模型（≥2048 token）
-  3. 原则：chunk 上限按 embedding 模型 token 窗口倒推，不用固定字符数
+- **原问题**：embedding 模型 mxbai-embed-large 窗口仅 **512 token**，1400 中文字符 ≈ 1400-2100+ token 为窗口 3-4 倍
+- **事实修正**：实际 .env 用 **dashscope text-embedding-v4（8192 token 窗口）**，1400 字符不超窗——P0 不成立，降级为**参数校准**（网格 600/800/1000 进行中，见 CALIBRATION_DECISION.md）
+- **保留风险**：若部署切换回 Ollama mxbai-embed-large（512 token），必须同步缩小 chunk——参数与 embedding 模型强耦合，切换部署环境时注意
 
 ### 🔴 P1：整篇一次交 LLM，长文档 100% 走兜底硬切
 

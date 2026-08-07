@@ -1,6 +1,6 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：评审中（待讨论） · 更新：2026-08-07
+> 状态：部分实施（查询侧 P0-1/P1-2 已完成；入库侧归一化待办） · 更新：2026-08-07
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
@@ -88,18 +88,20 @@
 
 ---
 
-## 4. 优化路线图
+## 4. 优化路线图（2026-08-07 实施状态）
 
-| 优先级 | 改动 | 涉及文件 | 收益 |
+| 优先级 | 改动 | 状态 | 说明 |
 |---|---|---|---|
-| P0-1 | F 补强改用 chunk 锚定查询 | routed_flow.py | 图谱路径命中率质变（确定性信号） |
-| P0-2 | 实体匹配三层递进兜底 | edge_queries.py | 实体命中率提升 |
-| P1-1 | Cypher 下沉 hints + hops 降到 2 + 方向约束 | cypher.py / edge_queries.py | 去噪声、防爆炸、多跳关系可见 |
-| P1-2 | graph_only 未命中降级向量 | routed_flow.py | 意图路由误判兜底 |
-| P2 | 图谱 Observation 体积控制 + time_hints 格式化 | observation.py | 窗口压力/时间线问答 |
-| P2 | 实体消歧 | edge_queries.py | 多跳质量 |
+| P0-1 | F 补强改用 chunk 锚定查询 | ✅ 已实施 | graph_supplement 步骤 chunk 锚定优先（query_edges_for_chunks 接线），0 边问句实体兜底；SSE 契约 diff 验证通过 |
+| P0-2 | 实体匹配三层递进兜底 | ❌ 待办 | 需与入库侧归一化一起做 |
+| P1-1 | Cypher 下沉 hints + hops 约束 | ❌ 待办 | - |
+| P1-2 | graph_only 未命中降级向量 | ✅ 已实施 | flow.py 0 边自动降级（stop_reason=graph_only_fallback_vector） |
+| P2 | Observation 体积 + time_hints | ❌ 待办 | - |
+| P2 | 实体消歧 | ❌ 待办 | - |
 
-依赖关系：P0-1 与检索评审联动（向量命中 chunk 是图谱补强的输入）；改动后需重灌图谱并评测。
+**额外完成（2026-08-07）**：
+- **意图路由误判修复**：prompt 偏置反转（默认检索）+ 规则保护（direct 仅限问候）+ 触发词精确化（裸"号"→"门牌号"）——6 条测试全部正确路由，4 个回归测试
+- **图谱边 kb 隔离**：cypher 边级 kb 过滤（`$kb IN coalesce(r.kb_ids, [])`），Entity 节点全局共享
 
 ---
 
