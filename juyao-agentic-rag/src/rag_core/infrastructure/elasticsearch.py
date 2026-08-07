@@ -288,7 +288,10 @@ def get_chunk_by_id(chunk_id: str) -> dict | None:
         logger.warning("ES get_chunk_by_id 失败：%s", exc)
         return None
     if not resp or not resp.get("found"):
-        return None
+        # 子块只存 Qdrant,ES 未命中时回退按 chunk_id 查 Qdrant
+        from rag_core.infrastructure.qdrant import get_chunk_by_id_from_qdrant
+
+        return get_chunk_by_id_from_qdrant(chunk_id)
     return _source_to_chunk_row(resp.get("_source") or {}, include_full_content=True)
 
 

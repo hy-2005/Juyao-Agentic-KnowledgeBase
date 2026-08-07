@@ -83,3 +83,15 @@ def test_qdrant_point_to_row_child() -> None:
     assert row["chunk_index"] == 2
     assert row["content"] == "子块正文"
     assert row["parent_chunk_id"] == "doc.txt:abc:0:def"
+
+
+def test_children_route_registered() -> None:
+    # 路由注册顺序:children 必须在 {chunk_id} 之前,否则被捕获为 chunk_id
+    # 注意:r.path 包含 router.prefix(如 /api/v1/admin/chunks/...)
+    from rag_core.api.routes.chunks import router
+
+    paths = [r.path for r in router.routes]
+    children_path = f"{router.prefix}/{{chunk_id}}/children"
+    chunk_path = f"{router.prefix}/{{chunk_id}}"
+    assert children_path in paths
+    assert paths.index(children_path) < paths.index(chunk_path)
