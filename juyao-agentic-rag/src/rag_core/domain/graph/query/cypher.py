@@ -37,11 +37,17 @@ RETURN e.name AS name
 
 
 def cy_expand_from_seeds(hops: int) -> str:
+    # relation_hints 下沉（P1-1）：路径上每条边都必须命中某个 hint（谓词或关系大类），
+    # 参数化避免注入；无 hints（空数组）时不加过滤
     return f"""
 MATCH (s:Entity)
 WHERE s.name IN $seed_names
 MATCH p=(s)-[:RELATED*1..{hops}]-()
 WHERE ALL(rel IN relationships(p) WHERE $kb IS NULL OR $kb IN coalesce(rel.kb_ids, []))
+  AND ALL(rel IN relationships(p) WHERE
+        size($relation_hints) = 0
+        OR any(kw IN $relation_hints WHERE rel.relation CONTAINS kw
+            OR any(c IN coalesce(rel.relation_category_hints, []) WHERE c CONTAINS kw)))
 WITH p LIMIT $path_cap
 UNWIND relationships(p) AS rel
 WITH DISTINCT rel AS r

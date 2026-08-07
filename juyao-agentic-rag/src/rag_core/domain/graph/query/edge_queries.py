@@ -108,6 +108,8 @@ def query_edges_from_entity_seeds(
     cfg = settings or get_settings()
     hops = max(1, min(int(cfg.graph_max_hops), 10))
     path_cap = max(10, min(int(cfg.graph_expand_internal_path_cap), 500))
+    # hints 下沉到 Cypher（P1-1）：路径遍历时按谓词/关系大类过滤，避免先捞回无关边
+    cleaned_hints = [str(h).strip() for h in (relation_hints or []) if str(h).strip()]
     rows = get_read_graph().query(
         cy_expand_from_seeds(hops),
         params={
@@ -115,6 +117,9 @@ def query_edges_from_entity_seeds(
             "path_cap": path_cap,
             "limit": _clamp_limit(max_edges, cfg),
             "kb": kb,
+            "relation_hints": cleaned_hints,
         },
     )
-    return _filter_edges_by_relation_hints(rows_to_views(rows), relation_hints)
+    # 内存过滤保留为兜底（Cypher 过滤后结果非空时不再重复过滤）
+    views = rows_to_views(rows)
+    return _filter_edges_by_relation_hints(views, cleaned_hints)

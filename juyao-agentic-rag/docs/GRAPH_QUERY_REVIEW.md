@@ -1,7 +1,6 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：🔄 进行中（查询侧 P0-1/P1-2/三层匹配 ✅、入库侧归一化/闭集/批量 ✅、社区检测/摘要/持久化/global 兜底 ✅）
-> 未完成：P1-1 Cypher hops 约束、P2 Observation 体积+time_hints、P2 实体消歧、P0-2 跨 chunk 实体合并、P1-2 查询侧名称解析、P2 重灌策略 · 更新：2026-08-07
+> 状态：🔄 进行中（查询/入库/社区全链路已实施；实体消歧为设计限制待确认，重灌策略文档化） · 更新：2026-08-07
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
@@ -95,10 +94,10 @@
 |---|---|---|---|
 | P0-1 | F 补强改用 chunk 锚定查询 | ✅ 已实施 | graph_supplement 步骤 chunk 锚定优先（query_edges_for_chunks 接线），0 边问句实体兜底；SSE 契约 diff 验证通过 |
 | P0-2 | 实体匹配三层递进兜底 | ✅ 已实施 | resolve_entity_names 精确→归一化→子串；实测"盾构机"/"ZTE-9000"命中库内全名 |
-| P1-1 | Cypher 下沉 hints + hops 约束 | ❌ 待办 | - |
+| P1-1 | Cypher 下沉 hints + hops 约束 | ✅ 已实施 | graph_max_hops 5→2；relation_hints 参数化下沉 Cypher（遍历时按谓词/大类过滤）；实测 2 跳查询正常 |
 | P1-2 | graph_only 未命中降级向量 | ✅ 已实施 | flow.py 0 边自动降级（stop_reason=graph_only_fallback_vector） |
-| P2 | Observation 体积 + time_hints | ❌ 待办 | - |
-| P2 | 实体消歧 | ❌ 待办 | - |
+| P2 | Observation 体积 + time_hints | ✅ 已实施 | evidence/关系表述截到 120 字；time_hints/location_hints 格式化输出（时间线/位置问题可答） |
+| P2 | 实体消歧 | 📌 设计限制 | 同名不同义需 sense 进节点主键（成本高）；现状：入库 MERGE 按 name 合并 sense_hints 列表、查询侧用 sense_hints 辅助——已覆盖常见场景，完整消歧待业务确认 |
 
 **额外完成（2026-08-07）**：
 - **意图路由误判修复**：prompt 偏置反转（默认检索）+ 规则保护（direct 仅限问候）+ 触发词精确化（裸"号"→"门牌号"）——6 条测试全部正确路由，4 个回归测试
@@ -166,10 +165,10 @@ chunk（复用文本切分链路）
 |---|---|---|---|
 | P0-1 | 实体归一化（prompt 硬约束 + Python 规范化函数） | ✅ 已实施 | normalize_entity_name（全半角/括号/引号清洗）+ prompt 统一称谓；同实体不同写法合并为同节点（实测验证） |
 | P1-1 | 谓词闭集（prompt 强制候选） | ✅ 已实施 | 27 词候选集 + 「其他（具体动词）」兜底，细节进 relation_full |
-| P0-2 | 跨 chunk 实体对齐（entity resolution 工具） | 新增 | 节点爆炸缓解 |
-| P1-2 | 查询侧名称解析（喂实体候选） | question_seed.py | 查询命中率 |
+| P0-2 | 跨 chunk 实体对齐（entity resolution 工具） | ✅ 工具已提供 | scripts/merge_entities.py：embedding 相似度候选检测（dry-run）+ --apply 合并（边转移+属性合并）；保守阈值 0.95，人工确认后执行 |
+| P1-2 | 查询侧名称解析（喂实体候选） | ✅ 已实施 | question_seed.extract 按 n-gram 粗筛图谱实体 top20 拼入 prompt，LLM 优先用库内名称 |
 | P2 | UNWIND 批量写入 + 重试 | ✅ 已实施（UNWIND） | _UPSERT_RELATED_BATCH 一次 Cypher 写全部 triple；重试待办 |
-| P2 | 重灌策略（全量重建 vs 增量） | graph_writer.py / cleanup.py | 切分变更后干净重建 |
+| P2 | 重灌策略（全量重建 vs 增量） | ✅ 文档化 | --purge + chunk_id 差集清理（INGESTION_UPDATE P0-2）已覆盖切分变更重建；增量 chunk_id 改造见 INGESTION_UPDATE §3.2 |
 
 ---
 
