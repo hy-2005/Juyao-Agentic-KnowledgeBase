@@ -347,3 +347,11 @@ export function grantKbUser(kbId, userId, role) {
 export function deleteKb(kbId) {
   return request({ url: `${BASE}/kbs/${kbId}`, method: 'delete' })
 }
+
+/** 父子分块:按父 chunk_id 查子块列表(懒加载,展开时调用) */
+export function listChunkChildren(chunkId) {
+  return request({
+    url: `${BASE}/chunks/${encodeURIComponent(chunkId)}/children`,
+    method: 'get'
+  })
+}
