@@ -32,6 +32,15 @@ def admin_chunk_stats(source_name: str | None = Query(None, alias="sourceName"))
     return ChunkStatsResponse(**data)
 
 
+@router.get("/{chunk_id}/children")
+def admin_list_chunk_children(chunk_id: str):
+    """父子分块:按父 chunk_id 查子块列表(数据源 Qdrant)。"""
+    from rag_core.infrastructure.qdrant import list_child_chunks_by_parent
+
+    rows = list_child_chunks_by_parent(chunk_id)
+    return {"rows": rows, "total": len(rows)}
+
+
 @router.get("/{chunk_id}")
 def admin_get_chunk(chunk_id: str):
     row = get_chunk_by_id(chunk_id)

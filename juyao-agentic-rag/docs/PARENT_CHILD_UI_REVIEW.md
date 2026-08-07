@@ -1,6 +1,7 @@
 # 父切片展开查看子切片 UI 方案
 
-> 状态:🔄 进行中(方案已确认,待实施)
+> 状态:✅ 已完成
+> 创建:2026-08-07 · 更新:2026-08-08
 > 关联:[PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md)
 > 创建：2026-08-07 · 更新：2026-08-07
 
@@ -65,7 +66,8 @@
 
 ## 测试
 
-- 后端:单测覆盖 `list_chunk_children`(有子块/无子块)、`get_chunk_by_id` 回退路径(ES 空 → Qdrant 命中;双空 → None)
+- 单测(纯函数,无外部依赖):行映射 `_source_to_chunk_row` / `_qdrant_point_to_row`、查询构建 `_build_list_query`、路由注册顺序(children 在 `{chunk_id}` 之前)、父子分块 `split_into_parent_child_chunks`(见 `tests/test_admin.py`、`tests/test_parent_child.py`)
+- 回退链路与子块查询(依赖真实 ES / Qdrant,无单测):冒烟 + 端到端验证——见下方「实施验证」:冒烟用合同.txt 父块 `0:合同.txt:69b916b2b6117b19:0:39da71440fd5`(子块 8 条,按 chunk_index 升序);端到端验证 children 接口返回 `{"rows": [...], "total": 8}`、子块详情走 ES 未命中 → 回退 Qdrant 返回 200
 - 前端:手动验证——父子模式入库后列表可见父块,展开见子块,子块详情抽屉正常;非父子模式(普通 chunk)行无展开箭头
 
 ## 验收标准
@@ -73,3 +75,11 @@
 1. 父子模式入库文档后,切片管理页父块行可展开,子块按序号排列,点详情显示完整内容
 2. 普通模式(无父子)所有行无展开箭头,详情行为不变
 3. 无子块的父块展开显示空态文案
+
+## 实施验证(2026-08-08)
+
+- **后端单测**:T1 6 passed、T2 7 passed、T3 8 passed(全部通过)
+- **冒烟验证**:合同.txt 父块 `0:合同.txt:69b916b2b6117b19:0:39da71440fd5` 子块 8 条,按 chunk_index 升序返回,含 content
+- **端到端**:children 接口返回 `{"rows": [...], "total": 8}`;子块详情 ES found=False → 回退 Qdrant 返回 200 且带 content
+- **前端**:`npm run build:prod` 编译通过,dist 产物包含新代码
+- **实现提交**:749e25e(T1) d5472b7(T2) 4727d97(T3) e84eb00(T4)
