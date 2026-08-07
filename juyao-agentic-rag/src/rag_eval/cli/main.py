@@ -6,7 +6,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from rag_core.llm.validators import require_dashscope_api_key
+from rag_core.infrastructure.llm.validators import require_dashscope_api_key
 from rag_eval.core.ragas_client import METRIC_CHOICES
 from rag_eval.core.runner import run_evaluation
 from rag_eval.paths import DEFAULT_DATASET, resolve_dataset_path

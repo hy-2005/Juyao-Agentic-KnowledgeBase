@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from rag_core.ingestion.graph_writer import ingest_graph_from_file
+from rag_core.application.ingest_flow.graph_writer import ingest_graph_from_file
 
 
 def build_parser() -> argparse.ArgumentParser:

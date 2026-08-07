@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rag_core.llm.factory import get_embeddings
+from rag_core.infrastructure.llm.factory import get_embeddings
 from rag_eval.core.rag_runner import get_eval_chat_llm
 
 METRIC_CHOICES = (

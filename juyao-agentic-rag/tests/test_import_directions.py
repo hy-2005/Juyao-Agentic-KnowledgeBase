@@ -21,7 +21,9 @@ _ALLOWED = {
     "api": {"application", "domain", "infrastructure", "core"},
     "application": {"domain", "infrastructure", "core"},
     "domain": {"infrastructure", "core"},  # infrastructure 仅限 llm 适配（务实豁免）
-    "infrastructure": {"core"},
+    # domain 豁免：infrastructure/neo4j.py 引用 domain.graph.schema 的 Triple
+    # 数据契约（纯数据类被入库/查询多层共享，非业务逻辑依赖）
+    "infrastructure": {"core", "domain"},
 }
 
 

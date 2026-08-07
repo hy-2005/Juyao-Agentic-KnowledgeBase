@@ -6,7 +6,7 @@ chunk_id 是 Qdrant point id / ES _id / Neo4j chunk_ids 的共用键，
 
 from langchain_core.documents import Document
 
-from rag_core.domain.chunk import (
+from rag_core.domain.chunking.contracts import (
     build_chunk_id,
     build_source_doc_id,
     enrich_chunk_metadata,

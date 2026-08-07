@@ -2,8 +2,8 @@
 
 from langchain_core.documents import Document
 
-from rag_core.knowledge_graph.schema import parse_triples
-from rag_core.retrieval.fusion import fuse_query_rankings, fuse_two_rankings
+from rag_core.domain.graph.schema import parse_triples
+from rag_core.domain.retrieval.fusion import fuse_query_rankings, fuse_two_rankings
 
 
 def _doc(cid: str) -> Document:
@@ -49,7 +49,7 @@ def test_load_prompt_system() -> None:
 
 
 def test_split_paragraph_spans() -> None:
-    from rag_core.ingestion.split_spans import split_paragraph_spans
+    from rag_core.domain.chunking.span_utils import split_paragraph_spans
 
     content = "第一段\n\n第二段"
     spans = split_paragraph_spans(content)

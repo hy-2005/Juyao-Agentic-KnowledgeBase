@@ -4,7 +4,7 @@ _sha_matches_indexed 的 16 位前缀比较是历史兼容写法（文件字节 
 content sha 前 16 位比较），用测试钉住当前行为，改动前需先更新测试。
 """
 
-from rag_core.ingestion.hash_guard import _sha_matches_indexed
+from rag_core.application.ingest_flow.hash_guard import _sha_matches_indexed
 
 
 def test_sha_matches_full_equality() -> None:
