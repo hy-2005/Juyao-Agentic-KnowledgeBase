@@ -2,9 +2,9 @@
   <div class="app-container home">
     <el-row :gutter="20">
       <el-col :sm="24" :lg="12" style="padding-left: 20px">
-        <h2>若依后台管理框架</h2>
+        <h2>juyao-agentic-rag 系统</h2>
         <p>
-          一直想做一款后台管理系统，看了很多优秀的开源项目但是发现没有合适自己的。于是利用空闲休息时间开始自己写一套后台系统。如此有了若依管理系统，她可以用于所有的Web应用程序，如网站管理后台，网站会员中心，CMS，CRM，OA等等，当然，您也可以对她进行深度定制，以做出更强系统。所有前端后台代码封装过后十分精简易上手，出错概率低。同时支持移动客户端访问。系统会陆续更新一些实用功能。
+          面向企业知识库的 Agentic RAG + GraphRAG 管理平台，支持混合检索、意图路由、图谱增强、流式对话与异步入库。提供知识图谱可视化、切片管理、文档入库与智能问答等管理能力。
         </p>
         <p>
           <b>当前版本:</b> <span>v{{ version }}</span>
@@ -41,12 +41,12 @@
           <el-col :span="6">
             <h4>后端技术</h4>
             <ul>
-              <li>SpringBoot</li>
-              <li>Spring Security</li>
-              <li>JWT</li>
-              <li>MyBatis</li>
-              <li>Druid</li>
-              <li>Fastjson</li>
+              <li>Spring Boot</li>
+              <li>FastAPI</li>
+              <li>Neo4j</li>
+              <li>Elasticsearch</li>
+              <li>Qdrant</li>
+              <li>Kafka</li>
               <li>...</li>
             </ul>
           </el-col>
@@ -55,10 +55,10 @@
             <ul>
               <li>Vue</li>
               <li>Vuex</li>
-              <li>Element-ui</li>
+              <li>Element UI</li>
+              <li>ECharts</li>
               <li>Axios</li>
               <li>Sass</li>
-              <li>Quill</li>
               <li>...</li>
             </ul>
           </el-col>
@@ -91,17 +91,7 @@
               <s> 满174569686 </s> <a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=M9y5NjAl44lAL_Vh2crmEehZU_PMU6KS&authKey=ZSDz8hEREWSaPuxQV3gEwqGIaGjfRNnkB4rJjf0IvXhrSUGSGwQFmBA%2Boe8HFxyl&noverify=0&group_code=127358632" target="_blank">127358632</a>
             </p>
             <p>
-              <i class="el-icon-chat-dot-round"></i> 微信：<a
-                href="javascript:;"
-                >/ *若依</a
-              >
-            </p>
-            <p>
-              <i class="el-icon-money"></i> 支付宝：<a
-                href="javascript:;"
-                class="支付宝信息"
-                >/ *若依</a
-              >
+              <i class="el-icon-document"></i> 说明：JuYao Agentic RAG 开源知识库与图谱增强检索方案
             </p>
           </div>
         </el-card>
@@ -1098,7 +1088,7 @@
             </el-collapse-item>
             <el-collapse-item title="v1.0.0 - 2019-10-08">
               <ol>
-                <li>若依前后端分离系统正式发布</li>
+                <li>juyao-agentic-rag 系统正式发布</li>
               </ol>
             </el-collapse-item>
           </el-collapse>
