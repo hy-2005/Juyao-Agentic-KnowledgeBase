@@ -71,14 +71,31 @@ def search_context(query: str, kb_id: int = 0) -> RetrievedContext:
     rerank_query_texts = [s.text for s in specs]
     documents = rerank_documents_multi(rerank_query_texts, truncated_docs)
 
-    # max_score：取所有 query 中向量原始相似度的最高值，仅用于上层「相关度」展示，不参与排序。
+    # max_score：取所有 query 中向量原始相似度的最高值，仅用于上层「相关度」展示，不参与排序
+    # （P3 语义说明：这是向量相似度参考分，不是最终排序分；最终顺序由 rerank RRF 决定）
     max_score = max(max_vec_scores, default=0.0)
     return RetrievedContext(documents=documents, max_score=max_score)
 
 
+# 简单问题判定：短 query 且无推理/对比动词 → 单 query 检索（跳过 LLM 改写/HyDE，省时延）
+_SIMPLE_QUERY_MAX_LEN = 12
+_SIMPLE_QUERY_BLOCK_RE = re.compile(
+    r"(为什么|如何|怎么|多少|对比|区别|分析|总结|影响|原因|若|如果|假设)"
+)
+
+
+def _is_simple_query(query: str) -> bool:
+    q = (query or "").strip()
+    return 0 < len(q) <= _SIMPLE_QUERY_MAX_LEN and not _SIMPLE_QUERY_BLOCK_RE.search(q)
+
+
 def _build_query_specs(query: str, settings: Settings) -> list[_QuerySpec]:
     # 把三种 query 来源（原 / 改写 / HyDE）统一成 _QuerySpec 列表，让下游一视同仁地并行处理。
+    # 简单事实型问题（P2 分级）：直接单 query，不调 LLM 改写/HyDE（时延与成本）
     specs: list[_QuerySpec] = [_QuerySpec(label="q0·原", text=query)]
+    if _is_simple_query(query):
+        logger.info("【Query 分级】简单问题，跳过改写/HyDE：%s", query)
+        return specs
 
     sub_queries = rewrite_query(query)
     for i, sub in enumerate(sub_queries, start=1):
@@ -151,11 +168,19 @@ def _retrieve_for_single_query(
 
     max_vec_score = max((s for _, s in vec_pairs_raw), default=0.0)
 
-    vec_for_rrf = [(d, s) for d, s in vec_pairs_raw if s >= min_relevance]
+    # 相对截断（P1）：门槛 = min(绝对阈值, 最高分 * 比例)。
+    # 高分 query 用绝对下限防噪；低分 query（如概念性提问）放宽交给 RRF/rerank 裁决，
+    # 避免全局 0.35 绝对值误杀正确 chunk。
+    rel_ratio = float(get_settings().min_relevance_relative_ratio or 0.0)
+    threshold = min(min_relevance, max_vec_score * rel_ratio) if rel_ratio > 0 else min_relevance
+    vec_for_rrf = [(d, s) for d, s in vec_pairs_raw if s >= threshold]
     logger.info(
-        "【%s · 向量进 RRF】min_relevance=%.2f 过滤后 %s 条，名次按过滤后顺序从 1 起编",
+        "【%s · 向量进 RRF】threshold=%.3f（绝对 %.2f / 相对 %.2f×%.2f）过滤后 %s 条",
         label,
+        threshold,
         min_relevance,
+        max_vec_score,
+        rel_ratio,
         len(vec_for_rrf),
     )
 

@@ -147,11 +147,25 @@ def search_elasticsearch(
     except Exception as exc:
         logger.warning("ES 检查索引失败，跳过全文检索：%s", exc)
         return []
+    # match_phrase 补充（P2）：专有名词/条款名等词序敏感检索，
+    # 多词 query 整句精确出现时 boost——BM25 分词会丢失词序信息
     body = {
         "query": {
             "bool": {
                 "must": [
-                    {"multi_match": {"query": query, "fields": ["content"]}},
+                    {
+                        "bool": {
+                            "should": [
+                                {"multi_match": {"query": query, "fields": ["content"]}},
+                                {
+                                    "match_phrase": {
+                                        "content": {"query": query, "slop": 2, "boost": 2.0}
+                                    }
+                                },
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    },
                     {"term": {"kb_id": int(kb_id)}},
                 ]
             }
