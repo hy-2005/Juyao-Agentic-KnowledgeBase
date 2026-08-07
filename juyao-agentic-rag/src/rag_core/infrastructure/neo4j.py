@@ -5,6 +5,8 @@ from __future__ import annotations
 from functools import lru_cache
 import uuid
 
+from neo4j import GraphDatabase
+
 from langchain_neo4j import Neo4jGraph
 
 from rag_core.core.config import get_settings
@@ -194,18 +196,28 @@ ON MATCH SET
 
 
 class Neo4jTripleStore:
-    """连接 Neo4j 并执行 upsert；供 run_ingest / run_ingest_kg 调用。"""
+    """连接 Neo4j 并执行 upsert；供 run_ingest / run_ingest_kg 调用。
+
+    写入走原生驱动（坑 8 根因）：langchain_neo4j 的 Neo4jGraph.query 对无 RETURN 的
+    写语句（DELETE 等）存在提交延迟/跨连接不可见问题，导致 DELETE 后 MERGE 报
+    "already exists"（唯一约束检查读到旧快照）。
+    """
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._graph = Neo4jGraph(
-            url=settings.neo4j_uri,
-            username=settings.neo4j_username,
-            password=settings.neo4j_password,
+        self._driver = GraphDatabase.driver(
+            settings.neo4j_uri,
+            auth=(settings.neo4j_username, settings.neo4j_password),
         )
 
-    def _run(self, query: str, params: dict | None = None) -> None:
-        self._graph.query(query, params=params or {})
+    def _run(self, query: str, params: dict | None = None, session=None) -> None:
+        # 写入统一走原生驱动（坑 8）：langchain_neo4j 对无 RETURN 写语句提交不可靠。
+        # session 传入时在外部会话内执行（同一会话串行保证因果一致性）；
+        # 否则用 driver.execute_query（驱动级 bookmark 自动管理）。
+        if session is not None:
+            session.run(query, params or {})
+        else:
+            self._driver.execute_query(query, params or {})
 
     def ensure_schema(self) -> None:
         self._run(

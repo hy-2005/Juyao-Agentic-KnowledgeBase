@@ -66,9 +66,9 @@
 - **场景**：社区构建 reset（DELETE 全部 Community）后立即 MERGE 重建
 - **现象**：`ConstraintError: Node(N) already exists with label Community and property id='kb0:community:1'`——明明 DELETE 了，MERGE 却说节点已存在；节点号每次 +1（每次真的创建了新节点）
 - **根因**：reset 用 store 实例 A，_store_community 用新 store 实例 B——**不同 Neo4jGraph 连接之间 DELETE 的写入对 B 不可见**（驱动连接级因果不一致）
-- **修复（部分）**：reset 与写入共用同一 store 实例
-- **遗留**：共用实例后仍偶发冲突（Node 186）——疑似 langchain_neo4j 的 Neo4jGraph.query 会话行为；**待进一步排查**
-- **教训**：Neo4j 写入的一致性必须以"同一连接"为前提；跨连接先读后写要显式同步；唯一约束 + MERGE 的冲突报错可用来暴露这类问题
+- **修复（部分）**：reset 与写入共用同一 store 实例 → 仍失败；改原生 GraphDatabase driver（session.run / driver.execute_query）→ 仍失败；最终 build 全流程单 session 串行（DROP+DELETE+CREATE+MERGE 同 session）——**手动测试同序列成功，但程序内仍报 ConstraintError（Node 号每次 +1-2 递增，暗示每次尝试创建新节点被约束拦截）**
+- **遗留**：**深层根因未定位（待排查）**——疑似 Neo4j 服务器/驱动版本组合问题（docker juyao-neo4j）；社区**检测算法正常**（10 社区正确聚类），**摘要持久化标记"部分可用/待排查"**
+- **教训**：Neo4j 写入的一致性必须以"同一连接/会话"为前提；跨连接先读后写要显式同步；唯一约束 + MERGE 的冲突报错可用来暴露这类问题；**同序列手动成功 ≠ 程序内成功**——排查时保留程序内最小复现
 
 ## 9. Neo4j 5.x 语法：size() 模式表达式被废弃
 

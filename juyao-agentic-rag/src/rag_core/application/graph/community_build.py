@@ -40,12 +40,17 @@ def _community_summary(entities: list[str]) -> str:
 
 
 def _store_community(
-    store: Neo4jTripleStore, community_id: str, summary: str, entities: list[str], kb: int | None
+    store: Neo4jTripleStore,
+    community_id: str,
+    summary: str,
+    entities: list[str],
+    kb: int | None,
+    session=None,
 ) -> None:
     """写 Community 节点 + 实体 MEMBER_OF 边（幂等：community_id 唯一约束保证 MERGE 合并）。
 
-    store 必须与 reset 共用同一连接——Neo4j 驱动跨连接存在因果不一致，
-    DELETE 后新连接 MERGE 可能读到旧快照（历史 bug）。
+    session 传入时在外部 session 内执行（同一会话串行，保证因果一致性——
+    DELETE 后新会话 MERGE 会读到旧快照报 already exists，坑 8 根因）。
     """
     store._run(
         """
@@ -58,6 +63,7 @@ def _store_community(
                             ELSE coalesce(c.kb_ids, []) + $kb END
         """,
         {"cid": community_id, "summary": summary, "kb": kb},
+        session=session,
     )
     store._run(
         """
@@ -66,13 +72,17 @@ def _store_community(
         MERGE (e)-[:MEMBER_OF]->(c:Community {id: $cid})
         """,
         {"entities": entities, "cid": community_id},
+        session=session,
     )
 
 
-def ensure_community_schema() -> None:
-    """Community.id 唯一约束（防止 MERGE 重复建节点——历史 bug）。"""
-    store = Neo4jTripleStore()
-    store._run(
+def ensure_community_schema(store: Neo4jTripleStore | None = None) -> None:
+    """Community.id 唯一约束（防止 MERGE 重复建节点——历史 bug）。
+
+    store 必须与 reset 共用同一连接——CREATE CONSTRAINT 会检查全库唯一性，
+    跨连接看不到刚 DELETE 的节点会导致约束创建失败（坑 8 同根）。
+    """
+    (store or Neo4jTripleStore())._run(
         "CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (c:Community) REQUIRE c.id IS UNIQUE"
     )
 
@@ -83,20 +93,26 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
     reset=True 时先清空 Community/MEMBER_OF 再重建（单进程内串行，
     避免跨进程 DELETE 与 MERGE 的时序冲突）。
     """
-    ensure_community_schema()  # 唯一约束必须先于 MERGE——否则同 id 重复建节点（历史 bug）
-    # reset 与写入共用同一 store 实例（同一 Neo4j 连接），避免跨连接因果不一致
+    # 顺序关键（坑 8 补充）：必须先清理再建约束——CREATE CONSTRAINT IF NOT EXISTS
+    # 会检查全库现有节点的唯一性，历史重复节点会导致约束创建失败
     store = Neo4jTripleStore()
-    if reset:
-        store._run("MATCH ()-[m:MEMBER_OF]->() DELETE m")
-        store._run("MATCH (c:Community) DELETE c")
     communities = detect_communities(kb=kb)
     built = 0
-    for idx, entities in enumerate(communities, start=1):
-        community_id = f"kb{kb or 0}:community:{idx}"
-        summary = _community_summary(entities)
-        _store_community(store, community_id, summary, entities, kb=kb)
-        built += 1
-        logger.info("【社区构建】%s 实体=%s 摘要=%s", community_id, len(entities), summary[:60])
+    # 单一 session 串行 reset + ensure + 全部写入（坑 8 终极修复）：
+    # 跨会话/跨连接的 DELETE 与 MERGE 存在因果不一致，必须同会话内完成
+    with store._driver.session() as session:
+        if reset:
+            session.run("MATCH ()-[m:MEMBER_OF]->() DELETE m")
+            session.run("MATCH (c:Community) DELETE c")
+        session.run(
+            "CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (c:Community) REQUIRE c.id IS UNIQUE"
+        )
+        for idx, entities in enumerate(communities, start=1):
+            community_id = f"kb{kb or 0}:community:{idx}"
+            summary = _community_summary(entities)
+            _store_community(store, community_id, summary, entities, kb=kb, session=session)
+            built += 1
+            logger.info("【社区构建】%s 实体=%s 摘要=%s", community_id, len(entities), summary[:60])
     return built
 
 
