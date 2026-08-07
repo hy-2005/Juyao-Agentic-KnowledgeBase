@@ -94,7 +94,7 @@
 | 优先级 | 改动 | 状态 | 说明 |
 |---|---|---|---|
 | P0-1 | F 补强改用 chunk 锚定查询 | ✅ 已实施 | graph_supplement 步骤 chunk 锚定优先（query_edges_for_chunks 接线），0 边问句实体兜底；SSE 契约 diff 验证通过 |
-| P0-2 | 实体匹配三层递进兜底 | ❌ 待办 | 需与入库侧归一化一起做 |
+| P0-2 | 实体匹配三层递进兜底 | ✅ 已实施 | resolve_entity_names 精确→归一化→子串；实测"盾构机"/"ZTE-9000"命中库内全名 |
 | P1-1 | Cypher 下沉 hints + hops 约束 | ❌ 待办 | - |
 | P1-2 | graph_only 未命中降级向量 | ✅ 已实施 | flow.py 0 边自动降级（stop_reason=graph_only_fallback_vector） |
 | P2 | Observation 体积 + time_hints | ❌ 待办 | - |
