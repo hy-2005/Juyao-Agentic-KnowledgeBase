@@ -1,6 +1,6 @@
 # 父子分块 + 结构化识别方案
 
-> 状态：方案已确认（待实施） · 更新：2026-08-07
+> 状态：**已实施**（2026-08-07，42+ 测试全绿） · 更新：2026-08-07
 > 范围：切分层（结构识别 + 父子生成）+ 检索层（子块检索 → 父块映射聚合）
 > 关联文档：CHUNK_SPLITTING_REVIEW.md（§4 目标流程）、INGESTION_UPDATE_REVIEW.md（chunk_id 增量）、RETRIEVAL_REVIEW.md（检索漏斗）
 
@@ -87,8 +87,19 @@ chunk_type 字段用于检索过滤与调试
 
 依赖：终评对比完成后实施（当前代码基线先存档）；实施后重灌评测数据做前后对比。
 
-## 6. 待确认
+## 6. 实施记录（2026-08-07）
 
-1. 子块大小 200 字是否合适（可 128-256 网格验证，跟随终评后的统一参数校准）
-2. PDF 表格是否需要布局保留（当前 get_text 方案表格质量差，是否引入版面分析——优先级低可后置）
-3. 父块是否进 ES（BM25 路）：父块进 ES 与现有 mapping 兼容，子块只进 Qdrant
+**已实现**：
+- `span_utils.split_structural_blocks`：结构化块识别（md 标题/代码块围栏/markdown 表格），修复段落吞标题/表格 bug；真实文档验证（fastapi 30 标题+12 代码块、pandas 13 标题+1 表格+5 代码块）
+- `splitter.build_parent_blocks`：结构感知父块（标题聚合/代码块表格独立/段落超限细分）
+- `splitter.split_into_parent_child_chunks`：父块 chunk_type=parent+child_ids、子块 chunk_type=child+parent_chunk_id（内容寻址，增量方案兼容）
+- `ingest`：chunk_parent_enabled 时父块写 ES+Qdrant、子块写 Qdrant（同一 collection，chunk_type 区分）
+- `retriever._vector_topk`：子块命中 → parent_chunk_id 映射聚合父块去重
+- 配置：`chunk_parent_enabled`（默认 False 灰度）、`child_chunk_size=200`
+
+**验证数据**：
+- 若依中文 README：13 父块 + 54 子块（标题聚合正常，中文句子边界完整）
+- pandas README：表格独立成父块 ✓
+- 检索映射："pandas 如何读取 CSV" → 子块命中映射 5 个父块（含代码块/标题聚合父块）✓
+
+**遗留**：PDF 表格布局保留（get_text 方案表格质量差，优先级低）；子块大小 200 是否最优（跟随统一参数校准）。
