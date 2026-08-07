@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -171,3 +172,108 @@ def get_chunk_max_chars(settings: Settings | None = None) -> int:
     if s.chunk_max_chars > 0:
         return s.chunk_max_chars
     return max(s.chunk_size + 400, int(s.chunk_size * 1.5))
+
+
+# ---------------------------------------------------------------------------
+# 分组视图（阶段 6）：平铺字段保留（兼容全部调用点），提供只读分组访问器，
+# 新代码用 settings.chunk.size / settings.graph.max_edges 替代平铺字段。
+# 环境变量与 toml 键名不变，无需迁移。
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChunkSettingsView:
+    """切分参数分组视图。"""
+
+    size: int
+    max_chars: int
+    overlap: int
+    direct_max_chars: int
+    split_mode: str
+    ai_split_enabled: bool
+
+
+@dataclass(frozen=True)
+class RetrievalSettingsView:
+    """检索参数分组视图。"""
+
+    top_k: int
+    rrf_top_n: int
+    rerank_top_n: int
+    min_relevance_score: float
+    rrf_k: int
+
+
+@dataclass(frozen=True)
+class GraphSettingsView:
+    """图谱参数分组视图。"""
+
+    query_enabled: bool
+    expand_max_edges: int
+    max_hops: int
+    expand_internal_path_cap: int
+    question_extract_timeout_s: float
+
+
+@dataclass(frozen=True)
+class KafkaSettingsView:
+    """Kafka 消费参数分组视图。"""
+
+    bootstrap_servers: str
+    topic: str
+    consumer_group: str
+    auto_offset_reset: str
+    ingest_graph_workers: int
+    ingest_kafka_workers: int
+
+
+def _build_group_views(settings: Settings) -> dict[str, Any]:
+    """构建全部分组视图（每次访问重建，配置读取频率低可接受）。"""
+    return {
+        "chunk": ChunkSettingsView(
+            size=settings.chunk_size,
+            max_chars=settings.chunk_max_chars,
+            overlap=settings.chunk_overlap,
+            direct_max_chars=settings.chunk_direct_max_chars,
+            split_mode=settings.chunk_split_mode,
+            ai_split_enabled=settings.chunk_ai_split_enabled,
+        ),
+        "retrieval": RetrievalSettingsView(
+            top_k=settings.top_k,
+            rrf_top_n=settings.rrf_top_n,
+            rerank_top_n=settings.rerank_top_n,
+            min_relevance_score=settings.min_relevance_score,
+            rrf_k=settings.rrf_k,
+        ),
+        "graph": GraphSettingsView(
+            query_enabled=settings.graph_query_enabled,
+            expand_max_edges=settings.graph_expand_max_edges,
+            max_hops=settings.graph_max_hops,
+            expand_internal_path_cap=settings.graph_expand_internal_path_cap,
+            question_extract_timeout_s=settings.graph_question_extract_timeout_s,
+        ),
+        "kafka": KafkaSettingsView(
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+            topic=settings.kafka_topic,
+            consumer_group=settings.kafka_consumer_group,
+            auto_offset_reset=settings.kafka_auto_offset_reset,
+            ingest_graph_workers=settings.ingest_graph_workers,
+            ingest_kafka_workers=settings.ingest_kafka_workers,
+        ),
+    }
+
+
+def _inject_group_properties(cls: type) -> None:
+    """为 Settings 注入只读分组属性（chunk/retrieval/graph/kafka）。"""
+    for name in ("chunk", "retrieval", "graph", "kafka"):
+
+        def _make_getter(n: str):
+            def getter(self) -> Any:
+                return _build_group_views(self)[n]
+
+            return getter
+
+        setattr(cls, name, property(_make_getter(name)))
+
+
+_inject_group_properties(Settings)
