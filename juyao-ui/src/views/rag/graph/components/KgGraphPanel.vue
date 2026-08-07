@@ -305,79 +305,6 @@ export default {
       this.chart.setOption(option, true)
     },
 
-    // 社区聚类布局：社区中心均匀分布大圆，成员在社区内同心圆展开；返回 Map(nodeId -> {x,y})
-    computeCommunityLayout(nodes, width, height) {
-      const groups = new Map()
-      nodes.forEach((n) => {
-        const cid = n.community_id
-        if (!cid) return
-        if (!groups.has(cid)) groups.set(cid, [])
-        groups.get(cid).push(n)
-      })
-      const positions = new Map()
-      const communityIds = Array.from(groups.keys())
-      const cx = width / 2
-      const cy = height / 2
-      const ringR = Math.min(width, height) * 0.32
-      communityIds.forEach((cid, i) => {
-        const members = groups.get(cid)
-        const angle = (i / communityIds.length) * Math.PI * 2 - Math.PI / 2
-        const ccx = cx + ringR * Math.cos(angle)
-        const ccy = cy + ringR * Math.sin(angle)
-        // 成员同心圆展开：半径按 √成员数
-        const n = members.length
-        const baseR = Math.max(18, Math.min(70, 14 * Math.sqrt(n)))
-        members.forEach((m, j) => {
-          const ring = Math.floor(Math.sqrt(j))
-          const onRing = Math.max(1, 2 * ring + 1)
-          const posInRing = j - ring * ring
-          const a = (posInRing / onRing) * Math.PI * 2 + (ring % 2) * (Math.PI / onRing)
-          const r = baseR + ring * 16
-          positions.set(m.id || m.name, {
-            x: ccx + r * Math.cos(a),
-            y: ccy + r * Math.sin(a)
-          })
-        })
-      })
-      return positions
-    },
-
-    // 社区气泡：每个社区一个半透明椭圆（fill 社区色 10% 透明度）
-    communityBubbles(nodes, positions) {
-      const groups = new Map()
-      nodes.forEach((n) => {
-        const cid = n.community_id
-        const pos = positions.get(n.id || n.name)
-        if (!cid || !pos) return
-        if (!groups.has(cid)) groups.set(cid, [])
-        groups.get(cid).push(pos)
-      })
-      const bubbles = []
-      groups.forEach((pts, cid) => {
-        if (!pts.length) return
-        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length
-        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length
-        const maxD = Math.max(
-          40,
-          Math.sqrt(pts.reduce((s, p) => s + (p.x - cx) ** 2 + (p.y - cy) ** 2, 0) / pts.length) * 1.8
-        )
-        bubbles.push({
-          type: 'ellipse',
-          shape: { cx, cy, rx: maxD, ry: maxD * 0.72 },
-          style: {
-            fill: communityColor(cid) + '1A', // 10% 透明度
-            stroke: communityColor(cid),
-            lineWidth: 1,
-            lineDash: [4, 3],
-            fillOpacity: 0.12
-          },
-          silent: true,
-          z: 1
-        })
-      })
-      return bubbles
-    },
-
     renderForceGraph() {
       const nodes = (this.graphData && this.graphData.nodes) || []
       const links = (this.graphData && this.graphData.links) || []
@@ -413,8 +340,6 @@ export default {
 
       // 社区视图（聚合）：节点=社区，边=社区间关系（纯前端从 fullGraphData 计算）
       const communityAggView = isFull && this.communityView
-      let layoutPositions = new Map()
-      let bubbles = []
       const cidOf = (n) => (n && n.community_id) || ''
       if (communityAggView) {
         const aggNodes = new Map() // cid -> {community_id, entityCount, summaryPrefix}
@@ -442,13 +367,8 @@ export default {
         }
         return this.renderCommunityView(aggData, this.graphData)
       }
-      if (isFull) {
-        // 全图模式：有 community_id 的节点用聚类布局，无归属节点不参与布局（force 兜底）
-        layoutPositions = this.computeCommunityLayout(nodes, this.chart.getWidth(), this.chart.getHeight())
-        if (layoutPositions.size > 1) {
-          bubbles = this.communityBubbles(nodes, layoutPositions)
-        }
-      }
+      // 实体视图保持 force 力导向布局（聚类布局/社区圈经实测难看且缩放错位，已移除——
+      // 社区边界体现交由「社区视图」聚合模式承担）
 
       const seriesData = nodes.map((n, idx) => {
         const name = n.name || n.id
@@ -461,13 +381,9 @@ export default {
         const color = isFull && n.community_id
           ? communityColor(n.community_id)
           : (isHighlight ? COLORS.seed : COLORS.related)
-        // 社区聚类布局坐标（固定位置，layout 'none'）
-        const pos = layoutPositions.get(n.id || name)
-
         return {
           id: n.id || name,
           name,
-          ...(pos ? { x: pos.x, y: pos.y } : {}),
           ...(n.community_id ? { community_id: n.community_id } : {}),
           category: isFull ? undefined : cat,
           symbolSize,
@@ -490,8 +406,6 @@ export default {
         animation: true,
         animationDuration: 750,
         animationEasing: 'cubicOut',
-        // 社区气泡绘制在 series 底层（z 值小于 series）
-        ...(bubbles.length ? { graphic: bubbles } : {}),
         tooltip: {
           confine: true,
           formatter: (params) => {
@@ -512,8 +426,7 @@ export default {
           : undefined,
         series: [{
           type: 'graph',
-          // 社区聚类布局用固定坐标（节点带 x/y），无布局数据时退回 force
-          layout: layoutPositions.size ? 'none' : 'force',
+          layout: 'force',
           roam: true,
           draggable: true,
           categories: categories || undefined,
