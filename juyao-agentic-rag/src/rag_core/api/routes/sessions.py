@@ -10,6 +10,7 @@ import redis.asyncio as redis
 from fastapi import APIRouter, HTTPException, Request
 
 from rag_core.api.schemas import SessionCreateRequest, SessionTitleUpdate
+from rag_core.api.security import require_internal_token
 from rag_core.core.config import get_settings
 from rag_core.infrastructure.redis.session import (
     chat_key,
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/api/v1/chat", tags=["sessions"])
 
 @router.post("/sessions")
 async def create_session(body: SessionCreateRequest, request: Request):
+    require_internal_token(request)
     settings = get_settings()
     r: redis.Redis = request.app.state.redis
     session_id = uuid4().hex
@@ -40,6 +42,7 @@ async def create_session(body: SessionCreateRequest, request: Request):
 
 @router.get("/sessions")
 async def list_sessions(user_id: str, request: Request):
+    require_internal_token(request)
     r: redis.Redis = request.app.state.redis
     prefix = f"rag:chat:{user_id}:"
     titles_map = await r.hgetall(session_meta_hash_key(user_id))
@@ -62,6 +65,7 @@ async def list_sessions(user_id: str, request: Request):
 
 @router.get("/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str, user_id: str, request: Request):
+    require_internal_token(request)
     r: redis.Redis = request.app.state.redis
     if not await r.exists(chat_key(user_id, session_id)):
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -70,6 +74,7 @@ async def get_session_messages(session_id: str, user_id: str, request: Request):
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, user_id: str, request: Request):
+    require_internal_token(request)
     r: redis.Redis = request.app.state.redis
     if not await r.exists(chat_key(user_id, session_id)):
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -79,6 +84,7 @@ async def delete_session(session_id: str, user_id: str, request: Request):
 
 @router.put("/sessions/{session_id}")
 async def update_session_title(session_id: str, body: SessionTitleUpdate, request: Request):
+    require_internal_token(request)
     r: redis.Redis = request.app.state.redis
     if not await r.exists(chat_key(body.user_id, session_id)):
         raise HTTPException(status_code=404, detail="会话不存在")

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from rag_core.api.schemas import ChatStreamRequest
+from rag_core.api.security import require_internal_token
 from rag_core.core.config import get_settings
 from rag_core.infrastructure.redis.session import append_turn, load_messages
 from rag_core.application.chat_flow.entry import astream_chat_events
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 @router.post("/stream")
 async def chat_stream(body: ChatStreamRequest, request: Request):
+    require_internal_token(request)  # P1-1：chat 通道鉴权（防止 8000 端口直连泄露）
     settings = get_settings()
     r = request.app.state.redis
     history = await load_messages(r, body.user_id, body.session_id)

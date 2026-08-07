@@ -36,6 +36,9 @@ public class RagChatClient{
     @Value("${juyao.rag.base-url:http://127.0.0.1:8000}")
     private String baseUrl;
 
+    @Value("${juyao.rag.internal-token:}")
+    private String internalToken;
+
     public RagChatClient(ObjectMapper objectMapper){
         this.objectMapper = objectMapper;
     }
@@ -55,6 +58,7 @@ public class RagChatClient{
 
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         HttpRequest req = HttpRequest.newBuilder()
+                .header("X-Internal-Token", internalToken)
                 .uri(URI.create(url + "/api/v1/chat/stream"))
                 .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofMinutes(30))
@@ -91,6 +95,7 @@ public class RagChatClient{
 
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         HttpRequest req = HttpRequest.newBuilder()
+                .header("X-Internal-Token", internalToken)
                 .uri(URI.create(url + "/api/v1/chat/sessions"))
                 .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(30))
@@ -115,6 +120,7 @@ public class RagChatClient{
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String queryUserId = URLEncoder.encode(userId, StandardCharsets.UTF_8);
         HttpRequest req = HttpRequest.newBuilder()
+                .header("X-Internal-Token", internalToken)
                 .uri(URI.create(url + "/api/v1/chat/sessions?user_id=" + queryUserId))
                 .timeout(Duration.ofSeconds(30))
                 .GET()
@@ -134,6 +140,7 @@ public class RagChatClient{
         String queryUserId = URLEncoder.encode(userId, StandardCharsets.UTF_8);
         String querySessionId = URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
         HttpRequest req = HttpRequest.newBuilder()
+                .header("X-Internal-Token", internalToken)
                 .uri(URI.create(url + "/api/v1/chat/sessions/" + querySessionId + "/messages?user_id=" + queryUserId))
                 .timeout(Duration.ofSeconds(30))
                 .GET()
@@ -153,6 +160,7 @@ public class RagChatClient{
         String queryUserId = URLEncoder.encode(userId, StandardCharsets.UTF_8);
         String sid = URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
         HttpRequest req = HttpRequest.newBuilder()
+                .header("X-Internal-Token", internalToken)
                 .uri(URI.create(url + "/api/v1/chat/sessions/" + sid + "?user_id=" + queryUserId))
                 .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(30))
@@ -175,6 +183,7 @@ public class RagChatClient{
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String sid = URLEncoder.encode(sessionId, StandardCharsets.UTF_8);
         HttpRequest req = HttpRequest.newBuilder()
+                .header("X-Internal-Token", internalToken)
                 .uri(URI.create(url + "/api/v1/chat/sessions/" + sid))
                 .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(30))
