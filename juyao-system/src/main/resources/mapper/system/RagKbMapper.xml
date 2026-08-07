@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.juyao.system.mapper.RagKbMapper">
+
+    <select id="selectUserAccess" resultType="java.lang.String">
+        SELECT CASE
+            WHEN k.owner_id = #{userId} THEN 'admin'
+            ELSE u.role
+        END AS role
+        FROM rag_kb k
+        LEFT JOIN rag_kb_user u ON u.kb_id = k.id AND u.user_id = #{userId}
+        WHERE k.id = #{kbId}
+          AND (k.owner_id = #{userId} OR u.user_id IS NOT NULL)
+        LIMIT 1
+    </select>
+
+    <select id="countById" resultType="int">
+        SELECT COUNT(*) FROM rag_kb WHERE id = #{kbId}
+    </select>
+
+    <select id="selectAccessibleKbs" resultType="com.juyao.system.domain.RagKb">
+        SELECT k.id, k.name, k.owner_id AS ownerId, k.create_time AS createTime
+        FROM rag_kb k
+        LEFT JOIN rag_kb_user u ON u.kb_id = k.id AND u.user_id = #{userId}
+        WHERE k.owner_id = #{userId} OR u.user_id IS NOT NULL
+        ORDER BY k.id
+    </select>
+
+</mapper>
