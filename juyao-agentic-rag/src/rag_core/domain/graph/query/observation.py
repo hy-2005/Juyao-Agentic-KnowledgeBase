@@ -73,7 +73,16 @@ def build_graph_observation_question_driven(
 
     matched = resolve_entity_names(entities, settings=cfg)
     if not matched:
+        # global 检索兜底（GRAPH_QUERY_REVIEW §6）：实体未命中时用社区摘要
+        global_text = _community_summaries_for_question(question, kb=kb)
         preview = "、".join(entities[:8])
+        if global_text:
+            return (
+                f"Observation（第 {round_idx} 次图谱补充）："
+                f"问句实体（{preview}）未匹配到节点，以下为知识库主题社区摘要：\n{global_text}",
+                0,
+                [],
+            )
         return (
             f"Observation（第 {round_idx} 次图谱补充）："
             f"问句实体（{preview}）在图谱中未匹配到节点。",
@@ -140,3 +149,31 @@ def build_graph_observation_text(
         f"{body}"
     )
     return text, len(edges)
+
+
+def _char_ngrams(text: str, n: int) -> list[str]:
+    """中文字符 n-gram（global 兜底的轻量相似度用，无分词依赖）。"""
+    return [text[i : i + n] for i in range(len(text) - n + 1) if text[i : i + n].strip()]
+
+
+def _community_summaries_for_question(question: str, kb: int | None) -> str:
+    """global 检索兜底：问句与社区摘要按 2/3-gram 重叠度粗筛，取 top 2。"""
+    from rag_core.application.graph.community_build import list_community_summaries
+
+    summaries = list_community_summaries(kb=kb)
+    if not summaries:
+        return ""
+    q_grams = set(_char_ngrams(question, 2)) | set(_char_ngrams(question, 3))
+    scored: list[tuple[int, dict]] = []
+    for s in summaries:
+        s_grams = set(_char_ngrams(str(s.get("summary") or ""), 2)) | set(
+            _char_ngrams(str(s.get("summary") or ""), 3)
+        )
+        scored.append((len(q_grams & s_grams), s))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = [s for overlap, s in scored[:2] if overlap > 0]
+    if not top:
+        return ""
+    return "\n".join(
+        f"[社区 {s['community_id']}]（{s['entity_count']} 实体）：{s['summary']}" for s in top
+    )
