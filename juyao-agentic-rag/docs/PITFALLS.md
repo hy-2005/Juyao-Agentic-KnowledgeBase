@@ -145,3 +145,11 @@
 - **根因**：uvicorn 启动时会执行自己的 logging dictConfig，**重置 root logger 的 handlers**——import 阶段（app 模块加载）添加的 handler 被清掉；且 uvicorn 的 `uvicorn.access` logger `propagate=False`，访问日志不经过 root
 - **修复**：FileHandler 添加逻辑拆成独立函数，在 **lifespan 阶段**（uvicorn 完成自身日志配置后）再补一次；文件固定 `encoding="utf-8"`，规避 Windows 控制台 GBK 乱码
 - **教训**：框架（uvicorn/星协议栈）启动时会接管 logging 配置——自定义日志 handler 必须在框架配置完成后的生命周期钩子里挂，不能只在模块 import 时挂
+
+## 16. 整页图片扫描件 PDF 的 get_images() 返回 0 → OCR 不触发
+
+- **场景**：上传国务院公报扫描件 PDF（6 页全部为图片渲染），只解析出封面 79 字符
+- **现象**：6 页扫描件只入库 1 个切片（封面），其余 5 页内容静默丢失；日志无 OCR 记录
+- **根因**：OCR 触发条件为「文本 <20 字符 **且 page.get_images() 非空」——整页图片渲染的扫描件页面级图片不被 get_images() 列出（返回 0），条件不满足 → 不 OCR
+- **修复**：去掉「含图片」条件——页面文本过少即尝试 OCR；纯空白页 OCR 为空，不会更差（实测 79 → 6470 字符，全部 6 页 OCR 成功）
+- **教训**：判断"页面是否含图片"不能依赖 get_images()（它只列嵌入图片对象）；扫描件判定以文本量为准，OCR 兜底宁多勿漏
