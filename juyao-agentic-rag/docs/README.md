@@ -9,7 +9,7 @@
 |---|---|---|
 | [CHUNK_SPLITTING_REVIEW.md](CHUNK_SPLITTING_REVIEW.md) | chunk 拆分评审：预分批/规则主通道/父子分块/多模态规划 | ✅ 已实施（多模态待办） |
 | [RETRIEVAL_REVIEW.md](RETRIEVAL_REVIEW.md) | 检索评审：相对截断/漏斗扩容/多样性/match_phrase/query 分级 | ✅ 已实施 |
-| [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询（锚定/降级/三层匹配）+ 入库（归一化/闭集/批量）+ 社区 | 📌 查询+入库核心已实施，社区摘要待完善 |
+| [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底） | ✅ 核心已实施 |
 | [INGESTION_UPDATE_REVIEW.md](INGESTION_UPDATE_REVIEW.md) | 文档更新/增量评审：先写后删差集/chunk_id 内容寻址方案 | 📌 先写后删已实施，增量 chunk_id 待办 |
 | [TENANT_PERMISSION_REVIEW.md](TENANT_PERMISSION_REVIEW.md) | 租户/权限评审：kbId 贯通/API 鉴权/kb 授权模型 | 📌 kbId 贯通已实施，权限模型待办 |
 | [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 阶段 4/5/6 已实施 |
