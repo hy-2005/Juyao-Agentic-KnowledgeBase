@@ -17,6 +17,24 @@ const COLORS = {
   edgeLabelBorder: '#dcdfe6'
 }
 
+// 社区色板：按 community_id hash 映射到固定 12 色，同社区恒定同色
+const COMMUNITY_COLORS = [
+  '#5B8FF9', '#5AD8A6', '#5D7092', '#F6BD16', '#E86452', '#6DC8EC',
+  '#945FB9', '#FF9845', '#1E9493', '#FF99C3', '#3FC1C9', '#B084CC'
+]
+
+function hashString(s) {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(h)
+}
+
+function communityColor(communityId) {
+  return COMMUNITY_COLORS[hashString(String(communityId || '')) % COMMUNITY_COLORS.length]
+}
+
 function truncateText(text, maxLen) {
   const s = String(text || '')
   if (maxLen && s.length > maxLen) return s.slice(0, maxLen) + '…'
@@ -238,7 +256,10 @@ export default {
         const matched = isFull && kw && String(name).toLowerCase().includes(kw)
         const symbolSize = nodeSizes[idx]
         const isHighlight = isSeed || matched
-        const color = isHighlight ? COLORS.seed : COLORS.related
+        // 全图模式按社区着色：community_id → 社区色板恒定同色；无归属走 seed/related 逻辑
+        const color = isFull && n.community_id
+          ? communityColor(n.community_id)
+          : (isHighlight ? COLORS.seed : COLORS.related)
 
         return {
           id: n.id || name,
@@ -272,7 +293,11 @@ export default {
             const hint = isFull
               ? '拖动节点 · 点击查看子图 · 滚轮缩放'
               : '拖动节点 · 悬停高亮相邻关系'
-            return `<strong>${params.name || ''}</strong>${cat}<div style="margin-top:4px;font-size:12px;color:#909399">${hint}</div>`
+            const cid = params.data && params.data.community_id
+            const cidHtml = cid
+              ? `<div style="margin-top:4px;font-size:12px;color:${communityColor(cid)}">所属社区：${cid}</div>`
+              : ''
+            return `<strong>${params.name || ''}</strong>${cat}${cidHtml}<div style="margin-top:4px;font-size:12px;color:#909399">${hint}</div>`
           }
         },
         legend: categories

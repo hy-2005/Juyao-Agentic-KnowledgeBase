@@ -25,6 +25,7 @@ from rag_core.domain.graph.query.admin_queries import (
     fetch_all_edges,
     full_graph,
     graph_stats,
+    list_communities,
     list_edges,
     list_entities,
     subgraph_from_seeds,
@@ -36,6 +37,12 @@ router = APIRouter(prefix="/api/v1/admin/graph", tags=["admin-graph"])
 @router.get("/stats", response_model=GraphStatsResponse)
 def admin_graph_stats(top_n: int = Query(10, alias="topN", ge=1, le=50)):
     return GraphStatsResponse(**graph_stats(top_n=top_n))
+
+
+@router.get("/communities")
+def admin_list_communities():
+    """社区列表（id/摘要/实体数/成员实体），社区面板 + 点击聚焦用。"""
+    return {"rows": list_communities()}
 
 
 @router.get("/edges", response_model=GraphListResponse)

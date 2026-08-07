@@ -114,6 +114,18 @@ public class RagGraphController extends BaseController{
         }
     }
 
+    @GetMapping("/communities")
+    public AjaxResult communities(){
+        try{
+            Map<String, Object> data = ragAdminClient.getJson(
+                    "/api/v1/admin/graph/communities",
+                    RagAdminClient.params());
+            return success(data);
+        } catch (Exception e){
+            return error("查询社区列表失败: " + e.getMessage());
+        }
+    }
+
     @GetMapping("/edges/all")
     public TableDataInfo allEdges(){
         try{

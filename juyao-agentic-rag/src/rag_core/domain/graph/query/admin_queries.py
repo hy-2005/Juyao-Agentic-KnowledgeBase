@@ -113,22 +113,75 @@ def fetch_all_edges() -> list[dict]:
     ]
 
 
+def _fetch_community_map(entity_names: list[str]) -> dict[str, str]:
+    """实体名 → community_id（无归属实体不在返回中）。"""
+    if not entity_names:
+        return {}
+    rows = get_read_graph().query(
+        "MATCH (e:Entity)-[:MEMBER_OF]->(c:Community) "
+        "WHERE e.name IN $names RETURN e.name AS name, c.id AS cid",
+        params={"names": entity_names},
+    )
+    return {r["name"]: str(r["cid"]) for r in rows}
+
+
 def _edges_to_subgraph(rows: list[dict]) -> dict:
-    """边行 → {nodes, edges}（管理台可视化结构）。"""
+    """边行 → {nodes, edges}（管理台可视化结构）。
+
+    Cypher 返回列名不统一：list 接口走 _edge_rows_to_dict（head_name/tail_name），
+    full_graph/subgraph 直接 RETURN h/rel/t——两处都要兼容，避免 KeyError。
+    节点带 community_id（无归属不带），前端据此按社区着色。
+    """
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
     for row in rows:
-        h, t = row["head_name"], row["tail_name"]
+        h = row.get("head_name") or row.get("h")
+        t = row.get("tail_name") or row.get("t")
+        if not h or not t:
+            continue
         nodes.setdefault(h, {"id": h, "name": h})
         nodes.setdefault(t, {"id": t, "name": t})
         edges.append(
             {
                 "source": h,
                 "target": t,
-                "relation": row.get("relation_predicate") or "",
+                "relation": row.get("relation_predicate") or row.get("rel") or "",
             }
         )
-    return {"nodes": list(nodes.values()), "edges": edges}
+    # 批量注入社区归属：一次查询避免 N+1
+    community_map = _fetch_community_map(list(nodes.keys()))
+    for node in nodes.values():
+        cid = community_map.get(node["name"])
+        if cid:
+            node["community_id"] = cid
+    # 契约对齐：GraphSubgraphResponse/前端可视化组件用 links（不是 edges），
+    # 列名不统一的问题已在行取值处兼容
+    return {"nodes": list(nodes.values()), "links": edges}
+
+
+def list_communities() -> list[dict]:
+    """社区列表：id/摘要/实体数/成员实体名（社区面板 + 点击聚焦用）。"""
+    from rag_core.application.graph.community_build import list_community_summaries
+
+    summaries = list_community_summaries()
+    result: list[dict] = []
+    for s in summaries:
+        cid = s.get("community_id")
+        if not cid:
+            continue
+        members = get_read_graph().query(
+            "MATCH (e:Entity)-[:MEMBER_OF]->(c:Community {id: $cid}) RETURN e.name AS name ORDER BY e.name",
+            params={"cid": cid},
+        )
+        result.append(
+            {
+                "community_id": cid,
+                "summary": s.get("summary", ""),
+                "entity_count": s.get("entity_count", 0),
+                "entities": [r["name"] for r in members],
+            }
+        )
+    return result
 
 
 def subgraph_from_seeds(seed_names: list[str], hops: int = 1, limit: int | None = None) -> dict:

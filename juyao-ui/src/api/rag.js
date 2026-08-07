@@ -355,3 +355,11 @@ export function listChunkChildren(chunkId) {
     method: 'get'
   })
 }
+
+/** 社区列表（id/摘要/实体数/成员实体），社区面板用 */
+export function listCommunities() {
+  return request({
+    url: `${BASE}/graph/communities`,
+    method: 'get'
+  })
+}

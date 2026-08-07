@@ -31,6 +31,40 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="mb8 community-card">
+      <div slot="header" class="community-header">
+        <span>社区（Leiden 检测 · 主题摘要）</span>
+        <el-button size="mini" type="text" icon="el-icon-refresh" @click="loadCommunities">刷新</el-button>
+      </div>
+      <div v-if="communities.length" class="community-list">
+        <el-collapse>
+          <el-collapse-item v-for="c in communities" :key="c.community_id">
+            <template slot="title">
+              <span class="community-name">
+                <i class="el-icon-connection" :style="{ color: communityColor(c.community_id) }" />
+                {{ c.summary ? c.summary.slice(0, 30) + '…' : c.community_id }}
+              </span>
+              <el-tag size="mini" class="community-count">{{ c.entity_count }} 实体</el-tag>
+              <el-button size="mini" type="text" @click.stop="loadCommunitySubgraph(c)">聚焦子图</el-button>
+            </template>
+            <div class="community-summary">{{ c.summary }}</div>
+            <div class="community-entities">
+              <el-tag
+                v-for="e in c.entities.slice(0, 20)"
+                :key="e"
+                size="mini"
+                class="community-entity-tag"
+                effect="plain"
+                @click="loadSubgraph(e)"
+              >{{ e }}</el-tag>
+              <span v-if="c.entities.length > 20" class="empty-hint">…等 {{ c.entities.length }} 个实体</span>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+      <div v-else class="empty-hint">暂无社区数据（需先运行社区构建：build_communities）</div>
+    </el-card>
+
     <div ref="splitLayout" class="split-layout">
       <div class="split-left" :style="{ width: leftPanelWidth + 'px' }">
         <el-card shadow="never" class="table-card">
@@ -246,6 +280,7 @@ import {
   getRagGraphSubgraph,
   getRagGraphFull,
   listAllRagGraphEdges,
+  listCommunities,
   createRagGraphEntity,
   renameRagGraphEntity,
   deleteRagGraphEntity,
@@ -269,6 +304,7 @@ export default {
       edgeList: [],
       entityList: [],
       stats: {},
+      communities: [],
       leftPanelWidth: 0,
       graphPanelHeight: 460,
       fullScreenOpen: false,
@@ -330,8 +366,33 @@ export default {
   created() {
     this.loadStats()
     this.getList()
+    this.loadCommunities()
   },
   methods: {
+    // 社区色板（与 KgGraphPanel 一致）：community_id hash → 12 色恒定映射
+    communityColor(communityId) {
+      const palette = [
+        '#5B8FF9', '#5AD8A6', '#5D7092', '#F6BD16', '#E86452', '#6DC8EC',
+        '#945FB9', '#FF9845', '#1E9493', '#FF99C3', '#3FC1C9', '#B084CC'
+      ]
+      let h = 0
+      const s = String(communityId || '')
+      for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+      return palette[Math.abs(h) % palette.length]
+    },
+    loadCommunities() {
+      listCommunities().then((res) => {
+        // RuoYi 拦截器返回 res.data(AjaxResult.data),社区列表在 data.rows
+        this.communities = (res && res.data && res.data.rows) || []
+      }).catch(() => {
+        this.communities = []
+      })
+    },
+    loadCommunitySubgraph(community) {
+      // 聚焦社区：用成员实体做种子加载子图（后端 seed 参数支持逗号分隔多实体）
+      if (!community || !community.entities || !community.entities.length) return
+      this.loadSubgraph(community.entities.slice(0, 20).join(','))
+    },
     initSplitLayout() {
       this.$nextTick(() => {
         const el = this.$refs.splitLayout
@@ -789,5 +850,38 @@ export default {
 }
 .danger-text {
   color: #f56c6c;
+}
+.community-card {
+  margin-bottom: 8px;
+}
+.community-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.community-name {
+  flex: 1;
+  font-size: 13px;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.community-count {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.community-summary {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+  padding: 4px 0 8px;
+}
+.community-entities {
+  padding-top: 4px;
+}
+.community-entity-tag {
+  margin: 0 6px 6px 0;
+  cursor: pointer;
 }
 </style>
