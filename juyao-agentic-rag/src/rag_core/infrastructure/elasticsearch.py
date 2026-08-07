@@ -278,6 +278,11 @@ def list_chunks(
 
 
 def get_chunk_by_id(chunk_id: str) -> dict | None:
+    """按 chunk_id 查切片详情(含完整正文)。
+
+    子块只存 Qdrant,ES 未命中时回退按 chunk_id 查 Qdrant payload(metadata.chunk_id 精确匹配);
+    两处都查不到返回 None(上游据此 404)。
+    """
     settings = get_settings()
     client = get_elasticsearch_client()
     if not _es_index_ready(client, settings.elasticsearch_index):
