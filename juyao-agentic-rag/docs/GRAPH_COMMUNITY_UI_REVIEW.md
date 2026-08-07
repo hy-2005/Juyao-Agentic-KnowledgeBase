@@ -9,6 +9,7 @@
 - 安装 `leidenalg`/`igraph` 依赖,`build_communities()` 跑通:12 个社区 + LLM 主题摘要 + Community 节点/MEMBER_OF 边入库
 - 后端:全图/子图节点带 `community_id`;新接口 `GET /api/v1/admin/graph/communities`(Java 网关同步补 `/rag/graph/communities`)
 - 前端:社区面板(摘要 + 实体数 + 成员实体标签 + 聚焦子图按钮);全图节点按社区 12 色板着色,悬停显示所属社区
+- **入库自动构建**:`ingest.py` 图谱写入后自动调用 `build_communities(kb, reset=True)`(失败仅告警不阻断入库)——实测入库合同.txt 后社区 12→14 自动重建
 - 验证:浏览器实测——社区面板 12 社区显示正常,展开见完整摘要与成员实体,全图渲染正常(测试单测 10 passed)
 
 ## 需求
