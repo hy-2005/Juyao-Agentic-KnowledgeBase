@@ -81,9 +81,12 @@ class Settings(BaseSettings):
     chunk_max_chars: int = Field(default=0)  # 硬上限；0 表示自动（约 chunk_size * 1.5）
     chunk_overlap: int = Field(default=120)
     top_k: int = Field(default=15)
-    rrf_top_n: int = Field(default=8)
-    rerank_top_n: int = Field(default=5)
+    rrf_top_n: int = Field(default=12)
+    rerank_top_n: int = Field(default=6)
     min_relevance_score: float = Field(default=0.35)
+    # 相对截断比例：向量过滤门槛 = min(绝对阈值, 本次最高分 * 比例)。
+    # 高分 query 用绝对下限，低分 query 放宽交给 rerank 裁决（RETRIEVAL_REVIEW P1）
+    min_relevance_relative_ratio: float = Field(default=0.6)
     rrf_k: int = Field(default=60)
 
     # --- Query 改写 ---

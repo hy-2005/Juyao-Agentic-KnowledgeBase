@@ -49,18 +49,44 @@ def rerank_documents_multi(queries: list[str], fused_docs: list[Document]) -> li
 
     # Step 2: 跨 query rerank RRF（复用召回层同款 fusion.fuse_query_rankings；rrf_k 与召回层一致）。
     fused_by_rerank_rrf = fuse_query_rankings(valid_rankings, rrf_k=settings.rrf_k)
-    final_docs = [doc for doc, _ in fused_by_rerank_rrf[:top_n]]
+    ranked = [doc for doc, _ in fused_by_rerank_rrf]
+    # 同源多样性采样（P2）：多文档对比场景避免 4/5 条同源 chunk 挤占候选
+    final_docs = _diversify_by_source(ranked, top_n=top_n)
 
     logger.info(
-        "【rerank · 多 query 聚合】%s 条 query 参与（成功 %s 条）→ 跨 query RRF 后取 top %s",
+        "【rerank · 多 query 聚合】%s 条 query 参与（成功 %s 条）→ 跨 query RRF 后多样性采样取 top %s",
         len(queries),
         len(valid_rankings),
         len(final_docs),
     )
-    for i, (doc, score) in enumerate(fused_by_rerank_rrf[:top_n], 1):
+    for i, doc in enumerate(final_docs, 1):
         cid = doc.metadata.get("chunk_id", "?")
-        logger.info("  [输出 %s] chunk_id=%s rerank_rrf=%.6f preview=%s", i, cid, score, _preview(doc.page_content))
+        logger.info("  [输出 %s] chunk_id=%s preview=%s", i, cid, _preview(doc.page_content))
     return final_docs
+
+
+def _diversify_by_source(docs: list[Document], top_n: int, per_source: int = 2) -> list[Document]:
+    """按 source_name 多样性采样：每文档最多 per_source 条，优先保留不同来源。
+
+    不足 top_n 时回填剩余候选（保底不丢弃）。
+    """
+    result: list[Document] = []
+    counts: dict[str, int] = {}
+    for doc in docs:
+        src = str(doc.metadata.get("source_name") or "?")
+        if counts.get(src, 0) >= per_source:
+            continue
+        counts[src] = counts.get(src, 0) + 1
+        result.append(doc)
+        if len(result) >= top_n:
+            return result
+    # 回填：多样性未填满时补剩余候选
+    for doc in docs:
+        if doc not in result:
+            result.append(doc)
+        if len(result) >= top_n:
+            break
+    return result
 
 
 def _parallel_rerank_per_query(

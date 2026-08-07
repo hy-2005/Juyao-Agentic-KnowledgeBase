@@ -89,16 +89,19 @@ search_context(query)
 
 ---
 
-## 4. 优化路线图
+## 4. 优化路线图（2026-08-07 实施状态）
 
-| 优先级 | 改动 | 涉及文件 | 收益 |
+| 优先级 | 改动 | 状态 | 说明 |
 |---|---|---|---|
-| P0 | `_HYDE_MAX_LEN` 压到 350-400 字符（与 chunk 修复联动） | hyde.py | HyDE 增强生效 |
-| P1 | 向量阈值改相对截断（或取消） | retriever.py | 召回召回率显著提升 |
-| P2 | 漏斗扩容 + 同源多样性采样 | retriever.py / reranker.py / qa.py | 覆盖度、多文档对比质量 |
-| P2 | ES 加 match_phrase + 字段加权 | elasticsearch.py | 专有名词/条款检索 |
-| P2 | query 复杂度分级 | retriever.py + 意图路由 | 时延大幅下降 |
-| P3 | max_score 语义修正 | retriever.py / qa.py | 展示可信度 |
+| P0 | `_HYDE_MAX_LEN` 压缩 | ✅ 事实修正 | 实际 .env 用 text-embedding-v4（8192 token 窗口），600 字不超窗，保留为旋钮 |
+| P1 | 向量阈值改相对截断 | ✅ 已实施 | `min_relevance_relative_ratio=0.6`：门槛 = min(绝对, 最高分×比例)，低分 query 放宽交给 rerank |
+| P2 | 漏斗扩容 | ✅ 已实施 | rrf_top_n 8→12、rerank_top_n 5→6 |
+| P2 | 同源多样性采样 | ✅ 已实施 | `_diversify_by_source`（每文档 2 条，不足回填） |
+| P2 | ES 加 match_phrase | ✅ 已实施 | bool should + match_phrase(slop=2, boost=2)，配合 IK 分词（已确认 ik_max_word/ik_smart 生效） |
+| P2 | query 复杂度分级 | ✅ 已实施 | `_is_simple_query`（≤12 字且无推理动词 → 单 query，跳过改写/HyDE） |
+| P3 | max_score 语义修正 | ✅ 注释说明 | 明确"向量参考分非排序分"，结构不动 |
+
+遗留：rerank query 截断 200 字（HyDE 通道信号失真，低优先级）；无结果缓存（小知识库暂缓）。
 
 依赖关系：P0 与 chunk 评审的 P0-1（embedding 窗口）一起修；改完需重灌 chunk 并重跑评测对比。
 
