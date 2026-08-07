@@ -101,3 +101,42 @@ def delete_document_from_indexes(
         Neo4jTripleStore().purge_document_edges(
             name_prefix=prefix, source_display_name=source_name, kb_id=kb_id
         )
+
+
+def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb_id: int | None = None) -> None:
+    """按 chunk_id 列表精确删除（先写后删的差集清理用）。
+
+    不能按 source_name 整体删——新写入的同 key 数据会被一起删光（历史 bug），
+    必须用「旧 id − 新 id」的差集逐 id 删。
+    """
+    import uuid
+
+    from rag_core.infrastructure.elasticsearch import get_elasticsearch_client
+    from rag_core.infrastructure.qdrant import get_qdrant_client
+
+    if not chunk_ids:
+        return
+    settings = get_settings()
+    client = get_qdrant_client()
+    # Qdrant：point id = uuid5(chunk_id)，按 id 列表删
+    try:
+        client.get_collection(collection_name=settings.qdrant_collection)
+    except UnexpectedResponse as exc:
+        if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
+            return
+        raise
+    point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, cid)) for cid in chunk_ids]
+    client.delete(
+        collection_name=settings.qdrant_collection,
+        points_selector=models.PointIdsList(points=point_ids),
+    )
+    # ES：按 _id 列表删（ES _id = chunk_id）
+    es = get_elasticsearch_client()
+    if es.indices.exists(index=settings.elasticsearch_index):
+        es.delete_by_query(
+            index=settings.elasticsearch_index,
+            body={"query": {"terms": {"_id": chunk_ids}}},
+            refresh=True,
+        )
+    if include_graph:
+        Neo4jTripleStore().purge_chunk_ids(chunk_ids, kb_id=kb_id)

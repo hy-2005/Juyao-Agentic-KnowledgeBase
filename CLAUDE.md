@@ -32,3 +32,4 @@ flt = models.Filter(
 
 - 本项目 Python 侧为 `juyao-agentic-rag/`，Java 侧为 `juyao-admin/` 等模块；两处同样适用本规范。
 - 评审/方案文档统一放 `juyao-agentic-rag/docs/`（REVIEW.md 系列），代码改动前先读对应评审文档。
+- **需求完成一项必须同步更新文档**：每完成一个功能/修复/重构项，须在对应 REVIEW.md 或 `docs/eval/RESULTS_*.md` 记录实现结果、验证数据与遗留问题；不允许代码完成而文档空白。
