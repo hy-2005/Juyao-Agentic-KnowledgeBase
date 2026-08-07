@@ -137,6 +137,7 @@
 9. **合并分支前先 diff 受影响文件，合并后三端全量验证**（坑 13）
 10. **外部 SDK 返回 pydantic 对象而非 dict，先归一化（model_dump）再取字段**（坑 14）
 11. **框架（uvicorn）启动时会接管 logging 配置——自定义 handler 必须在其配置完成后的生命周期钩子里挂**（坑 15）
+12. **"页面是否含图片"不能依赖 get_images()（整页扫描件返回 0）——兜底逻辑宁多勿漏**（坑 16）
 
 ## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler
 
