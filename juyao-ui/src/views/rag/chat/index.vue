@@ -25,7 +25,18 @@
 
       <el-col :span="18" class="full-height">
         <el-card class="panel full-height" shadow="never">
-          <div class="chat-header">{{ currentSessionTitle }}</div>
+          <div class="chat-header">
+            <el-select
+              v-model="currentKbId"
+              size="mini"
+              placeholder="知识库（默认单库）"
+              clearable
+              style="width: 160px; margin-right: 8px"
+            >
+              <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+            </el-select>
+            {{ currentSessionTitle }}
+          </div>
           <div class="chat-body" ref="chatBody" @scroll="onChatScroll">
             <div v-if="messagesLoading" class="empty-tip">加载历史中...</div>
             <div v-else-if="!messages.length" class="empty-tip">开始你的第一轮提问吧</div>
@@ -89,7 +100,7 @@
 </template>
 
 <script>
-import { createSession, listMessages, listSessions, streamChat } from '@/api/rag'
+import { createSession, listMessages, listSessions, streamChat, listKbs } from '@/api/rag'
 import { renderChatMarkdown, extractBanner } from '@/utils/ragMarkdown'
 import { splitThinkContent } from '@/utils/ragChatContent'
 
@@ -99,6 +110,8 @@ export default {
     return {
       sessions: [],
       currentSessionId: '',
+      kbList: [],
+      currentKbId: null, // null=单库兼容（后端按 0 处理）
       messages: [],
       input: '',
       sending: false,
@@ -279,7 +292,7 @@ export default {
 
       try {
         await streamChat(
-          { sessionId, message },
+          { sessionId, message, kbId: this.currentKbId },
           {
             onEvent: (event, data) => {
               if (sessionId !== this.activeStreamSessionId) return

@@ -100,7 +100,9 @@
     <el-dialog title="上传文档" :visible.sync="uploadOpen" width="520px" append-to-body @close="resetUploadForm">
       <el-form ref="uploadForm" :model="uploadForm" label-width="100px" size="small">
         <el-form-item label="知识库 ID">
-          <el-input-number v-model="uploadForm.kbId" :min="0" style="width: 100%" />
+          <el-select v-model="uploadForm.kbId" placeholder="选择知识库" style="width: 100%">
+            <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+          </el-select>
         </el-form-item>
         <el-form-item label="逻辑文件名">
           <el-input v-model="uploadForm.logicalKey" clearable placeholder="留空则使用上传文件原名（勿含路径）" />
@@ -131,7 +133,7 @@
 </template>
 
 <script>
-import { listRagDocuments, uploadRagDocument, deleteRagDocument } from '@/api/rag'
+import { listRagDocuments, uploadRagDocument, deleteRagDocument , listKbs, createKb } from '@/api/rag'
 
 export default {
   name: 'RagDocIngest',
@@ -154,6 +156,9 @@ export default {
         fileExt: undefined
       },
       uploadOpen: false,
+      kbList: [],
+      kbCreateOpen: false,
+      newKbName: '',
       uploading: false,
       uploadForm: {
         kbId: 0,
