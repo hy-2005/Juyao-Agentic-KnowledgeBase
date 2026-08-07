@@ -10,10 +10,11 @@ CREATE TABLE IF NOT EXISTS `rag_kb` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='知识库';
 
 CREATE TABLE IF NOT EXISTS `rag_kb_user` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
   `kb_id` bigint NOT NULL COMMENT '知识库ID',
   `user_id` bigint NOT NULL COMMENT '用户ID',
   `role` varchar(16) NOT NULL DEFAULT 'member' COMMENT 'admin=可管理/上传, member=只读',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
   UNIQUE KEY `uk_kb_user` (`kb_id`,`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='知识库-用户授权';
