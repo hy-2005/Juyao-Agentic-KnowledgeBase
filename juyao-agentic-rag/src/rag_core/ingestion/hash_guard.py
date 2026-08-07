@@ -40,7 +40,7 @@ def _payload_meta(record_payload: dict) -> dict:
     return record_payload
 
 
-def get_indexed_content_sha256(source_name: str) -> str | None:
+def get_indexed_content_sha256(source_name: str, kb_id: int | None = None) -> str | None:
     """从 Qdrant 取该文档已索引的全文 SHA-256（任取一个 chunk 的 metadata）。"""
     settings = get_settings()
     client = get_qdrant_client()
@@ -52,9 +52,12 @@ def get_indexed_content_sha256(source_name: str) -> str | None:
         raise
 
     for key in ("metadata.source_name", "source_name"):
-        flt = models.Filter(
-            must=[models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
-        )
+        conditions = [models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
+        if kb_id is not None:
+            conditions.append(
+                models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))
+            )
+        flt = models.Filter(must=conditions)
         records, _ = client.scroll(
             collection_name=settings.qdrant_collection,
             scroll_filter=flt,
@@ -70,8 +73,9 @@ def get_indexed_content_sha256(source_name: str) -> str | None:
         if sha:
             return sha
         source_doc_id = str(meta.get("source_doc_id") or "")
-        if ":" in source_doc_id:
-            return source_doc_id.split(":", 1)[1].lower() or None
+        parts = source_doc_id.split(":", 2)
+        if len(parts) >= 2:
+            return parts[-1].lower() or None
     return None
 
 
@@ -89,6 +93,7 @@ def prepare_upsert(
     source_name: str,
     file_path: str | Path,
     payload_sha256: str = "",
+    kb_id: int | None = None,
 ) -> tuple[UpsertDecision, str]:
     """Java 发 Kafka 前判 hash；Python 消费时再判一次，相同则丢弃。"""
     file_sha = file_sha256_hex(file_path)
@@ -101,19 +106,21 @@ def prepare_upsert(
             file_sha[:12],
         )
 
-    indexed_sha = get_indexed_content_sha256(source_name)
+    indexed_sha = get_indexed_content_sha256(source_name, kb_id=kb_id)
     if indexed_sha and _sha_matches_indexed(file_sha, indexed_sha):
         logger.info(
-            "【入库】Python hash 与索引一致，丢弃 UPSERT doc=%s sha=%s…",
+            "【入库】Python hash 与索引一致，丢弃 UPSERT doc=%s kb=%s sha=%s…",
             source_name,
+            kb_id,
             file_sha[:12],
         )
         return "skip", file_sha
 
     if indexed_sha:
         logger.info(
-            "【入库】content_sha256 已变，执行 UPSERT doc=%s old=%s… new=%s…",
+            "【入库】content_sha256 已变，执行 UPSERT doc=%s kb=%s old=%s… new=%s…",
             source_name,
+            kb_id,
             indexed_sha[:12],
             file_sha[:12],
         )

@@ -40,6 +40,7 @@ async def chat_stream(body: ChatStreamRequest, request: Request):
                 history,
                 assistant_holder=assistant_holder,
                 tool_messages_holder=tool_messages_holder,
+                kb_id=body.kb_id,
             ):
                 yield f"event: {ev}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
             if assistant_holder:

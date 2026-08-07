@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from langchain_core.documents import Document
+from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from rag_core.core.config import Settings, get_settings
@@ -43,7 +44,7 @@ class _QuerySpec:
     vector_only: bool = field(default=False)
 
 
-def search_context(query: str) -> RetrievedContext:
+def search_context(query: str, kb_id: int = 0) -> RetrievedContext:
     settings = get_settings()
 
     # Step 1: 收集所有参与检索的 query（原 query + sub-queries + HyDE）。
@@ -55,7 +56,7 @@ def search_context(query: str) -> RetrievedContext:
     )
 
     # Step 2: 多 query 并行执行单 query 检索 + 单 query 内 RRF。
-    per_query_results, max_vec_scores = _parallel_retrieve(specs=specs, settings=settings)
+    per_query_results, max_vec_scores = _parallel_retrieve(specs=specs, settings=settings, kb_id=kb_id)
 
     # Step 3: 跨 query RRF 二次融合（多个 query 都命中的 chunk 自然加分）。
     cross_fused = fuse_query_rankings(per_query_results, rrf_k=settings.rrf_k)
@@ -94,6 +95,7 @@ def _build_query_specs(query: str, settings: Settings) -> list[_QuerySpec]:
 def _parallel_retrieve(
     specs: list[_QuerySpec],
     settings: Settings,
+    kb_id: int = 0,
 ) -> tuple[list[list[tuple[Document, float]]], list[float]]:
     # 多 query 并行：每条 query 跑 _retrieve_for_single_query；返回与 specs 同序的两个列表。
     per_query_results: list[list[tuple[Document, float]]] = [[] for _ in specs]
@@ -108,6 +110,7 @@ def _parallel_retrieve(
             rrf_k=settings.rrf_k,
             min_relevance=settings.min_relevance_score,
             vector_only=spec.vector_only,
+            kb_id=kb_id,
         )
         return idx, fused, max_v
 
@@ -126,10 +129,11 @@ def _retrieve_for_single_query(
     rrf_k: int,
     min_relevance: float,
     vector_only: bool,
+    kb_id: int = 0,
 ) -> tuple[list[tuple[Document, float]], float]:
     # 单条 query：向量 top_k +（非 HyDE 时）ES top_k → 向量阈值过滤 → 单 query RRF。
     # vector_only=True 时跳过 ES 调用，单 query RRF 退化为"按向量名次排序"。
-    vec_pairs_raw = _vector_topk(query=query, k=k)
+    vec_pairs_raw = _vector_topk(query=query, k=k, kb_id=kb_id)
 
     es_label = "HyDE 通道，跳过 ES" if vector_only else "阈值过滤前"
     logger.info("【%s · 向量召回】top_k=%s，命中 %s 条（%s）", label, k, len(vec_pairs_raw), es_label)
@@ -139,7 +143,7 @@ def _retrieve_for_single_query(
 
     es_pairs: list[tuple[Document, float]] = []
     if not vector_only:
-        es_pairs = search_elasticsearch(query, k)
+        es_pairs = search_elasticsearch(query, k, kb_id=kb_id)
         logger.info("【%s · ES 召回】top_k=%s，命中 %s 条", label, k, len(es_pairs))
         for i, (doc, score) in enumerate(es_pairs, 1):
             cid = doc.metadata.get("chunk_id", "?")
@@ -164,12 +168,17 @@ def _retrieve_for_single_query(
     return fused, max_vec_score
 
 
-def _vector_topk(query: str, k: int) -> list[tuple[Document, float]]:
+def _vector_topk(query: str, k: int, kb_id: int = 0) -> list[tuple[Document, float]]:
     # 向量召回；float 为相似度 relevance（如 cosine），仅用于阈值过滤与 max_score 展示，
     # 不参与与 ES 分数的直接相加（RRF 只看名次）。索引尚未建好时返回空列表。
+    # kb_id 始终过滤（含 0）——否则 kb=0 会串到 kb>0 的数据；旧数据无 kb_id 字段，
+    # 在重灌后消失，过渡期 kb=0 检索不到旧数据属预期。
     try:
         vector_store = get_vector_store()
-        return vector_store.similarity_search_with_relevance_scores(query, k=k)
+        flt = models.Filter(
+            must=[models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))]
+        )
+        return vector_store.similarity_search_with_relevance_scores(query, k=k, filter=flt)
     except UnexpectedResponse as exc:
         if "doesn't exist" in str(exc) or "Not found" in str(exc):
             return []

@@ -48,6 +48,7 @@ def ensure_es_index_exists() -> None:
                     "chunk_id": {"type": "keyword"},
                     "source_doc_id": {"type": "keyword"},
                     "source_name": {"type": "keyword"},
+                    "kb_id": {"type": "integer"},
                     "chunk_index": {"type": "integer"},
                     "start_char": {"type": "integer"},
                     "end_char": {"type": "integer"},
@@ -71,6 +72,7 @@ def _chunk_to_source(doc: Document) -> dict:
         "chunk_id": chunk_id,
         "source_doc_id": meta.get("source_doc_id"),
         "source_name": meta.get("source_name"),
+        "kb_id": meta.get("kb_id"),
         "chunk_index": meta.get("chunk_index"),
         "start_char": meta.get("start_char"),
         "end_char": meta.get("end_char"),
@@ -118,6 +120,7 @@ def _hit_source_to_document(src: dict) -> Document:
         "chunk_id": src.get("chunk_id"),
         "source_doc_id": src.get("source_doc_id"),
         "source_name": src.get("source_name"),
+        "kb_id": src.get("kb_id"),
         "chunk_index": src.get("chunk_index"),
         "start_char": src.get("start_char"),
         "end_char": src.get("end_char"),
@@ -128,10 +131,12 @@ def _hit_source_to_document(src: dict) -> Document:
     return Document(page_content=content, metadata=meta)
 
 
-def search_elasticsearch(query: str, k: int | None = None) -> list[tuple[Document, float]]:
+def search_elasticsearch(
+    query: str, k: int | None = None, kb_id: int = 0
+) -> list[tuple[Document, float]]:
     # 对 content 做 multi_match（BM25），返回 (Document, _score) 列表，顺序即该路「名次」：第 1 条 rank=1。
     # 与向量路 top_k 结果在 retriever 中做 RRF 融合；RRF 只认名次不认 BM25 绝对值（见 _reciprocal_rank_fusion）。
-    # 索引不存在或失败时返回空列表并 warning，不阻断向量侧。
+    # kb_id 始终叠加 term 过滤（租户隔离，含 0）；索引不存在或失败时返回空列表并 warning，不阻断向量侧。
     settings = get_settings()
     k = settings.top_k if k is None else k
     client = get_elasticsearch_client()
@@ -143,7 +148,14 @@ def search_elasticsearch(query: str, k: int | None = None) -> list[tuple[Documen
         logger.warning("ES 检查索引失败，跳过全文检索：%s", exc)
         return []
     body = {
-        "query": {"multi_match": {"query": query, "fields": ["content"]}},
+        "query": {
+            "bool": {
+                "must": [
+                    {"multi_match": {"query": query, "fields": ["content"]}},
+                    {"term": {"kb_id": int(kb_id)}},
+                ]
+            }
+        },
         "size": k,
     }
     try:

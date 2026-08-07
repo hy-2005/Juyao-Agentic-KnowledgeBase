@@ -40,6 +40,7 @@ async def routed_astream_chat_events(
     *,
     assistant_holder: list[str],
     tool_messages_holder: list[dict[str, Any]] | None = None,
+    kb_id: int = 0,
 ) -> AsyncIterator[tuple[str, dict]]:
     """定稿流程：B 大模型（或规则）选支线 → C / D→E→F|G → H。"""
     settings = get_settings()
@@ -80,6 +81,7 @@ async def routed_astream_chat_events(
             build_graph_observation_question_driven,
             question,
             round_idx=1,
+            kb=kb_id,
         )
         observation_lines.append(obs_g)
         graph_rounds_used = 1
@@ -111,7 +113,7 @@ async def routed_astream_chat_events(
         stop_reason = "route_graph_only"
 
     elif route == RouteBranch.GRAPH_ONLY and not settings.graph_query_enabled:
-        result = await asyncio.to_thread(execute_retrieval_step, question, 1)
+        result = await asyncio.to_thread(execute_retrieval_step, question, 1, kb_id)
         retrieval_rounds_used = 1
         merged_docs = result.documents
         max_score_seen = float(result.max_score)
@@ -134,7 +136,7 @@ async def routed_astream_chat_events(
 
     else:
         # B→D→E→(F|G)→H：vector_only 或 graph 关闭时的降级路径
-        result = await asyncio.to_thread(execute_retrieval_step, question, 1)
+        result = await asyncio.to_thread(execute_retrieval_step, question, 1, kb_id)
         retrieval_rounds_used = 1
         merged_docs = result.documents
         max_score_seen = float(result.max_score)
@@ -176,6 +178,7 @@ async def routed_astream_chat_events(
                 build_graph_observation_question_driven,
                 question,
                 round_idx=2,
+                kb=kb_id,
             )
             observation_lines.append(obs_g2)
             graph_rounds_used = 1

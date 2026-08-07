@@ -35,6 +35,7 @@ ON CREATE SET
   r.chunk_ids = [$chunk_id],
   r.doc_ids = [$source_doc_id],
   r.source_names = [$source_name],
+  r.kb_ids = [$kb_id],
   r.extract_schema_versions = [$schema_ver],
   r.triplet_ids = [$triplet_id],
   r.time_hints = CASE WHEN $time_text <> '' THEN [$time_text] ELSE [] END,
@@ -52,6 +53,7 @@ ON MATCH SET
   r.chunk_ids = CASE WHEN $chunk_id IN coalesce(r.chunk_ids, []) THEN r.chunk_ids ELSE coalesce(r.chunk_ids, []) + $chunk_id END,
   r.doc_ids = CASE WHEN $source_doc_id IN coalesce(r.doc_ids, []) THEN r.doc_ids ELSE coalesce(r.doc_ids, []) + $source_doc_id END,
   r.source_names = CASE WHEN $source_name IN coalesce(r.source_names, []) THEN r.source_names ELSE coalesce(r.source_names, []) + $source_name END,
+  r.kb_ids = CASE WHEN $kb_id IN coalesce(r.kb_ids, []) THEN r.kb_ids ELSE coalesce(r.kb_ids, []) + $kb_id END,
   r.extract_schema_versions = CASE
     WHEN $schema_ver IN coalesce(r.extract_schema_versions, []) THEN r.extract_schema_versions
     ELSE coalesce(r.extract_schema_versions, []) + $schema_ver END,
@@ -130,6 +132,7 @@ class Neo4jTripleStore:
         source_doc_id: str,
         chunk_id: str,
         source_name: str,
+        kb_id: int = 0,
     ) -> int:
         if not triples:
             return 0
@@ -145,6 +148,7 @@ class Neo4jTripleStore:
                     "chunk_id": chunk_id,
                     "source_doc_id": source_doc_id,
                     "source_name": source_name,
+                    "kb_id": kb_id,
                     "time_text": triple.time_text or "",
                     "location_text": triple.location_text or "",
                     "evidence": (triple.evidence or "")[:800],
@@ -162,19 +166,36 @@ class Neo4jTripleStore:
             count += 1
         return count
 
-    def purge_document_edges(self, *, name_prefix: str, source_display_name: str) -> None:
-        """按 source_doc_id / chunk_id 前缀（与 contracts 中 safe_name: 一致）清理 RELATED 边，并删除孤立 Entity。"""
-        self._run(
-            """
-            MATCH ()-[r:RELATED]->()
-            WHERE ANY(d IN coalesce(r.doc_ids, []) WHERE d STARTS WITH $np)
-               OR ANY(c IN coalesce(r.chunk_ids, []) WHERE c STARTS WITH $np)
-            SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $np],
-                r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $np],
-                r.source_names = [s IN coalesce(r.source_names, []) WHERE s <> $sn]
-            """,
-            {"np": name_prefix, "sn": source_display_name},
-        )
+    def purge_document_edges(
+        self, *, name_prefix: str, source_display_name: str, kb_id: int | None = None
+    ) -> None:
+        """按 source_doc_id / chunk_id 前缀（与 contracts 中 safe_name: 一致）清理 RELATED 边，并删除孤立 Entity。
+
+        kb_id 非 None 时仅清理属于该 kb 的边（边按 kb_ids 隔离；Entity 节点全局共享）。
+        """
+        if kb_id is not None:
+            self._run(
+                """
+                MATCH ()-[r:RELATED]->()
+                WHERE $kb IN coalesce(r.kb_ids, [])
+                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $np],
+                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $np],
+                    r.source_names = [s IN coalesce(r.source_names, []) WHERE s <> $sn]
+                """,
+                {"np": name_prefix, "sn": source_display_name, "kb": int(kb_id)},
+            )
+        else:
+            self._run(
+                """
+                MATCH ()-[r:RELATED]->()
+                WHERE ANY(d IN coalesce(r.doc_ids, []) WHERE d STARTS WITH $np)
+                   OR ANY(c IN coalesce(r.chunk_ids, []) WHERE c STARTS WITH $np)
+                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $np],
+                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $np],
+                    r.source_names = [s IN coalesce(r.source_names, []) WHERE s <> $sn]
+                """,
+                {"np": name_prefix, "sn": source_display_name},
+            )
         self._run(
             """
             MATCH ()-[r:RELATED]->()

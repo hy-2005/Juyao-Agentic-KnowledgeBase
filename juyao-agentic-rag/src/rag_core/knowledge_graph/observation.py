@@ -49,6 +49,7 @@ def build_graph_observation_question_driven(
     *,
     round_idx: int,
     settings: Settings | None = None,
+    kb: int | None = None,
 ) -> tuple[str, int, list[str]]:
     from rag_core.knowledge_graph.question_seed import QuestionGraphSeedExtractor
 
@@ -81,7 +82,7 @@ def build_graph_observation_question_driven(
         )
 
     try:
-        edges = query_edges_from_entity_seeds(matched, settings=cfg, relation_hints=hints)
+        edges = query_edges_from_entity_seeds(matched, settings=cfg, relation_hints=hints, kb=kb)
     except Exception as exc:
         logger.warning("Neo4j 问句驱动图谱查询失败：%s", exc)
         return (
@@ -112,6 +113,7 @@ def build_graph_observation_text(
     *,
     round_idx: int,
     settings: Settings | None = None,
+    kb: int | None = None,
 ) -> tuple[str, int]:
     cfg = settings or get_settings()
     if not chunk_ids:
@@ -120,7 +122,7 @@ def build_graph_observation_text(
             0,
         )
     try:
-        edges = query_edges_for_chunks(chunk_ids, settings=cfg)
+        edges = query_edges_for_chunks(chunk_ids, settings=cfg, kb=kb)
     except Exception as exc:
         logger.warning("Neo4j 图谱查询失败：%s", exc)
         return (

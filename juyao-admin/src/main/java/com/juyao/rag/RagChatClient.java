@@ -43,12 +43,14 @@ public class RagChatClient{
     /**
      * 同步消费 SSE：每收到一行 event/data 即回调（阻塞直至流结束）。
      */
-    public void streamChat(String userId, String sessionId, String message, Consumer<RagSseEvent> onEvent)
+    public void streamChat(String userId, String sessionId, String message, Long kbId,
+                           Consumer<RagSseEvent> onEvent)
             throws IOException, InterruptedException{
         Map<String, String> body = new LinkedHashMap<>();
         body.put("user_id", userId);
         body.put("session_id", sessionId);
         body.put("message", message);
+        body.put("kb_id", String.valueOf(kbId != null ? kbId : 0L));
         String json = objectMapper.writeValueAsString(body);
 
         String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;

@@ -15,7 +15,7 @@ from rag_core.indexing.qdrant import get_qdrant_client
 logger = logging.getLogger(__name__)
 
 
-def delete_from_qdrant_by_source_name(source_name: str) -> int:
+def delete_from_qdrant_by_source_name(source_name: str, kb_id: int | None = None) -> int:
     settings = get_settings()
     client = get_qdrant_client()
     try:
@@ -30,9 +30,12 @@ def delete_from_qdrant_by_source_name(source_name: str) -> int:
         raise
     total = 0
     for key in ("metadata.source_name", "source_name"):
-        flt = models.Filter(
-            must=[models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
-        )
+        conditions = [models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
+        if kb_id is not None:
+            conditions.append(
+                models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))
+            )
+        flt = models.Filter(must=conditions)
         offset = None
         batch = 0
         while True:
@@ -58,27 +61,43 @@ def delete_from_qdrant_by_source_name(source_name: str) -> int:
         if batch > 0:
             break
     if total:
-        logger.info("Qdrant 已按 source_name=%s 删除 %s 个点", source_name, total)
+        logger.info("Qdrant 已按 source_name=%s kb=%s 删除 %s 个点", source_name, kb_id, total)
     return total
 
 
-def delete_from_elasticsearch_by_source_name(source_name: str) -> int:
+def delete_from_elasticsearch_by_source_name(source_name: str, kb_id: int | None = None) -> int:
     settings = get_settings()
     client = get_elasticsearch_client()
     if not client.indices.exists(index=settings.elasticsearch_index):
         return 0
-    body = {"query": {"term": {"source_name": source_name}}}
+    if kb_id is not None:
+        body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"source_name": source_name}},
+                        {"term": {"kb_id": int(kb_id)}},
+                    ]
+                }
+            }
+        }
+    else:
+        body = {"query": {"term": {"source_name": source_name}}}
     resp = client.delete_by_query(index=settings.elasticsearch_index, body=body, refresh=True)
     deleted = int(resp.get("deleted", 0) or 0)
     if deleted:
-        logger.info("Elasticsearch 已按 source_name=%s 删除 %s 条", source_name, deleted)
+        logger.info("Elasticsearch 已按 source_name=%s kb=%s 删除 %s 条", source_name, kb_id, deleted)
     return deleted
 
 
-def delete_document_from_indexes(source_name: str, *, include_graph: bool = True) -> None:
+def delete_document_from_indexes(
+    source_name: str, *, include_graph: bool = True, kb_id: int | None = None
+) -> None:
     """与入库时 split_into_chunks 的 source_name 一致（通常为逻辑文件名）。"""
-    delete_from_qdrant_by_source_name(source_name)
-    delete_from_elasticsearch_by_source_name(source_name)
+    delete_from_qdrant_by_source_name(source_name, kb_id=kb_id)
+    delete_from_elasticsearch_by_source_name(source_name, kb_id=kb_id)
     if include_graph:
-        prefix = source_name.replace(" ", "_") + ":"
-        Neo4jTripleStore().purge_document_edges(name_prefix=prefix, source_display_name=source_name)
+        prefix = f"{kb_id}:{source_name.replace(' ', '_')}:" if kb_id is not None else source_name.replace(" ", "_") + ":"
+        Neo4jTripleStore().purge_document_edges(
+            name_prefix=prefix, source_display_name=source_name, kb_id=kb_id
+        )

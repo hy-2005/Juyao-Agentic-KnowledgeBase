@@ -16,6 +16,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="仅写入向量库与 ES，不构建 Neo4j 图谱",
     )
+    parser.add_argument(
+        "--purge",
+        action="store_true",
+        help="先按 source_name 清理旧索引再写入（重灌用，避免旧 chunk 残留）",
+    )
+    parser.add_argument(
+        "--kb-id",
+        type=int,
+        default=0,
+        help="知识库 ID（租户隔离用，默认 0 单库）",
+    )
     return parser
 
 
@@ -25,7 +36,12 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     args = build_parser().parse_args()
-    chunk_count, triple_count = ingest_file(args.file, enable_graph=not args.no_graph)
+    chunk_count, triple_count = ingest_file(
+        args.file,
+        enable_graph=not args.no_graph,
+        purge_before_write=args.purge,
+        kb_id=args.kb_id,
+    )
     if args.no_graph:
         print(f"导入完成，共写入 {chunk_count} 个 chunk（图谱构建已关闭）。")
     else:

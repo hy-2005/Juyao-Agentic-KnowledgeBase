@@ -190,9 +190,76 @@ def split_by_llm_direct_once(content: str, target_chars: int, max_chars: int) ->
     return []
 
 
+def _build_direct_batches(content: str, batch_limit: int) -> list[Span]:
+    """按段落贪心累积成 ≤ batch_limit 的批次；无空行分段的文档按句边界软切子段。
+
+    返回批次 span 列表（覆盖全文、互不重叠、顺序连续）。
+    """
+    para_spans = split_paragraph_spans(content)
+    if not para_spans:
+        return [Span(start=0, end=len(content))]
+    # 超长段落先按句边界软切成子段，保证批次上限可达成（不依赖文档有空行）
+    units: list[Span] = []
+    for para in para_spans:
+        if para.end - para.start > batch_limit:
+            units.extend(split_span_by_max_len(content=content, span=para, max_len=batch_limit))
+        else:
+            units.append(para)
+    batches: list[Span] = []
+    batch_start = 0
+    cursor = 0
+    for u in units:
+        if u.end - batch_start > batch_limit and cursor > batch_start:
+            batches.append(Span(start=batch_start, end=cursor))
+            batch_start = cursor
+        cursor = u.end
+    if cursor > batch_start:
+        batches.append(Span(start=batch_start, end=cursor))
+    batches = [b for b in batches if b.end > b.start]
+    # 尾部小残留（<500 字符）并入前一批，避免对微小批次浪费一次 LLM 调用
+    if len(batches) >= 2 and batches[-1].end - batches[-1].start < 500:
+        prev = batches[-2]
+        batches[-2] = Span(start=prev.start, end=batches[-1].end)
+        batches.pop()
+    return batches
+
+
 def split_by_llm_direct(content: str, target_chars: int, max_chars: int) -> list[Span]:
-    """整篇一次 LLM 语义切分，不做长度预分批。"""
-    return split_by_llm_direct_once(content=content, target_chars=target_chars, max_chars=max_chars)
+    """整篇 LLM 语义切分：长文本按段落贪心预分批，每批独立切分后坐标平移拼接。
+
+    单批失败仅该批降级规则切（build_rule_only_spans），不整篇放弃。
+    """
+    settings = get_settings()
+    batch_limit = int(settings.chunk_direct_max_chars or 0)
+    if batch_limit <= 0 or len(content) <= batch_limit:
+        return split_by_llm_direct_once(content=content, target_chars=target_chars, max_chars=max_chars)
+
+    batches = _build_direct_batches(content, batch_limit)
+    logger.info("【语义切分】长文本预分批 len=%s batches=%s limit=%s", len(content), len(batches), batch_limit)
+    all_spans: list[Span] = []
+    for i, batch in enumerate(batches, start=1):
+        batch_text = content[batch.start : batch.end]
+        spans = split_by_llm_direct_once(
+            content=batch_text,
+            target_chars=target_chars,
+            max_chars=max_chars,
+        )
+        if not spans:
+            logger.warning(
+                "【语义切分】批次 %s/%s 切分失败，该批降级规则切 len=%s",
+                i,
+                len(batches),
+                len(batch_text),
+            )
+            spans = build_rule_only_spans(
+                content=batch_text,
+                target_chars=target_chars,
+                max_chars=max_chars,
+            )
+        all_spans.extend(
+            Span(start=s.start + batch.start, end=s.end + batch.start) for s in spans
+        )
+    return all_spans
 
 
 def _build_ai_candidate_units(content: str) -> list[Span]:
@@ -278,44 +345,29 @@ def build_rule_only_spans(content: str, target_chars: int, max_chars: int) -> li
     return enforce_max_span_length(split_paragraph_spans(content), content=content, max_len=max_chars)
 
 
-def build_semantic_spans(content: str, target_chars: int, max_chars: int | None = None) -> list[Span]:
-    settings = get_settings()
-    resolved_max = max_chars if max_chars is not None else get_chunk_max_chars(settings)
-    if not settings.chunk_ai_split_enabled:
-        logger.info("【语义切分】已关闭 AI 切分，使用纯规则切分。")
-        return build_rule_only_spans(content=content, target_chars=target_chars, max_chars=resolved_max)
+def _needs_ai_optimization(content: str, settings: Settings) -> bool:
+    """规则切分质量差的场景才介入 LLM：无空行分段或存在超大段落。
 
-    direct_spans = split_by_llm_direct(
-        content=content,
-        target_chars=target_chars,
-        max_chars=resolved_max,
-    )
-    if direct_spans:
-        return enforce_max_span_length(direct_spans, content=content, max_len=resolved_max)
+    有结构的文档（合同条款、报告章节、带空行文本）规则切分即可产出
+    语义完整的块，直接走规则主通道，不消耗 LLM 调用。
+    """
+    batch_limit = int(settings.chunk_direct_max_chars or 0)
+    para_spans = split_paragraph_spans(content)
+    if not para_spans:
+        return True
+    if batch_limit > 0:
+        return any(p.end - p.start > batch_limit for p in para_spans)
+    # 无 batch_limit 配置时：整篇无空行分段视为无结构长文本
+    return len(para_spans) == 1 and (para_spans[0].end - para_spans[0].start) > 2000
 
-    split_mode = (settings.chunk_split_mode or "marker").strip().lower()
-    if split_mode == "marker":
-        logger.warning(
-            "【语义切分】标记解析失败，整篇保留后按 max=%s 句边界硬切兜底",
-            resolved_max,
-        )
-        return enforce_max_span_length(
-            [Span(start=0, end=len(content))],
-            content=content,
-            max_len=resolved_max,
-        )
 
-    if split_mode != "auto":
-        return enforce_max_span_length(
-            [Span(start=0, end=len(content))],
-            content=content,
-            max_len=resolved_max,
-        )
+def _build_auto_window_spans(content: str, target_chars: int, max_chars: int) -> list[Span]:
+    """auto 模式：候选单元窗口 + LLM 选断点（原实现保留，调试/降级路径）。"""
     units = _build_ai_candidate_units(content=content)
     if not units:
-        return build_rule_only_spans(content=content, target_chars=target_chars, max_chars=resolved_max)
+        return []
     if len(units) == 1:
-        return enforce_max_span_length(units, content=content, max_len=resolved_max)
+        return units
 
     result: list[Span] = []
     u = 0
@@ -331,10 +383,55 @@ def build_semantic_spans(content: str, target_chars: int, max_chars: int | None 
         split_after = _pick_split_index_with_llm(
             candidate_texts,
             target_chars=target_chars,
-            max_chars=resolved_max,
+            max_chars=max_chars,
         )
         left_spans = candidate_spans[:split_after]
         result.append(Span(start=left_spans[0].start, end=left_spans[-1].end))
         u = u + split_after
 
-    return enforce_max_span_length(result, content=content, max_len=resolved_max)
+    return result
+
+
+def build_semantic_spans(content: str, target_chars: int, max_chars: int | None = None) -> list[Span]:
+    """切分主流程：规则切分主通道，LLM 语义切分仅对无结构长文本介入优化。
+
+    优先级（CHUNK_SPLITTING_REVIEW §4 定稿）：结构边界 > 语义相似度 > 字符切。
+    有结构文档直接走规则（零 LLM 调用、可复现）；无空行/超大段落的文本
+    用 LLM 语义切分优化切点，失败自动回退规则结果。
+    """
+    settings = get_settings()
+    resolved_max = max_chars if max_chars is not None else get_chunk_max_chars(settings)
+
+    # 主通道：规则切分（段落 → 句边界递归细分）
+    rule_spans = build_rule_only_spans(content=content, target_chars=target_chars, max_chars=resolved_max)
+
+    if not settings.chunk_ai_split_enabled:
+        logger.info("【语义切分】已关闭 AI 切分，使用纯规则切分。")
+        return rule_spans
+
+    if not _needs_ai_optimization(content, settings):
+        return rule_spans
+
+    logger.info(
+        "【语义切分】规则切分质量不足（无空行/超大段落），介入 LLM 语义切分 len=%s",
+        len(content),
+    )
+    llm_spans = split_by_llm_direct(
+        content=content,
+        target_chars=target_chars,
+        max_chars=resolved_max,
+    )
+    if llm_spans:
+        return enforce_max_span_length(llm_spans, content=content, max_len=resolved_max)
+
+    # LLM 直切失败：auto 模式再试 JSON 窗口断点；仍失败回退规则结果
+    split_mode = (settings.chunk_split_mode or "marker").strip().lower()
+    if split_mode == "auto":
+        auto_spans = _build_auto_window_spans(
+            content=content, target_chars=target_chars, max_chars=resolved_max
+        )
+        if auto_spans:
+            return enforce_max_span_length(auto_spans, content=content, max_len=resolved_max)
+
+    logger.warning("【语义切分】LLM 语义切分失败，回退规则切分结果 chunks=%s", len(rule_spans))
+    return rule_spans

@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     chunk_llm_base_url: str = Field(default="")
     chunk_llm_api_key: str = Field(default="")
     chunk_split_mode: str = Field(default="marker")  # marker | auto（auto 含 JSON 窗口断点）
+    # LLM 语义切分单批上限（字符）：超长文本按段落贪心预分批，每批独立切分后拼接
+    chunk_direct_max_chars: int = Field(default=4000)
 
     openai_api_key: str = Field(default="")
     openai_base_url: str = Field(default="https://api.openai.com/v1")

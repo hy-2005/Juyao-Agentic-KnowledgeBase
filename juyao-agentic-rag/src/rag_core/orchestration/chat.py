@@ -23,6 +23,7 @@ async def astream_chat_events(
     *,
     assistant_holder: list[str],
     tool_messages_holder: list[dict[str, Any]] | None = None,
+    kb_id: int = 0,
 ) -> AsyncIterator[tuple[str, dict]]:
     """SSE 事件流：meta / token。"""
     require_dashscope_api_key()
@@ -31,5 +32,6 @@ async def astream_chat_events(
         history,
         assistant_holder=assistant_holder,
         tool_messages_holder=tool_messages_holder,
+        kb_id=kb_id,
     ):
         yield event

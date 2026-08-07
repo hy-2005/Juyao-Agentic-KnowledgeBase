@@ -3,6 +3,7 @@
 CY_RELATED_BY_CHUNKS = """
 MATCH (h:Entity)-[r:RELATED]->(t:Entity)
 WHERE any(cid IN coalesce(r.chunk_ids, []) WHERE cid IN $chunk_ids)
+  AND ($kb IS NULL OR $kb IN coalesce(r.kb_ids, []))
 RETURN
   h.name AS head_name,
   r.relation AS relation_predicate,
@@ -33,6 +34,7 @@ def cy_expand_from_seeds(hops: int) -> str:
 MATCH (s:Entity)
 WHERE s.name IN $seed_names
 MATCH p=(s)-[:RELATED*1..{hops}]-()
+WHERE ALL(rel IN relationships(p) WHERE $kb IS NULL OR $kb IN coalesce(rel.kb_ids, []))
 WITH p LIMIT $path_cap
 UNWIND relationships(p) AS rel
 WITH DISTINCT rel AS r
