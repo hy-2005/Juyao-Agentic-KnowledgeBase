@@ -117,8 +117,11 @@ def load_document(path: str) -> str:
             ocr_engine = None
             for page in doc:
                 text = page.get_text() or ""
-                # 无文本层且含图片的页面（扫描件）：懒加载 OCR 兜底，避免内容静默丢失
-                if len(text.strip()) < _OCR_TEXT_THRESHOLD and page.get_images():
+                # 无文本层的页面（扫描件）→ OCR 兜底，避免内容静默丢失。
+                # 注意：整页图片渲染的扫描件 get_images() 可能返回 0（页面级图片不是
+                # 嵌入图片对象），不能以"含图片"为触发条件——只要文本过少就尝试 OCR，
+                # 纯空白页 OCR 结果为空，不会比不 OCR 更差。
+                if len(text.strip()) < _OCR_TEXT_THRESHOLD:
                     if ocr_engine is None:
                         ocr_engine = _get_ocr_engine()
                     if ocr_engine is not None:
