@@ -3,6 +3,7 @@
 from rag_core.infrastructure.elasticsearch import _build_list_query, _source_to_chunk_row
 from rag_core.domain.graph.query.admin_queries import _edge_view_to_dict
 from rag_core.domain.graph.query.edge_view import GraphEdgeView
+from rag_core.infrastructure.qdrant import _qdrant_point_to_row
 
 
 def test_build_list_query_match_all() -> None:
@@ -61,3 +62,24 @@ def test_source_to_chunk_row_without_parent_fields() -> None:
     row = _source_to_chunk_row(src)
     assert "chunk_type" not in row
     assert "child_ids" not in row
+
+
+def test_qdrant_point_to_row_child() -> None:
+    # Qdrant scroll 返回的 point:payload 为 {page_content, metadata} 嵌套
+    point = {
+        "payload": {
+            "page_content": "子块正文",
+            "metadata": {
+                "chunk_id": "doc.txt:abc:0:def:sub:aaa111bbb222",
+                "chunk_index": 2,
+                "start_char": 500,
+                "end_char": 700,
+                "parent_chunk_id": "doc.txt:abc:0:def",
+            },
+        }
+    }
+    row = _qdrant_point_to_row(point)
+    assert row["chunk_id"] == "doc.txt:abc:0:def:sub:aaa111bbb222"
+    assert row["chunk_index"] == 2
+    assert row["content"] == "子块正文"
+    assert row["parent_chunk_id"] == "doc.txt:abc:0:def"
