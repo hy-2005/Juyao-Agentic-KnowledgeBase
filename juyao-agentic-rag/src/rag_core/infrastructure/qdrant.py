@@ -64,6 +64,8 @@ def _qdrant_point_to_row(point: dict) -> dict:
         "start_char": meta.get("start_char"),
         "end_char": meta.get("end_char"),
         "parent_chunk_id": meta.get("parent_chunk_id"),
+        "source_name": meta.get("source_name"),
+        "source_doc_id": meta.get("source_doc_id"),
         "content": payload.get("page_content"),
     }
     return {k: v for k, v in row.items() if v is not None}
@@ -84,7 +86,8 @@ def list_child_chunks_by_parent(parent_chunk_id: str) -> list[dict]:
             )
         ]
     )
-    points: list[dict] = []
+    # scroll 返回的是 pydantic Record 而非 dict,标注为 list 即可(实际类型见 _qdrant_point_to_row)
+    points: list = []
     offset: int | None = None
     try:
         while True:
@@ -106,7 +109,8 @@ def list_child_chunks_by_parent(parent_chunk_id: str) -> list[dict]:
         logger.warning("Qdrant list_child_chunks_by_parent 失败：%s", exc)
         return []
     rows = [_qdrant_point_to_row(p) for p in points]
-    rows.sort(key=lambda r: r.get("chunk_index") or 0)
+    # 防御:chunk_index 可能缺失或为 str(Qdrant payload 类型不保证),统一按 0 参与排序,避免 sort 比较时 TypeError
+    rows.sort(key=lambda r: r.get("chunk_index") if isinstance(r.get("chunk_index"), int) else 0)
     return rows
 
 
