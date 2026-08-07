@@ -105,6 +105,16 @@
 
 ---
 
+
+## 13. 合并分支时旧路径代码覆盖新结构 + 功能文件丢失
+
+- **场景**：合并另一个开发分支的 admin 管理功能（chunks/graph 页面）到重组后的 main
+- **现象**：`ModuleNotFoundError: No module named 'rag_core.indexing'`（合并代码引用旧目录）；`admin_queries/admin_mutations` 模块完全缺失（路由引用了但实现没合进来）；前端 `api/rag.js` 的 kb 管理 API 被覆盖丢失
+- **根因**：① 合并来源基于**目录重组前**的代码（indexing 还在时写的 import）② 合并只带了"路由/前端/Java"，**支撑函数没带** ③ api/rag.js 整体被旧版本覆盖
+- **修复**：① 用 module_map 映射修旧路径（indexing → infrastructure、knowledge_graph → domain.graph.query）② 按路由调用签名**补建** admin_queries.py + admin_mutations.py（基于现有 domain/graph 能力）③ kb API 重新补回
+- **验证**：55 测试全绿（含 4 个 admin 测试）；admin API 实调（stats/list/mutation）；Java 编译；前端构建
+- **教训**：合并前先 `git diff` 确认受影响文件；合并后**三端全量验证**（compileall + pytest + mvn + npm build）——特别是**被修改过的文件**（api/rag.js、elasticsearch.py）要 diff 确认我们的改动还在
+
 ## 踩坑模式总结（教训提炼）
 
 1. **"先 X 后 Y"的顺序改动，Y 的删除/清理条件必须精确到原子键**（坑 2）
@@ -115,3 +125,4 @@
 6. **跨连接一致性是隐性问题，写入链路尽量共用连接**（坑 8）
 7. **评测/校准的"数据状态"与"文件时间戳"先核对**（坑 11）
 8. **临时配置改动必须配套恢复步骤**（坑 12）
+9. **合并分支前先 diff 受影响文件，合并后三端全量验证**（坑 13）
