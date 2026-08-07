@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from rag_core.api.logging_config import configure_rag_logging
+from rag_core.api.logging_config import configure_rag_logging, ensure_file_logging
 from rag_core.api.routes.chat import router as chat_router
 from rag_core.api.routes.chunks import router as chunks_router
 from rag_core.api.routes.graph import router as graph_router
@@ -23,6 +23,8 @@ configure_rag_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # uvicorn 完成自身 logging 配置后补文件 handler：rag.log 落盘（UTF-8，终端乱码不影响文件）
+    ensure_file_logging()
     settings = get_settings()
     app.state.redis = redis.from_url(settings.redis_url, decode_responses=True)
     try:
