@@ -194,7 +194,9 @@
             :truncated="graphMeta.truncated"
             :total-edges="graphMeta.total_edges"
             :returned-edges="graphMeta.returned_edges"
+            :community-view="communityView"
             :body-height.sync="graphPanelHeight"
+            @community-click="handleCommunityClick"
           />
         </el-card>
       </div>
@@ -208,6 +210,7 @@
       :loading="graphLoading"
       :truncated="graphMeta.truncated"
       :total-edges="graphMeta.total_edges"
+      @community-click="handleCommunityClick"
       :returned-edges="graphMeta.returned_edges"
       :fullscreen="true"
       @exit-fullscreen="closeFullScreen"
@@ -320,6 +323,7 @@ export default {
       graphMode: 'subgraph',
       currentSeed: '',
       subgraphHops: 1,
+      communityView: false,
       graphData: { nodes: [], links: [] },
       graphMeta: { truncated: false, total_edges: 0, returned_edges: 0 },
       edgeDetailOpen: false,
@@ -392,6 +396,22 @@ export default {
       // 聚焦社区：用成员实体做种子加载子图（后端 seed 参数支持逗号分隔多实体）
       if (!community || !community.entities || !community.entities.length) return
       this.loadSubgraph(community.entities.slice(0, 20).join(','))
+    },
+    toggleCommunityView() {
+      // 切换社区聚合视图（KgGraphPanel 有 communityView watch 自动重渲染）
+      this.communityView = !this.communityView
+      if (this.graphMode !== 'full') {
+        this.loadFullGraph(false)
+      }
+    },
+    handleCommunityClick(communityId) {
+      // 点击社区聚合节点 → 展开该社区成员子图（关闭全屏，回到子图模式）
+      const community = this.communities.find((c) => c.community_id === communityId)
+      if (community) {
+        this.communityView = false
+        this.fullScreenOpen = false
+        this.loadCommunitySubgraph(community)
+      }
     },
     initSplitLayout() {
       this.$nextTick(() => {
