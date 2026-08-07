@@ -2,6 +2,7 @@
 
 > 状态:🔄 进行中(方案已确认,待实施)
 > 关联:[PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md)
+> 创建：2026-08-07 · 更新：2026-08-07
 
 ## 需求
 

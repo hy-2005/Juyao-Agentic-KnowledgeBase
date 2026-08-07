@@ -1,6 +1,7 @@
 # 架构速览
 
 > 更多细节见 [GETTING_STARTED.md](./GETTING_STARTED.md)、[KNOWLEDGE_GRAPH.md](./KNOWLEDGE_GRAPH.md)。
+> 创建：2026-05-24 · 更新：2026-06-18
 
 ## 请求链路（HTTP 对话）
 

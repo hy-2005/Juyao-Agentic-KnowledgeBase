@@ -1,6 +1,6 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：🔄 进行中（查询/入库/社区全链路已实施；实体消歧为设计限制待确认，重灌策略文档化） · 更新：2026-08-07
+> 状态：🔄 进行中（查询/入库/社区全链路已实施；实体消歧为设计限制待确认，重灌策略文档化） · 创建：2026-08-07 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`

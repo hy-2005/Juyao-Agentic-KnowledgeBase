@@ -1,6 +1,6 @@
 # 文档更新与增量入库评审及方案
 
-> 状态：🔄 进行中（P0-2 先写后删差集已完成；增量 chunk_id 改造/P0-3 Kafka 可靠性待办） · 更新：2026-08-07
+> 状态：🔄 进行中（P0-2 先写后删差集已完成；增量 chunk_id 改造/P0-3 Kafka 可靠性待办） · 创建：2026-08-07 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 文档更新/重灌链路（Java 上传 → Kafka → Python 入库），含增量入库方案
 > 配套代码：`RagDocIngestService.java`（Java 上传/Kafka 生产）、`cli/kafka_consumer.py`（消费）、`ingestion/events.py`（事件处理）、`ingestion/hash_guard.py`（判重）、`ingestion/pipeline.py`（入库）、`ingestion/cleanup.py`（删除）、`knowledge_graph/store.py`（图写入/purge）、`domain/chunk.py`（chunk_id）
 > 关联文档：`CHUNK_SPLITTING_REVIEW.md`（chunk_id 设计）、`GRAPH_QUERY_REVIEW.md`（图谱入库/查询）、`TENANT_PERMISSION_REVIEW.md`（P0-1 kbId 同一病根）
