@@ -79,7 +79,7 @@ neo4j_uri = "bolt://localhost:7687"
 neo4j_username = "neo4j"
 graph_query_enabled = true
 graph_expand_max_edges = 40
-graph_max_hops = 2
+graph_max_hops = 4
 graph_expand_internal_path_cap = 120
 graph_question_extract_timeout_s = 30.0
 
