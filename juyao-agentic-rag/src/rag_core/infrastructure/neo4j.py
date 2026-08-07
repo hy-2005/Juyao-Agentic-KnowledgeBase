@@ -8,7 +8,7 @@ import uuid
 from langchain_neo4j import Neo4jGraph
 
 from rag_core.core.config import get_settings
-from rag_core.domain.graph.schema import KG_JSON_SCHEMA_VERSION, Triple
+from rag_core.domain.graph.schema import KG_JSON_SCHEMA_VERSION, Triple, normalize_entity_name
 
 
 _UPSERT_RELATED = """
@@ -109,6 +109,90 @@ def clear_read_graph_cache() -> None:
     get_read_graph.cache_clear()
 
 
+_UPSERT_RELATED_BATCH = """
+UNWIND $triples AS t
+MERGE (h:Entity {name: t.head_name})
+ON CREATE SET h.created_at = timestamp()
+SET h.updated_at = timestamp()
+
+MERGE (tgt:Entity {name: t.tail_name})
+ON CREATE SET tgt.created_at = timestamp()
+SET tgt.updated_at = timestamp()
+
+MERGE (h)-[r:RELATED {relation: t.relation}]->(tgt)
+ON CREATE SET
+  r.created_at = timestamp(),
+  r.chunk_ids = [t.chunk_id],
+  r.doc_ids = [t.source_doc_id],
+  r.source_names = [t.source_name],
+  r.kb_ids = [t.kb_id],
+  r.extract_schema_versions = [t.schema_ver],
+  r.triplet_ids = [t.triplet_id],
+  r.time_hints = CASE WHEN t.time_text <> '' THEN [t.time_text] ELSE [] END,
+  r.location_hints = CASE WHEN t.location_text <> '' THEN [t.location_text] ELSE [] END,
+  r.evidence_snippets = CASE WHEN t.evidence <> '' THEN [t.evidence] ELSE [] END,
+  r.head_kind_hints = CASE WHEN t.head_type <> '' THEN [t.head_type] ELSE [] END,
+  r.tail_kind_hints = CASE WHEN t.tail_type <> '' THEN [t.tail_type] ELSE [] END,
+  r.head_sense_hints = CASE WHEN t.head_sense <> '' THEN [t.head_sense] ELSE [] END,
+  r.tail_sense_hints = CASE WHEN t.tail_sense <> '' THEN [t.tail_sense] ELSE [] END,
+  r.relation_category_hints = CASE WHEN t.relation_category <> '' THEN [t.relation_category] ELSE [] END,
+  r.relation_full_hints = CASE WHEN t.relation_full <> '' THEN [t.relation_full] ELSE [] END,
+  r.modality_hints = CASE WHEN t.modality <> '' THEN [t.modality] ELSE [] END
+ON MATCH SET
+  r.updated_at = timestamp(),
+  r.chunk_ids = CASE WHEN t.chunk_id IN coalesce(r.chunk_ids, []) THEN r.chunk_ids ELSE coalesce(r.chunk_ids, []) + t.chunk_id END,
+  r.doc_ids = CASE WHEN t.source_doc_id IN coalesce(r.doc_ids, []) THEN r.doc_ids ELSE coalesce(r.doc_ids, []) + t.source_doc_id END,
+  r.source_names = CASE WHEN t.source_name IN coalesce(r.source_names, []) THEN r.source_names ELSE coalesce(r.source_names, []) + t.source_name END,
+  r.kb_ids = CASE WHEN t.kb_id IN coalesce(r.kb_ids, []) THEN r.kb_ids ELSE coalesce(r.kb_ids, []) + t.kb_id END,
+  r.extract_schema_versions = CASE
+    WHEN t.schema_ver IN coalesce(r.extract_schema_versions, []) THEN r.extract_schema_versions
+    ELSE coalesce(r.extract_schema_versions, []) + t.schema_ver END,
+  r.triplet_ids = CASE
+    WHEN t.triplet_id IN coalesce(r.triplet_ids, []) THEN r.triplet_ids
+    ELSE coalesce(r.triplet_ids, []) + t.triplet_id END,
+  r.time_hints = CASE
+    WHEN t.time_text <> '' AND NOT t.time_text IN coalesce(r.time_hints, [])
+    THEN coalesce(r.time_hints, []) + t.time_text
+    ELSE coalesce(r.time_hints, []) END,
+  r.location_hints = CASE
+    WHEN t.location_text <> '' AND NOT t.location_text IN coalesce(r.location_hints, [])
+    THEN coalesce(r.location_hints, []) + t.location_text
+    ELSE coalesce(r.location_hints, []) END,
+  r.evidence_snippets = CASE
+    WHEN t.evidence <> '' AND NOT t.evidence IN coalesce(r.evidence_snippets, [])
+    THEN coalesce(r.evidence_snippets, []) + t.evidence
+    ELSE coalesce(r.evidence_snippets, []) END,
+  r.head_kind_hints = CASE
+    WHEN t.head_type <> '' AND NOT t.head_type IN coalesce(r.head_kind_hints, [])
+    THEN coalesce(r.head_kind_hints, []) + t.head_type
+    ELSE coalesce(r.head_kind_hints, []) END,
+  r.tail_kind_hints = CASE
+    WHEN t.tail_type <> '' AND NOT t.tail_type IN coalesce(r.tail_kind_hints, [])
+    THEN coalesce(r.tail_kind_hints, []) + t.tail_type
+    ELSE coalesce(r.tail_kind_hints, []) END,
+  r.head_sense_hints = CASE
+    WHEN t.head_sense <> '' AND NOT t.head_sense IN coalesce(r.head_sense_hints, [])
+    THEN coalesce(r.head_sense_hints, []) + t.head_sense
+    ELSE coalesce(r.head_sense_hints, []) END,
+  r.tail_sense_hints = CASE
+    WHEN t.tail_sense <> '' AND NOT t.tail_sense IN coalesce(r.tail_sense_hints, [])
+    THEN coalesce(r.tail_sense_hints, []) + t.tail_sense
+    ELSE coalesce(r.tail_sense_hints, []) END,
+  r.relation_category_hints = CASE
+    WHEN t.relation_category <> '' AND NOT t.relation_category IN coalesce(r.relation_category_hints, [])
+    THEN coalesce(r.relation_category_hints, []) + t.relation_category
+    ELSE coalesce(r.relation_category_hints, []) END,
+  r.relation_full_hints = CASE
+    WHEN t.relation_full <> '' AND NOT t.relation_full IN coalesce(r.relation_full_hints, [])
+    THEN coalesce(r.relation_full_hints, []) + t.relation_full
+    ELSE coalesce(r.relation_full_hints, []) END,
+  r.modality_hints = CASE
+    WHEN t.modality <> '' AND NOT t.modality IN coalesce(r.modality_hints, [])
+    THEN coalesce(r.modality_hints, []) + t.modality
+    ELSE coalesce(r.modality_hints, []) END
+"""
+
+
 class Neo4jTripleStore:
     """连接 Neo4j 并执行 upsert；供 run_ingest / run_ingest_kg 调用。"""
 
@@ -142,14 +226,14 @@ class Neo4jTripleStore:
     ) -> int:
         if not triples:
             return 0
-        count = 0
+        # 批量提交（P2）：UNWIND 一次 Cypher 写全部 triple，替代逐条 _run 的 N 次往返
+        # 实体名防御性归一化（P0-1）：调用方绕过 parse_triples 直接传 Triple 时也生效
+        rows = []
         for triple in triples:
-            tid = str(uuid.uuid4())
-            self._run(
-                _UPSERT_RELATED,
+            rows.append(
                 {
-                    "head_name": triple.head_name,
-                    "tail_name": triple.tail_name,
+                    "head_name": normalize_entity_name(triple.head_name),
+                    "tail_name": normalize_entity_name(triple.tail_name),
                     "relation": triple.relation_predicate,
                     "chunk_id": chunk_id,
                     "source_doc_id": source_doc_id,
@@ -157,20 +241,20 @@ class Neo4jTripleStore:
                     "kb_id": kb_id,
                     "time_text": triple.time_text or "",
                     "location_text": triple.location_text or "",
-                    "evidence": (triple.evidence or "")[:800],
+                    "evidence": (triple.evidence or "")[:600],
                     "head_type": triple.head_type or "",
                     "tail_type": triple.tail_type or "",
                     "head_sense": triple.head_sense or "",
                     "tail_sense": triple.tail_sense or "",
                     "relation_category": triple.relation_category or "",
-                    "relation_full": (triple.relation_full or "")[:800],
+                    "relation_full": (triple.relation_full or "")[:600],
                     "modality": triple.modality or "",
-                    "triplet_id": tid,
+                    "triplet_id": str(uuid.uuid4()),
                     "schema_ver": KG_JSON_SCHEMA_VERSION,
-                },
+                }
             )
-            count += 1
-        return count
+        self._run(_UPSERT_RELATED_BATCH, {"triples": rows})
+        return len(rows)
 
     def purge_document_edges(
         self, *, name_prefix: str, source_display_name: str, kb_id: int | None = None

@@ -8,11 +8,40 @@ GraphRAG：三元组在 Python 侧的「合同」与解析。
 
 去重键：同一 (head_name, relation_predicate, tail_name) 合并扩展字段（_merge_text）。
 兼容旧键名：head/tail/relation → head_name/tail_name/relation_predicate。
+
+实体归一化（GRAPH_QUERY_REVIEW P0-1）：LLM 在不同 chunk 对同一实体可能用不同写法
+（"陆沉（陆氏本源继承人）" vs "陆少"），入库前统一命名是图谱命中率的根基——
+Neo4j MERGE 主键即实体名，归一化后同实体自然合并为同一节点。
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+
+# 全角字符 → 半角映射（数字/字母/常用标点，含全角破折号/空格）
+_FULLWIDTH_MAP = str.maketrans(
+    "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
+    "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ（）．，：；！？－～　",
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz(),.:;!?-~ ",
+)
+# 括号修饰：实体名后的括号注释（如 "陆沉（陆氏本源继承人）" → "陆沉"）
+_PAREN_SUFFIX_RE = re.compile(r"[（(][^（）()]*[）)]$")
+# 引号/书名号：实体名不应携带引号
+_QUOTE_RE = re.compile(r"[\"''「」『』【】《》]")
+
+
+def normalize_entity_name(name: str) -> str:
+    """实体名规范化：全角转半角 → 去括号修饰 → 去引号 → 压缩空白。
+
+    规则保守（只做无损清洗）——不合并不同实体，只保证同一实体的写法统一。
+    """
+    n = (name or "").translate(_FULLWIDTH_MAP)
+    n = _PAREN_SUFFIX_RE.sub("", n)
+    n = _QUOTE_RE.sub("", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
 
 # 写入 Neo4j 边属性 extract_schema_versions 时使用
 KG_JSON_SCHEMA_VERSION = "kg-v2"
@@ -64,10 +93,11 @@ class Triple:
     evidence: str = ""
 
     def normalized(self) -> "Triple":
+        # 实体名走归一化（P0-1）：全半角/括号修饰/引号统一，谓词保持原样（闭集由 prompt 约束）
         return Triple(
-            head_name=self.head_name.strip(),
+            head_name=normalize_entity_name(self.head_name),
             relation_predicate=self.relation_predicate.strip(),
-            tail_name=self.tail_name.strip(),
+            tail_name=normalize_entity_name(self.tail_name),
             head_type=self.head_type.strip(),
             tail_type=self.tail_type.strip(),
             head_sense=self.head_sense.strip(),
