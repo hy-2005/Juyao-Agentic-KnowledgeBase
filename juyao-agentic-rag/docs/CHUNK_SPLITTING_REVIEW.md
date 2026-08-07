@@ -1,6 +1,6 @@
 # Chunk 拆分方案评审与规划
 
-> 状态：已实施（预分批/规则主通道/父子分块完成）；多模态与 Contextual Retrieval 待办 · 更新：2026-08-07
+> 状态：🔄 进行中（预分批/规则主通道/父子分块已完成；多模态/Contextual Retrieval 待办） · 更新：2026-08-07
 > 范围：juyao-agentic-rag 文档切分链路（`rag_core/ingestion/`）
 > 配套代码：`splitter.py`（入口）、`split_ai.py`（LLM 语义切分）、`split_spans.py`（span 算法）、`loader.py`（解析）、`config.py`（配置）
 > 关联文档：`RETRIEVAL_REVIEW.md`（检索层面评审）、`GRAPH_QUERY_REVIEW.md`（图谱查询评审）、`INGESTION_UPDATE_REVIEW.md`（文档更新/增量入库；chunk_id 改造方案）
