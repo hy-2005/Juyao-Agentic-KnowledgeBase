@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from rag_core.ingestion.pipeline import ingest_file
+from rag_core.application.ingest_flow.ingest import ingest_file
 
 
 def build_parser() -> argparse.ArgumentParser:

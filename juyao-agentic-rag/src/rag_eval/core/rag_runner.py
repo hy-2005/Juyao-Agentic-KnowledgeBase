@@ -6,13 +6,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from rag_core.core.config import get_settings
-from rag_core.llm.factory import build_openai_http_client, resolve_llm_api_key
+from rag_core.infrastructure.llm.factory import build_openai_http_client, resolve_llm_api_key
 from rag_core.prompts.templates import (
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_NO_KB_EVIDENCE,
     build_user_prompt,
 )
-from rag_core.retrieval.retriever import search_context
+from rag_core.domain.retrieval.retriever import search_context
 from rag_eval.core.answer_clean import clean_eval_answer
 
 

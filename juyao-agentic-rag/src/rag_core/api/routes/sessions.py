@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from rag_core.api.schemas import SessionCreateRequest, SessionTitleUpdate
 from rag_core.core.config import get_settings
-from rag_core.memory.redis_session import (
+from rag_core.infrastructure.redis.session import (
     chat_key,
     load_messages,
     remove_session,

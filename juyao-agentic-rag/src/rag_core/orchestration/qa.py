@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from rag_core.llm.factory import get_chat_llm
-from rag_core.llm.validators import require_dashscope_api_key
-from rag_core.orchestration.constants import (
+from rag_core.infrastructure.llm.factory import get_chat_llm
+from rag_core.infrastructure.llm.validators import require_dashscope_api_key
+from rag_core.application.chat_flow.constants import (
     DISCLAIMER,
     DISCLAIMER_NO_KB_REFERENCES,
     KB_ANSWER_PREFIX,
@@ -17,7 +17,7 @@ from rag_core.prompts.templates import (
     SYSTEM_PROMPT_NO_KB_EVIDENCE,
     build_user_prompt,
 )
-from rag_core.retrieval.retriever import search_context
+from rag_core.domain.retrieval.retriever import search_context
 
 
 @dataclass

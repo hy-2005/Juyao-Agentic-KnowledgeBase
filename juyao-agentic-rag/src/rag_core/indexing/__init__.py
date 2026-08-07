@@ -1,11 +1,11 @@
 """向量与全文索引适配器。"""
 
-from rag_core.indexing.elasticsearch import (
+from rag_core.infrastructure.elasticsearch import (
     get_elasticsearch_client,
     search_elasticsearch,
     sync_chunks_to_elasticsearch,
 )
-from rag_core.indexing.qdrant import (
+from rag_core.infrastructure.qdrant import (
     ensure_collection_exists,
     get_qdrant_client,
     get_vector_store,

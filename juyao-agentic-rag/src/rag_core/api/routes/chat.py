@@ -10,8 +10,8 @@ from fastapi.responses import StreamingResponse
 
 from rag_core.api.schemas import ChatStreamRequest
 from rag_core.core.config import get_settings
-from rag_core.memory.redis_session import append_turn, load_messages
-from rag_core.orchestration.chat import astream_chat_events
+from rag_core.infrastructure.redis.session import append_turn, load_messages
+from rag_core.application.chat_flow.entry import astream_chat_events
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from kafka import KafkaConsumer
 from kafka.errors import KafkaError
 
 from rag_core.core.config import get_settings
-from rag_core.ingestion.events import apply_kafka_ingest_payload
+from rag_core.application.ingest_flow.events import apply_kafka_ingest_payload
 
 logger = logging.getLogger(__name__)
 _stop = False

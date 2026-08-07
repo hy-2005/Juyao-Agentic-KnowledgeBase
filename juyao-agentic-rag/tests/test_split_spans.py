@@ -3,7 +3,7 @@
 覆盖 split_spans.py 的纯函数行为，防止阶段 4 目录重组与阶段 5 重构回归。
 """
 
-from rag_core.ingestion.split_spans import (
+from rag_core.domain.chunking.span_utils import (
     Span,
     apply_overlap,
     find_soft_cut,

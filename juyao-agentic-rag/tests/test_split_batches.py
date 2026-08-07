@@ -6,8 +6,8 @@ span 覆盖完整性（阶段 1.2 的回归保护）。
 
 from unittest.mock import patch
 
-from rag_core.ingestion.split_ai import _build_direct_batches, split_by_llm_direct
-from rag_core.ingestion.split_spans import Span
+from rag_core.domain.chunking.semantic_splitter import _build_direct_batches, split_by_llm_direct
+from rag_core.domain.chunking.span_utils import Span
 
 
 def test_build_direct_batches_short_text_single_batch() -> None:
@@ -60,7 +60,7 @@ def test_split_by_llm_direct_batched_coordinates_translated() -> None:
         return [Span(start=0, end=mid), Span(start=mid, end=len(content))]
 
     with patch(
-        "rag_core.ingestion.split_ai.split_by_llm_direct_once", side_effect=fake_once
+        "rag_core.domain.chunking.semantic_splitter.split_by_llm_direct_once", side_effect=fake_once
     ), patch("rag_core.core.config.get_settings") as mock_settings:
         mock_settings.return_value.chunk_direct_max_chars = 4000
         spans = split_by_llm_direct(content, target_chars=800, max_chars=1400)
@@ -86,7 +86,7 @@ def test_split_by_llm_direct_batch_failure_falls_back_to_rules() -> None:
         return [Span(start=0, end=mid), Span(start=mid, end=len(content))]
 
     with patch(
-        "rag_core.ingestion.split_ai.split_by_llm_direct_once", side_effect=fake_once
+        "rag_core.domain.chunking.semantic_splitter.split_by_llm_direct_once", side_effect=fake_once
     ), patch("rag_core.core.config.get_settings") as mock_settings:
         mock_settings.return_value.chunk_direct_max_chars = 4000
         spans = split_by_llm_direct(content, target_chars=800, max_chars=1400)
