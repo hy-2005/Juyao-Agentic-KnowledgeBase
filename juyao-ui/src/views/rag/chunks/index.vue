@@ -47,7 +47,28 @@
       <right-toolbar :show-search.sync="showSearch" @queryTable="getList" />
     </el-row>
 
-    <el-table v-loading="loading" :data="chunkList">
+    <el-table v-loading="loading" :data="chunkList" @expand-change="handleExpand">
+      <el-table-column type="expand">
+        <template slot-scope="scope">
+          <div v-if="scope.row.child_ids && scope.row.child_ids.length" class="child-chunks">
+            <div class="child-chunks-header">子切片（共 {{ childChunks[scope.row.chunk_id] ? childChunks[scope.row.chunk_id].length : 0 }} 条）</div>
+            <el-table :data="childChunks[scope.row.chunk_id] || []" size="mini" border>
+              <el-table-column label="序号" prop="chunk_index" width="60" align="center" />
+              <el-table-column label="正文预览" prop="content" min-width="300" :show-overflow-tooltip="true">
+                <template slot-scope="c">
+                  <span>{{ (c.row.content || '').slice(0, 100) }}{{ c.row.content && c.row.content.length > 100 ? '...' : '' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" align="center">
+                <template slot-scope="c">
+                  <el-button size="mini" type="text" icon="el-icon-view" @click="handleDetail(c.row)">详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div v-else class="child-chunks-empty">该父块暂无子切片</div>
+        </template>
+      </el-table-column>
       <el-table-column label="序号" prop="chunk_index" width="80" align="center" />
       <el-table-column label="切片 ID" prop="chunk_id" min-width="200" :show-overflow-tooltip="true" />
       <el-table-column label="文档名" prop="source_name" min-width="160" :show-overflow-tooltip="true" />
@@ -91,7 +112,7 @@
 </template>
 
 <script>
-import { listRagChunks, getRagChunk, getRagChunkStats, listRagDocuments } from '@/api/rag'
+import { listRagChunks, getRagChunk, getRagChunkStats, listRagDocuments, listChunkChildren } from '@/api/rag'
 
 export default {
   name: 'RagChunks',
@@ -110,7 +131,8 @@ export default {
         keyword: undefined
       },
       detailOpen: false,
-      detail: null
+      detail: null,
+      childChunks: {} // chunk_id -> 子块行数组(展开缓存)
     }
   },
   computed: {
@@ -182,6 +204,16 @@ export default {
       }).catch(() => {
         this.detail = row
         this.detailOpen = true
+      })
+    },
+    handleExpand(row) {
+      // 懒加载:仅首次展开时请求;缓存后重复展开不再请求
+      if (this.childChunks[row.chunk_id]) return
+      if (!row.child_ids || !row.child_ids.length) return
+      listChunkChildren(row.chunk_id).then((res) => {
+        this.$set(this.childChunks, row.chunk_id, (res && res.rows) || [])
+      }).catch(() => {
+        this.$set(this.childChunks, row.chunk_id, [])
       })
     }
   }
