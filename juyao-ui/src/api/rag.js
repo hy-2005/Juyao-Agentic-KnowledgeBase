@@ -190,3 +190,27 @@ export function updateSessionTitle(sessionId, title) {
     data: { title }
   })
 }
+
+/**
+ * 知识库管理（TENANT_PERMISSION P2）。
+ */
+
+/** 当前用户可访问的知识库列表 */
+export function listKbs() {
+  return request({ url: `${BASE}/kbs`, method: 'get' })
+}
+
+/** 创建知识库（创建人为 owner） */
+export function createKb(name) {
+  return request({ url: `${BASE}/kbs`, method: 'post', data: { name } })
+}
+
+/** 授权用户访问知识库（需 admin） */
+export function grantKbUser(kbId, userId, role) {
+  return request({ url: `${BASE}/kbs/${kbId}/users`, method: 'post', data: { userId, role } })
+}
+
+/** 删除知识库（需 owner，级联清空三库数据） */
+export function deleteKb(kbId) {
+  return request({ url: `${BASE}/kbs/${kbId}`, method: 'delete' })
+}
