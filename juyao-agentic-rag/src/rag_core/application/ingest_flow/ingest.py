@@ -133,6 +133,15 @@ def ingest_file(
     triple_count = 0
     if enable_graph:
         _, triple_count = write_chunks_to_graph(chunks=chunks, source_name=logical_name, kb_id=kb_id)
+        # 社区构建：图谱数据变化后自动重建社区（Leiden 检测 + LLM 摘要）。
+        # 失败不阻断入库主流程（社区可后续手动重建），避免 LLM 摘要异常导致文档入库失败。
+        try:
+            from rag_core.application.graph.community_build import build_communities
+
+            community_count = build_communities(kb=kb_id, reset=True)
+            logger.info("【入库】社区重建完成：%s 个（kb=%s）", community_count, kb_id)
+        except Exception as exc:
+            logger.warning("【入库】社区构建失败（不阻断入库）：%s", exc)
 
     # 步骤 4：先写后删——按 chunk_id 差集精确清理旧数据（失败则保留旧数据）
     if purge_before_write and old_chunk_ids:
