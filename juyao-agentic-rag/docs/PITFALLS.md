@@ -136,3 +136,11 @@
 8. **临时配置改动必须配套恢复步骤**（坑 12）
 9. **合并分支前先 diff 受影响文件，合并后三端全量验证**（坑 13）
 10. **外部 SDK 返回 pydantic 对象而非 dict，先归一化（model_dump）再取字段**（坑 14）
+
+## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler
+
+- **场景**：给 API 引擎加"日志自动落盘 rag.log"（FileHandler 挂 root logger）
+- **现象**：import 时 `configure_rag_logging()` 添加的 FileHandler 在服务启动后消失，rag.log 未生成（0 字节或不存在）
+- **根因**：uvicorn 启动时会执行自己的 logging dictConfig，**重置 root logger 的 handlers**——import 阶段（app 模块加载）添加的 handler 被清掉；且 uvicorn 的 `uvicorn.access` logger `propagate=False`，访问日志不经过 root
+- **修复**：FileHandler 添加逻辑拆成独立函数，在 **lifespan 阶段**（uvicorn 完成自身日志配置后）再补一次；文件固定 `encoding="utf-8"`，规避 Windows 控制台 GBK 乱码
+- **教训**：框架（uvicorn/星协议栈）启动时会接管 logging 配置——自定义日志 handler 必须在框架配置完成后的生命周期钩子里挂，不能只在模块 import 时挂
