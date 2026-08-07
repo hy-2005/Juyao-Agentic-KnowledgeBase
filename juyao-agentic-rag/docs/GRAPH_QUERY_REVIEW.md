@@ -1,6 +1,6 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：部分实施（查询侧 P0-1/P1-2 已完成；入库侧归一化待办） · 更新：2026-08-07
+> 状态：查询侧 P0-1/P1-2 + 入库侧归一化/谓词闭集/批量写入已完成；实体跨 chunk 合并与查询名称解析待办 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
@@ -163,11 +163,11 @@ chunk（复用文本切分链路）
 
 | 优先级 | 改动 | 涉及文件 | 收益 |
 |---|---|---|---|
-| P0-1 | 实体归一化（prompt 硬约束 + Python 规范化函数） | extractor.py / 新增 normalize 模块 | 图谱可用性根基 |
-| P1-1 | 谓词闭集（prompt 强制候选） | kg_triple_extraction_system.md | 边合并率大幅提升 |
+| P0-1 | 实体归一化（prompt 硬约束 + Python 规范化函数） | ✅ 已实施 | normalize_entity_name（全半角/括号/引号清洗）+ prompt 统一称谓；同实体不同写法合并为同节点（实测验证） |
+| P1-1 | 谓词闭集（prompt 强制候选） | ✅ 已实施 | 27 词候选集 + 「其他（具体动词）」兜底，细节进 relation_full |
 | P0-2 | 跨 chunk 实体对齐（entity resolution 工具） | 新增 | 节点爆炸缓解 |
 | P1-2 | 查询侧名称解析（喂实体候选） | question_seed.py | 查询命中率 |
-| P2 | UNWIND 批量写入 + 重试 | store.py / graph_writer.py | 入库性能/稳定性 |
+| P2 | UNWIND 批量写入 + 重试 | ✅ 已实施（UNWIND） | _UPSERT_RELATED_BATCH 一次 Cypher 写全部 triple；重试待办 |
 | P2 | 重灌策略（全量重建 vs 增量） | graph_writer.py / cleanup.py | 切分变更后干净重建 |
 
 ---
