@@ -43,8 +43,8 @@ chunk_size = 800
 chunk_max_chars = 1400
 chunk_overlap = 120
 top_k = 15
-rrf_top_n = 8
-rerank_top_n = 5
+rrf_top_n = 12
+rerank_top_n = 6
 min_relevance_score = 0.35
 rrf_k = 60
 
