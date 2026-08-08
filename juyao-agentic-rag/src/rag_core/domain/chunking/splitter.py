@@ -216,8 +216,24 @@ def build_parent_blocks(content: str, max_chars: int) -> list[Span]:
     return parents
 
 
+def _is_structured_block(text: str) -> bool:
+    """父块是否为结构化块（表格 / 代码围栏）：按行切子块，避免拆断单行。"""
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if not lines:
+        return False
+    first = lines[0]
+    return (first.startswith("|") and first.endswith("|")) or first.startswith("```")
+
+
 def build_child_spans(parent: Span, content: str, child_size: int) -> list[Span]:
-    """父块内按句边界切子块（子块粒度 = 检索精度，无 overlap）。"""
+    """父块内切子块（子块粒度 = 检索精度，无 overlap）。
+
+    结构化父块（表格/代码）按行切——行是原子单元，按字符硬切会把一行
+    拆成两个子块（表头与数据行分离）；普通段落按句边界切。
+    """
+    parent_text = content[parent.start : parent.end]
+    if _is_structured_block(parent_text):
+        return split_span_by_lines(content, parent, child_size)
     return split_span_by_max_len(content, parent, child_size)
 
 
