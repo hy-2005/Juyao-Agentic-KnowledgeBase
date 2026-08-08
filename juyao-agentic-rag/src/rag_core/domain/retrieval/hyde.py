@@ -17,6 +17,7 @@
 # - 失败哲学：LLM 调用失败 / 输出为空 / 输出过长（被截断）→ 返回 None，retriever 据此跳过 HyDE 通道。
 
 import logging
+import re
 
 from rag_core.core.config import get_settings
 from rag_core.infrastructure.llm.factory import get_chat_llm
@@ -75,8 +76,11 @@ def generate_hypothetical_answer(query: str) -> str | None:
 
 
 def _sanitize_hyde_output(raw: str) -> str:
-    # 清理 LLM 偶发噪声：去掉前后空白与可能误带的代码块包装；超长则截断到 _HYDE_MAX_LEN。
+    # 清理 LLM 偶发噪声：剥离 think 块（deepseek 等模型默认输出思考过程，
+    # 会污染假答案的向量语义，坑 10 同源）、去掉代码块包装；截断到 _HYDE_MAX_LEN。
     text = raw.strip()
+    # 剥离 <think>...</think>（含非贪婪跨行）
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     if text.startswith("```"):
         # 去掉开头 ``` 行（含可能的语言标记）
         nl = text.find("\n")
