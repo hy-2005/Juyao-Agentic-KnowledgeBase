@@ -71,7 +71,7 @@ def test_apply_overlap_expands_both_sides() -> None:
     # 返回原始 span 坐标 + overlap 量；扩展后坐标 = start - ol / end + orr
     span = Span(start=100, end=200)
     start, end, ol, orr = apply_overlap(
-        span, total_len=400, overlap=20, max_chunk_chars=0
+        span, content='x' * 400, total_len=400, overlap=20, max_chunk_chars=0
     )
     assert (start, end) == (100, 200)
     assert ol == 20 and orr == 20
@@ -81,7 +81,7 @@ def test_apply_overlap_shrinks_right_first_when_over_limit() -> None:
     # 超过 max_chunk_chars 时右侧先收缩，再收缩左侧（split_spans.py:89 的设计）
     span = Span(start=100, end=300)
     start, end, ol, orr = apply_overlap(
-        span, total_len=500, overlap=50, max_chunk_chars=220
+        span, content='x' * 500, total_len=500, overlap=50, max_chunk_chars=220
     )
     # 扩展后 300 > 220 溢出 80：右缩满 50（orr=0），再左缩 30（ol=20）
     assert (start, end) == (100, 300)
@@ -95,7 +95,7 @@ def test_apply_overlap_clamps_at_document_edges() -> None:
     # 文档首尾无可用扩展空间时 overlap 为 0
     span = Span(start=0, end=50)
     start, end, ol, orr = apply_overlap(
-        span, total_len=50, overlap=30, max_chunk_chars=0
+        span, content='x' * 50, total_len=50, overlap=30, max_chunk_chars=0
     )
     assert (start, end) == (0, 50)
     assert ol == 0 and orr == 0
