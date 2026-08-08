@@ -228,12 +228,12 @@ def _is_structured_block(text: str) -> bool:
 def build_child_spans(parent: Span, content: str, child_size: int) -> list[Span]:
     """父块内切子块（子块粒度 = 检索精度，无 overlap）。
 
-    结构化父块（表格/代码）按行切——行是原子单元，按字符硬切会把一行
-    拆成两个子块（表头与数据行分离）；普通段落按句边界切。
+    结构化父块（表格/代码）整体作为一个子块，不拆分——表格是原子单元，
+    拆成行/字符会破坏表头与数据行的关联；普通段落按句边界切。
     """
     parent_text = content[parent.start : parent.end]
     if _is_structured_block(parent_text):
-        return split_span_by_lines(content, parent, child_size)
+        return [parent]
     return split_span_by_max_len(content, parent, child_size)
 
 
