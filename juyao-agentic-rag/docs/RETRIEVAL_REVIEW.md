@@ -100,6 +100,7 @@ search_context(query)
 | P2 | ES 加 match_phrase | ✅ 已实施 | bool should + match_phrase(slop=2, boost=2)，配合 IK 分词（已确认 ik_max_word/ik_smart 生效） |
 | P2 | query 复杂度分级 | ✅ 已实施 | `_is_simple_query`（≤12 字且无推理动词 → 单 query，跳过改写/HyDE） |
 | P3 | max_score 语义修正 | ✅ 注释说明 | 明确"向量参考分非排序分"，结构不动 |
+| P1 | HyDE 剥离 think 块 | ✅ 已修复（2026-08-08） | deepseek 等模型输出 `<think>` 思考过程污染假答案向量语义；`_sanitize_hyde_output` 加 `re.sub(<think>...</think>)` 剥离后再截断 600 字（坑 10 同源，社区摘要已剥离、HyDE 漏了） |
 
 遗留：rerank query 截断 200 字（HyDE 通道信号失真，低优先级）；无结果缓存（小知识库暂缓）。
 
