@@ -60,8 +60,12 @@ _DIRECT_GREETING_RE = re.compile(
 )
 
 
-def route_question_intent_rules(question: str) -> RouteBranch:
-    """不调 LLM：flowchart_strict 时仅 graph_only/vector_only；否则可有 direct。"""
+def route_question_intent_rules(question: str) -> RouteBranch | None:
+    """规则快路径：命中明确特征返回对应支线；**无特征命中返回 None（规则不确定）**。
+
+    返回 None 表示"规则看不出意图"——由调用方决定走 LLM（级联路由，
+    规则确定零 LLM 调用，不确定才花钱让大模型判）。
+    """
     q = (question or "").strip()
     settings = get_settings()
     strict = bool(getattr(settings, "flowchart_strict_mode", False))
@@ -85,7 +89,7 @@ def route_question_intent_rules(question: str) -> RouteBranch:
     if graph_hit:
         return RouteBranch.GRAPH_ONLY
 
-    return RouteBranch.VECTOR_ONLY
+    return None  # 规则不确定，交由 LLM 判定
 
 
 def route_question_intent_llm(question: str) -> RouteBranch:
@@ -146,20 +150,30 @@ def route_question_intent_llm(question: str) -> RouteBranch:
 
 def resolve_intent_route(question: str) -> IntentRouteResult:
     """
-    流程图节点 B：默认大模型分支；flowchart_strict 时为二选一 graph_only | vector_only。
-    intent_route_mode=rules 时按关键词分流；strict 下无 direct。
+    流程图节点 B：级联路由——**规则快路径优先**（准又快、零 LLM 调用），
+    规则无明确特征命中时才走大模型判定；LLM 失败再回退规则。
+    intent_route_mode=rules 时纯规则；strict 下无 direct。
     """
     settings = get_settings()
     mode = (settings.intent_route_mode or "llm").strip().lower()
 
     if mode == "rules":
-        return IntentRouteResult(route_question_intent_rules(question), "rules")
+        branch = route_question_intent_rules(question) or RouteBranch.VECTOR_ONLY
+        return IntentRouteResult(branch, "rules")
 
+    # 快路径：规则能确定 → 零 LLM 调用（问候/图谱类/向量字面类问题）
+    rule_branch = route_question_intent_rules(question)
+    if rule_branch is not None:
+        logger.info("intent_route 规则快路径命中：%s", rule_branch.value)
+        return IntentRouteResult(rule_branch, "rules")
+
+    # 规则不确定 → LLM 精判
     try:
         return IntentRouteResult(route_question_intent_llm(question), "llm")
     except Exception as exc:
         logger.warning("intent_route_llm 失败，回退 rules：%s", exc)
-        return IntentRouteResult(route_question_intent_rules(question), "rules_fallback")
+        branch = route_question_intent_rules(question) or RouteBranch.VECTOR_ONLY
+        return IntentRouteResult(branch, "rules_fallback")
 
 
 def route_question_intent(question: str) -> RouteBranch:
