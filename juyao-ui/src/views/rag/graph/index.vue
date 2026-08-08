@@ -13,12 +13,18 @@
           <div class="stat-value">{{ stats.edge_count != null ? stats.edge_count : '-' }}</div>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :span="6">
+        <el-card shadow="never" class="stat-card">
+          <div class="stat-label">社区数</div>
+          <div class="stat-value">{{ communities.length || '-' }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
         <el-card shadow="never" class="stat-card top-card">
           <div class="stat-label">高频实体（点击展开子图）</div>
           <div class="top-tags">
             <el-tag
-              v-for="item in stats.top_entities || []"
+              v-for="item in (stats.top_entities || []).slice(0, 5)"
               :key="item.name"
               size="small"
               class="top-tag"
@@ -31,49 +37,16 @@
       </el-col>
     </el-row>
 
-    <el-card shadow="never" class="mb8 community-card">
-      <div slot="header" class="community-header">
-        <span>社区（Leiden 检测 · 主题摘要）</span>
-        <el-button size="mini" type="text" icon="el-icon-refresh" @click="loadCommunities">刷新</el-button>
-      </div>
-      <div v-if="communities.length" class="community-list">
-        <el-collapse>
-          <el-collapse-item v-for="c in communities" :key="c.community_id">
-            <template slot="title">
-              <span class="community-name">
-                <i class="el-icon-connection" :style="{ color: communityColor(c.community_id) }" />
-                {{ c.summary ? c.summary.slice(0, 30) + '…' : c.community_id }}
-              </span>
-              <el-tag size="mini" class="community-count">{{ c.entity_count }} 实体</el-tag>
-              <el-button size="mini" type="text" @click.stop="loadCommunitySubgraph(c)">聚焦子图</el-button>
-            </template>
-            <div class="community-summary">{{ c.summary }}</div>
-            <div class="community-entities">
-              <el-tag
-                v-for="e in c.entities.slice(0, 20)"
-                :key="e"
-                size="mini"
-                class="community-entity-tag"
-                effect="plain"
-                @click="loadSubgraph(e)"
-              >{{ e }}</el-tag>
-              <span v-if="c.entities.length > 20" class="empty-hint">…等 {{ c.entities.length }} 个实体</span>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-      </div>
-      <div v-else class="empty-hint">暂无社区数据（需先运行社区构建：build_communities）</div>
-    </el-card>
-
     <div ref="splitLayout" class="split-layout">
       <div class="split-left" :style="{ width: leftPanelWidth + 'px' }">
         <el-card shadow="never" class="table-card">
           <el-tabs v-model="activeTab" @tab-click="handleTabChange">
             <el-tab-pane label="关系" name="edges" />
             <el-tab-pane label="实体" name="entities" />
+            <el-tab-pane label="社区" name="communities" />
           </el-tabs>
 
-          <el-row :gutter="10" class="mb8">
+          <el-row v-if="activeTab !== 'communities'" :gutter="10" class="mb8">
             <el-col :span="1.5">
               <el-button
                 v-if="activeTab === 'edges'"
@@ -94,7 +67,7 @@
             </el-col>
           </el-row>
 
-          <el-form v-show="showSearch" :model="queryParams" size="small" :inline="true" class="filter-form">
+          <el-form v-show="showSearch && activeTab !== 'communities'" :model="queryParams" size="small" :inline="true" class="filter-form">
             <el-form-item v-if="activeTab === 'edges'" label="文档名">
               <el-input v-model="queryParams.sourceName" clearable placeholder="source_name" style="width: 160px" />
             </el-form-item>
@@ -138,7 +111,7 @@
           </el-table>
 
           <el-table
-            v-else
+            v-else-if="activeTab === 'entities'"
             v-loading="loading"
             :data="entityList"
             highlight-current-row
@@ -157,12 +130,47 @@
           </el-table>
 
           <pagination
-            v-show="total > 0"
+            v-show="activeTab !== 'communities' && total > 0"
             :total="total"
             :page.sync="queryParams.pageNum"
             :limit.sync="queryParams.pageSize"
             @pagination="getList"
           />
+
+          <!-- 社区列表：点击头部展开摘要与成员，右上角聚焦子图 -->
+          <div v-if="activeTab === 'communities'" class="community-pane">
+            <div v-if="communities.length" class="community-pane-list">
+              <div
+                v-for="c in communities"
+                :key="c.community_id"
+                class="community-item"
+                :class="{ 'is-expanded': expandedCommunity === c.community_id }"
+              >
+                <div class="community-item-head" @click="toggleCommunity(c.community_id)">
+                  <span class="community-dot" :style="{ background: communityColor(c.community_id) }" />
+                  <span class="community-item-title">{{ c.summary ? c.summary.slice(0, 42) + '…' : c.community_id }}</span>
+                  <span class="community-item-meta">{{ c.entity_count }} 实体</span>
+                  <i class="el-icon-arrow-down community-item-caret" />
+                </div>
+                <div v-if="expandedCommunity === c.community_id" class="community-item-detail">
+                  <div class="community-item-summary">{{ c.summary }}</div>
+                  <div class="community-item-entities">
+                    <el-tag
+                      v-for="e in c.entities.slice(0, 12)"
+                      :key="e"
+                      size="mini"
+                      effect="plain"
+                      class="community-entity-tag"
+                      @click="loadSubgraph(e)"
+                    >{{ e }}</el-tag>
+                    <span v-if="c.entities.length > 12" class="empty-hint">…等 {{ c.entities.length }} 个</span>
+                  </div>
+                  <el-button size="mini" type="primary" plain icon="el-icon-connection" @click="loadCommunitySubgraph(c)">聚焦子图</el-button>
+                </div>
+              </div>
+            </div>
+            <el-empty v-else description="暂无社区数据（入库后自动构建）" :image-size="72" />
+          </div>
         </el-card>
       </div>
 
@@ -308,6 +316,7 @@ export default {
       entityList: [],
       stats: {},
       communities: [],
+      expandedCommunity: null,
       leftPanelWidth: 0,
       graphPanelHeight: 460,
       fullScreenOpen: false,
@@ -529,9 +538,17 @@ export default {
         })
       }
     },
-    handleTabChange() {
+    handleTabChange(tab) {
       this.queryParams.pageNum = 1
+      if (tab && tab.name === 'communities') {
+        this.loadCommunities()
+        return
+      }
       this.getList()
+    },
+    toggleCommunity(communityId) {
+      // 点击展开/收起社区摘要（互斥展开，一次只看一个）
+      this.expandedCommunity = this.expandedCommunity === communityId ? null : communityId
     },
     handleQuery() {
       this.queryParams.pageNum = 1
@@ -877,37 +894,81 @@ export default {
 .danger-text {
   color: #f56c6c;
 }
-.community-card {
-  margin-bottom: 8px;
+.community-pane {
+  padding: 4px 0 12px;
 }
-.community-header {
+.community-pane-list {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
 }
-.community-name {
+.community-item {
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fafbfc;
+  transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.community-item:hover {
+  border-color: #c0c4cc;
+}
+.community-item.is-expanded {
+  border-color: #409eff;
+  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.15);
+  background: #fff;
+}
+.community-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  min-height: 34px;
+}
+.community-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.community-item-title {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
   color: #303133;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.community-count {
-  margin-left: 8px;
+.community-item-meta {
+  font-size: 11px;
+  color: #909399;
   flex-shrink: 0;
 }
-.community-summary {
-  font-size: 13px;
-  color: #606266;
-  line-height: 1.6;
-  padding: 4px 0 8px;
+.community-item-caret {
+  font-size: 12px;
+  color: #c0c4cc;
+  flex-shrink: 0;
+  transition: transform 0.15s ease-out;
 }
-.community-entities {
-  padding-top: 4px;
+.community-item.is-expanded .community-item-caret {
+  transform: rotate(180deg);
+}
+.community-item-detail {
+  padding: 0 10px 10px;
+  border-top: 1px dashed #ebeef5;
+}
+.community-item-summary {
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.7;
+  padding: 8px 0;
+}
+.community-item-entities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 8px;
 }
 .community-entity-tag {
-  margin: 0 6px 6px 0;
   cursor: pointer;
 }
 </style>
