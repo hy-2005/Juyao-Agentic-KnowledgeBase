@@ -31,6 +31,7 @@ from rag_core.domain.chunking.semantic_splitter import build_semantic_spans
 import hashlib
 
 from rag_core.domain.chunking.span_utils import (
+    split_span_by_lines,
     Span,
     apply_overlap,
     split_span_by_max_len,
@@ -195,10 +196,11 @@ def build_parent_blocks(content: str, max_chars: int) -> list[Span]:
             flush(block.start)
             buf_start = block.start
         elif block.block_type in ("code", "table"):
-            # 特殊块独立成父块：封当前累积，整体成块（超长按句边界细分）
+            # 特殊块独立成父块：封当前累积，整体成块（超长按行切分——表格/代码行
+            # 是原子单元，按字符硬切会切断一行，破坏结构化数据）
             flush(block.start)
             span = Span(start=block.start, end=block.end)
-            parents.extend(split_span_by_max_len(content, span, max_chars))
+            parents.extend(split_span_by_lines(content, span, max_chars))
         else:  # paragraph
             if buf_start is None:
                 buf_start = block.start
