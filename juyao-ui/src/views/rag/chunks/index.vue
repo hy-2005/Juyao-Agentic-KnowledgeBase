@@ -97,21 +97,49 @@
       @pagination="getList"
     />
 
-    <el-drawer title="切片详情" :visible.sync="detailOpen" size="520px" append-to-body>
+    <el-dialog title="切片详情" :visible.sync="detailOpen" width="60%" top="5vh" append-to-body custom-class="chunk-detail-dialog">
       <div v-if="detail" class="chunk-detail">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="切片 ID">{{ detail.chunk_id }}</el-descriptions-item>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="切片 ID" :span="2">{{ detail.chunk_id }}</el-descriptions-item>
           <el-descriptions-item label="文档 ID">{{ detail.source_doc_id || '-' }}</el-descriptions-item>
           <el-descriptions-item label="文档名">{{ detail.source_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="序号">{{ detail.chunk_index != null ? detail.chunk_index : '-' }}</el-descriptions-item>
-          <el-descriptions-item label="字符区间">{{ detail.start_char }} ~ {{ detail.end_char }}</el-descriptions-item>
+          <el-descriptions-item label="类型">{{ detail.chunk_type || '普通' }}</el-descriptions-item>
+          <el-descriptions-item label="字符区间" :span="2">{{ detail.start_char }} ~ {{ detail.end_char }}</el-descriptions-item>
           <el-descriptions-item label="左重叠">{{ detail.overlap_left != null ? detail.overlap_left : '-' }}</el-descriptions-item>
           <el-descriptions-item label="右重叠">{{ detail.overlap_right != null ? detail.overlap_right : '-' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detail.parent_chunk_id" label="父切片" :span="2">{{ detail.parent_chunk_id }}</el-descriptions-item>
         </el-descriptions>
-        <div class="chunk-content-label">正文</div>
-        <pre class="chunk-content">{{ detail.content || '' }}</pre>
+        <div class="chunk-content-label">
+          正文
+          <el-tag v-if="detailContentType === 'table'" size="mini" type="success" effect="plain" class="chunk-type-tag">表格</el-tag>
+          <el-tag v-else-if="detailContentType === 'code'" size="mini" type="warning" effect="plain" class="chunk-type-tag">代码</el-tag>
+          <el-tag v-else size="mini" type="info" effect="plain" class="chunk-type-tag">文本</el-tag>
+        </div>
+        <!-- 表格类型:还原为 el-table 展示 -->
+        <el-table
+          v-if="detailContentType === 'table'"
+          :data="detailTableRows"
+          size="small"
+          border
+          max-height="420"
+          class="chunk-table"
+        >
+          <el-table-column
+            v-for="(h, idx) in detailTableHeaders"
+            :key="idx"
+            :label="h || '列' + (idx + 1)"
+            :prop="'c' + idx"
+            min-width="120"
+            :show-overflow-tooltip="true"
+          />
+        </el-table>
+        <!-- 代码类型:等宽字体 -->
+        <pre v-else-if="detailContentType === 'code'" class="chunk-content chunk-code">{{ detail.content }}</pre>
+        <!-- 文本类型:段落 -->
+        <div v-else class="chunk-text">{{ detail.content }}</div>
       </div>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -146,6 +174,47 @@ export default {
         return `当前文档「${src}」共 ${this.stats.total != null ? this.stats.total : 0} 个切片`
       }
       return `索引中共有 ${this.stats.total != null ? this.stats.total : 0} 个切片`
+    },
+    // 详情内容类型:table(≥2 行且首行 | 且含分隔行)/ code(```围栏) / text
+    detailContentType() {
+      const c = ((this.detail && this.detail.content) || '').trim()
+      if (!c) return 'text'
+      const lines = c.split('\n').map((l) => l.trim()).filter(Boolean)
+      if (lines.length >= 2 && lines[0].startsWith('|') && lines.some((l) => l.includes('---'))) {
+        return 'table'
+      }
+      if (c.startsWith('```') || c.includes('\n```')) return 'code'
+      return 'text'
+    },
+    detailTableHeaders() {
+      const rows = this.parseDetailTable()
+      return rows ? rows.headers : []
+    },
+    detailTableRows() {
+      const rows = this.parseDetailTable()
+      return rows ? rows.data : []
+    }
+  },
+  methods: {
+    // 解析 Markdown 表格:首行表头、含 --- 的分隔行跳过,其余为数据行
+    parseDetailTable() {
+      const c = ((this.detail && this.detail.content) || '').trim()
+      if (!c) return null
+      const lines = c.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('|'))
+      if (!lines.length) return null
+      const splitRow = (l) => l.replace(/^\|/, '').replace(/\|$/, '').split('|').map((x) => x.trim())
+      const headers = splitRow(lines[0])
+      const data = []
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i].includes('---')) continue
+        const cells = splitRow(lines[i])
+        const row = {}
+        cells.forEach((cell, idx) => {
+          row['c' + idx] = cell
+        })
+        data.push(row)
+      }
+      return { headers, data }
     }
   },
   created() {
@@ -258,5 +327,31 @@ export default {
   overflow: auto;
   font-size: 13px;
   line-height: 1.6;
+}
+.chunk-code {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12.5px;
+  background: #282c34;
+  color: #abb2bf;
+}
+.chunk-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f5f7fa;
+  padding: 14px 16px;
+  border-radius: 4px;
+  max-height: 480px;
+  overflow: auto;
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+.chunk-table {
+  margin-top: 4px;
+}
+.chunk-type-tag {
+  margin-left: 8px;
+}
+.chunk-detail-dialog .el-dialog__body {
+  padding: 16px 20px;
 }
 </style>
