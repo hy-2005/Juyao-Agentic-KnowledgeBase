@@ -103,11 +103,9 @@ def split_into_chunks(source_name: str, content: str, kb_id: int = 0) -> list[Do
     for idx, span in enumerate(semantic_spans):
 
         start_char, end_char, overlap_left, overlap_right = apply_overlap(
-
-            span,
-
+            span=span,
+            content=content,
             total_len=total_len,
-
             overlap=settings.chunk_overlap,
 
             max_chunk_chars=max_chars + settings.chunk_overlap * 2,

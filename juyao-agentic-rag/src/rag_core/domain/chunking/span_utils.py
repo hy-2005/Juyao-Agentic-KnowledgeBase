@@ -230,9 +230,29 @@ def enforce_max_span_length(spans: list[Span], content: str, max_len: int) -> li
     return result
 
 
+def _snap_to_boundary(content: str, pos: int, direction: int, limit: int) -> int:
+    """把位置吸附到最近的句子边界（。！？；; 或换行）。
+
+    direction=1 向后找（返回边界后的位置），direction=-1 向前找（返回边界后的位置）。
+    limit 为吸附上限（不超过该范围），找不到返回原位置。
+    """
+    if direction > 0:
+        end = min(len(content), pos + limit)
+        for i in range(pos, end):
+            if content[i] in STRONG_CUT_CHARS or content[i] in ("\n", "\r"):
+                return i + 1
+    else:
+        start = max(0, pos - limit)
+        for i in range(pos - 1, start - 1, -1):
+            if content[i] in STRONG_CUT_CHARS or content[i] in ("\n", "\r"):
+                return i + 1
+    return pos
+
+
 def apply_overlap(
     span: Span,
     *,
+    content: str,
     total_len: int,
     overlap: int,
     max_chunk_chars: int,
@@ -251,6 +271,12 @@ def apply_overlap(
         overflow -= shrink_right
         shrink_left = min(overflow, allowed_left)
         actual_start += shrink_left
+    # 句子边界取整：overlap 区域吸附到最近的句号/换行，避免从句子中间开始/结束
+    # （P3 遗留项；取整可能使扩展略超 overlap，但受 max_chunk_chars 约束不会失控）
+    snapped_start = _snap_to_boundary(content, actual_start, 1, allowed_left + 1)
+    snapped_end = _snap_to_boundary(content, actual_end, -1, allowed_right + 1)
+    if snapped_start < start_char and snapped_end > end_char:
+        actual_start, actual_end = snapped_start, snapped_end
     overlap_left = start_char - actual_start
     overlap_right = actual_end - end_char
     return start_char, end_char, overlap_left, overlap_right
