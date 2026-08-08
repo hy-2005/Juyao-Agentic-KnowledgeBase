@@ -175,6 +175,34 @@ def find_soft_cut(content: str, start: int, hard_end: int) -> int:
     return hard_end
 
 
+def split_span_by_lines(content: str, span: Span, max_len: int) -> list[Span]:
+    """按行切分（表格/代码块专用）：每行完整不切断，行数贪心累积到 max_len。
+
+    为什么不用 split_span_by_max_len：表格/代码块按字符硬切会把一行拆成两半，
+    破坏结构化数据（表头与数据行分离、代码行截断）。按行切保证每行原子完整。
+    """
+    if max_len <= 0 or span.end - span.start <= max_len:
+        return [span]
+    units: list[Span] = []
+    line_starts: list[int] = []
+    cursor = span.start
+    while cursor < span.end:
+        line_starts.append(cursor)
+        nl = content.find("\n", cursor, span.end)
+        cursor = span.end if nl == -1 else nl + 1
+    # 贪心累积行：加下一行不超 max_len 就并入当前组
+    group_start = line_starts[0]
+    group_end = line_starts[0]
+    for i, ls in enumerate(line_starts):
+        line_end = line_starts[i + 1] if i + 1 < len(line_starts) else span.end
+        if ls > group_start and (line_end - group_start) > max_len:
+            units.append(Span(start=group_start, end=group_end))
+            group_start = ls
+        group_end = line_end
+    units.append(Span(start=group_start, end=group_end))
+    return units
+
+
 def split_span_by_max_len(content: str, span: Span, max_len: int) -> list[Span]:
     if max_len <= 0 or span.end - span.start <= max_len:
         return [span]
