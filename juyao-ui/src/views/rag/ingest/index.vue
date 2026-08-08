@@ -112,21 +112,22 @@
           <el-upload
             ref="uploadRef"
             drag
+            multiple
             action="#"
             :auto-upload="false"
-            :limit="1"
+            :limit="0"
             :on-change="onUploadFileChange"
             :on-remove="onUploadFileRemove"
             accept=".txt,.text,.md,.markdown,.pdf,.docx,.csv,.json,.log,.xml,.html,.htm"
           >
             <i class="el-icon-upload" />
-            <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em></div>
-            <div slot="tip" class="el-upload__tip">支持 txt / md / pdf / docx / csv 等；单文件建议不超过 50MB。</div>
+            <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em>（支持多选）</div>
+            <div slot="tip" class="el-upload__tip">支持 txt / md / pdf / docx / csv 等；可多选批量上传，单文件建议不超过 50MB。</div>
           </el-upload>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" :loading="uploading" :disabled="!uploadFile" @click="submitUpload">确 定</el-button>
+        <el-button type="primary" :loading="uploading" :disabled="!uploadFiles.length" @click="submitUpload">确 定（{{ uploadFiles.length }} 个文件）</el-button>
         <el-button @click="uploadOpen = false">取 消</el-button>
       </div>
     </el-dialog>
@@ -165,7 +166,7 @@ export default {
         kbId: 0,
         logicalKey: ''
       },
-      uploadFile: null
+      uploadFiles: []
     }
   },
   created() {
@@ -226,7 +227,7 @@ export default {
     },
     resetUploadForm() {
       this.uploadForm = { kbId: 0, logicalKey: '' }
-      this.uploadFile = null
+      this.uploadFiles = []
       this.$nextTick(() => {
         if (this.$refs.uploadRef) {
           this.$refs.uploadRef.clearFiles()
@@ -234,38 +235,45 @@ export default {
       })
     },
     onUploadFileChange(file, fileList) {
-      this.uploadFile = (file && file.raw) || file
-      if (fileList.length > 1) {
-        fileList.splice(0, 1)
-      }
+      // 多选：收集全部文件的 raw 对象（逻辑文件名仅对单文件有意义，多文件时忽略）
+      this.uploadFiles = fileList.map((f) => f.raw || f).filter(Boolean)
     },
     onUploadFileRemove() {
-      this.uploadFile = null
+      this.uploadFiles = (this.$refs.uploadRef && this.$refs.uploadRef.uploadFiles || [])
+        .map((f) => f.raw || f)
+        .filter(Boolean)
     },
     submitUpload() {
-      if (!this.uploadFile) {
+      if (!this.uploadFiles.length) {
         this.$modal.msgWarning('请选择文件')
         return
       }
-      const fd = new FormData()
-      fd.append('file', this.uploadFile)
-      fd.append('kbId', String(this.uploadForm.kbId != null ? this.uploadForm.kbId : 0))
-      const lk = (this.uploadForm.logicalKey || '').trim()
-      if (lk) fd.append('logicalKey', lk)
       this.uploading = true
-      uploadRagDocument(fd)
-        .then((body) => {
-          const data = body.data || {}
-          if (data.skipped) {
-            this.$modal.msgSuccess('内容未变化，已跳过 Kafka')
+      const kbId = String(this.uploadForm.kbId != null ? this.uploadForm.kbId : 0)
+      const lk = (this.uploadForm.logicalKey || '').trim()
+      // 逐文件提交（后端接口为单文件契约）；统计成功/跳过/失败
+      const tasks = this.uploadFiles.map((file) => {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('kbId', kbId)
+        if (lk && this.uploadFiles.length === 1) fd.append('logicalKey', lk)
+        return uploadRagDocument(fd).then((body) => {
+          const data = (body && body.data) || {}
+          return data.skipped ? 'skipped' : 'ok'
+        })
+      })
+      Promise.allSettled(tasks)
+        .then((results) => {
+          const ok = results.filter((r) => r.status === 'fulfilled' && r.value === 'ok').length
+          const skipped = results.filter((r) => r.status === 'fulfilled' && r.value === 'skipped').length
+          const failed = results.filter((r) => r.status === 'rejected').length
+          if (failed) {
+            this.$modal.msgError(`提交完成：成功 ${ok}，跳过 ${skipped}，失败 ${failed}`)
           } else {
-            this.$modal.msgSuccess('已提交，Kafka 将异步入库')
+            this.$modal.msgSuccess(`已提交 ${ok} 个文件，Kafka 将异步入库${skipped ? `（${skipped} 个内容未变化已跳过）` : ''}`)
           }
           this.uploadOpen = false
           this.getList()
-        })
-        .catch((e) => {
-          this.$modal.msgError(e.message || '上传失败')
         })
         .finally(() => {
           this.uploading = false
