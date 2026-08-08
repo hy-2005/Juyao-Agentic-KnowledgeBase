@@ -44,7 +44,11 @@ def admin_list_chunk_children(chunk_id: str):
 
 
 def _query_children(parent_chunk_id: str) -> list[dict]:
-    """按 parent_chunk_id 查子块（子块也在 rag_chunk 表,含完整正文）。"""
+    """按 parent_chunk_id 查子块（子块也在 rag_chunk 表,含完整正文）。
+
+    include_full_content=True：展开区直接展示子块正文（前端用 content 预览），
+    缺省只给 content_preview 会导致展开区空白。
+    """
     from rag_core.infrastructure.mysql_chunks import _connect, _row_to_chunk_row
 
     conn = _connect()
@@ -54,7 +58,7 @@ def _query_children(parent_chunk_id: str) -> list[dict]:
                 "SELECT * FROM rag_chunk WHERE parent_chunk_id = %s ORDER BY chunk_index ASC",
                 (parent_chunk_id,),
             )
-            return [_row_to_chunk_row(r) for r in cur.fetchall()]
+            return [_row_to_chunk_row(r, include_full_content=True) for r in cur.fetchall()]
     finally:
         conn.close()
 
