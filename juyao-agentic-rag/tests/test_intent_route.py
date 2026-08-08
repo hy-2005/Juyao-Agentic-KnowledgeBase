@@ -16,9 +16,10 @@ def test_rules_greeting_is_direct() -> None:
 
 
 def test_rules_fact_question_is_vector() -> None:
-    # 事实型（无图谱触发词）→ vector_only
-    assert route_question_intent_rules("感冒通常由什么引起") == RouteBranch.VECTOR_ONLY
-    assert route_question_intent_rules("合同编号是多少") == RouteBranch.VECTOR_ONLY
+    # 事实型（无图谱触发词）→ 规则不确定返回 None（级联路由交给 LLM 判定，
+    # resolve_intent_route 层兜底 VECTOR_ONLY）
+    assert route_question_intent_rules("感冒通常由什么引起") is None
+    assert route_question_intent_rules("合同编号是多少") is None
 
 
 def test_rules_relation_question_is_graph() -> None:
