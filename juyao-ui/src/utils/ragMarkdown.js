@@ -168,9 +168,19 @@ function enhancePlainTips(html) {
   )
 }
 
-function enhanceCitations(html) {
+function enhanceCitations(html, citations) {
   return html.replace(/<p>\s*(引用\s*[:：][^<]*)<\/p>/gi, (match, body) => {
-    const text = body.replace(/^引用\s*[:：]\s*/i, '')
+    let text = body.replace(/^引用\s*[:：]\s*/i, '')
+    // 引用中的文档名 → 超链接（跳切片管理页该文档的切片列表）
+    if (Array.isArray(citations) && citations.length) {
+      citations.forEach((doc) => {
+        if (!doc) return
+        const esc = doc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const href = `/rag/chunks?sourceName=${encodeURIComponent(doc)}`
+        const link = `<a href="${href}" target="_blank" rel="noopener" class="md-citation-link">${doc}</a>`
+        text = text.replace(new RegExp(esc, 'g'), link)
+      })
+    }
     return (
       `<div class="md-citations">` +
       `<span class="md-citations-label">引用</span>` +
@@ -199,6 +209,6 @@ export function renderChatMarkdown(text, meta) {
   }
   html = enhancePlainTips(html)
   html = enhanceBlockquotes(html)
-  html = enhanceCitations(html)
+  html = enhanceCitations(html, meta && meta.citations)
   return html
 }
