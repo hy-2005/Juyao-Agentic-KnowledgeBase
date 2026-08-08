@@ -305,7 +305,8 @@ class Neo4jTripleStore:
             DELETE r
             """
         )
-        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
+        # DETACH:实体可能还挂着 MEMBER_OF(社区成员)边,普通 DELETE 会因"仍有关系"报错
+        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
 
     def purge_chunk_ids(self, chunk_ids: list[str], kb_id: int | None = None) -> None:
         """按具体 chunk_id 列表移除边引用（先写后删差集清理用）。
@@ -341,5 +342,6 @@ class Neo4jTripleStore:
             DELETE r
             """
         )
-        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
+        # DETACH:实体可能还挂着 MEMBER_OF(社区成员)边,普通 DELETE 会因"仍有关系"报错
+        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
 
