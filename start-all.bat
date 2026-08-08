@@ -3,7 +3,7 @@ chcp 65001 >nul
 title JuYao RAG 启动器
 echo ============================================
 echo   JuYao Agentic RAG 一键启动
-echo   引擎(FastAPI:8000) + Kafka 消费者
+echo   引擎(FastAPI:8000) + Kafka 消费者 x3(并行)
 echo ============================================
 echo.
 
@@ -17,14 +17,19 @@ if not exist "%PYTHON%" (
   exit /b 1
 )
 
-echo [1/2] 启动 RAG 引擎 (http://localhost:8000) ...
+echo [1/4] 启动 RAG 引擎 (http://localhost:8000) ...
 start "RAG-Engine" "%PYTHON%" -m uvicorn rag_core.api.app:app --host 0.0.0.0 --port 8000
 
-echo [2/2] 启动 Kafka 消费者 ...
-start "RAG-Kafka-Consumer" "%PYTHON%" -m rag_core.cli.kafka_consumer
+REM 3 个消费者实例并行消费(对应 topic 3 分区,Kafka 组自动分配)
+echo [2/4] 启动 Kafka 消费者 #1 ...
+start "RAG-Kafka-1" "%PYTHON%" -m rag_core.cli.kafka_consumer
+echo [3/4] 启动 Kafka 消费者 #2 ...
+start "RAG-Kafka-2" "%PYTHON%" -m rag_core.cli.kafka_consumer
+echo [4/4] 启动 Kafka 消费者 #3 ...
+start "RAG-Kafka-3" "%PYTHON%" -m rag_core.cli.kafka_consumer
 
 echo.
-echo 已启动。两个窗口独立运行,请勿关闭。
+echo 已启动。5 个窗口独立运行,请勿关闭。
 echo 停止方式:关闭对应窗口,或 taskkill /IM python.exe
 echo.
 pause
