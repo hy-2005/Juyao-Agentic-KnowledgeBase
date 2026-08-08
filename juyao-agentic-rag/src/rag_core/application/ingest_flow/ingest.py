@@ -96,14 +96,18 @@ def ingest_file(
     logger.info("【入库】开始处理文件：%s source_name=%s kb=%s", file_path, logical_name, kb_id)
     content = load_document(str(path))
     logger.info("【入库】原文读取完成：source=%s 字符数=%s", logical_name, len(content))
-    # 父子分块开关：开启时父块写 ES/图谱，子块写 Qdrant（检索精度）
+    # 父子分块开关：开启时父块写 ES/图谱，子块写 Qdrant（检索精度）。
+    # 父子分块是结构感知主通道（标题/表格/代码/段落，零 LLM 调用）；
+    # 开启时直接走父子分块，跳过普通切分——否则 split_into_chunks 会先触发
+    # LLM 语义切分（慢），结果又被父子分块覆盖，纯属浪费。
     parent_enabled = bool(get_settings().chunk_parent_enabled)
-    chunks = split_into_chunks(source_name=logical_name, content=content, kb_id=kb_id)
     child_chunks: list[Document] = []
     if parent_enabled:
         chunks, child_chunks = split_into_parent_child_chunks(
             source_name=logical_name, content=content, kb_id=kb_id
         )
+    else:
+        chunks = split_into_chunks(source_name=logical_name, content=content, kb_id=kb_id)
     for chunk in chunks + child_chunks:
         chunk.metadata[META_SHA_KEY] = doc_sha
     logger.info(
