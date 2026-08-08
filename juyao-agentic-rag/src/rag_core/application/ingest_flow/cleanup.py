@@ -96,6 +96,11 @@ def delete_document_from_indexes(
     """与入库时 split_into_chunks 的 source_name 一致（通常为逻辑文件名）。"""
     delete_from_qdrant_by_source_name(source_name, kb_id=kb_id)
     delete_from_elasticsearch_by_source_name(source_name, kb_id=kb_id)
+    from rag_core.infrastructure.mysql_chunks import delete_chunks_from_mysql_by_source
+
+    mysql_deleted = delete_chunks_from_mysql_by_source(source_name, kb_id=kb_id)
+    if mysql_deleted:
+        logger.info("MySQL 已按 source_name=%s kb=%s 删除 %s 条", source_name, kb_id, mysql_deleted)
     if include_graph:
         prefix = f"{kb_id}:{source_name.replace(' ', '_')}:" if kb_id is not None else source_name.replace(" ", "_") + ":"
         Neo4jTripleStore().purge_document_edges(
@@ -140,6 +145,11 @@ def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb
         )
     if include_graph:
         Neo4jTripleStore().purge_chunk_ids(chunk_ids, kb_id=kb_id)
+    from rag_core.infrastructure.mysql_chunks import delete_chunks_from_mysql_by_ids
+
+    mysql_deleted = delete_chunks_from_mysql_by_ids(chunk_ids)
+    if mysql_deleted:
+        logger.info("MySQL 已按 chunk_id 差集删除 %s 条", mysql_deleted)
 
 
 def purge_kb(kb_id: int) -> None:
@@ -214,3 +224,8 @@ def purge_kb(kb_id: int) -> None:
         )
         session.run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
     logger.info("【清空 kb】Neo4j 清理完成 kb=%s", kb_id)
+
+    from rag_core.infrastructure.mysql_chunks import purge_kb_from_mysql
+
+    mysql_deleted = purge_kb_from_mysql(kb_id)
+    logger.info("【清空 kb】MySQL 删除 %s 条", mysql_deleted)
