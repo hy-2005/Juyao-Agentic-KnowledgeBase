@@ -45,7 +45,8 @@ def rerank_documents_multi(queries: list[str], fused_docs: list[Document]) -> li
 
     if not valid_rankings:
         logger.warning("【rerank · 多 query】所有路 rerank 调用均失败，回退 RRF 顺序前 %s 条", top_n)
-        return fused_docs[:top_n]
+        # 降级路径同样做同源去重（P3：普通模式检索不因 rerank 失败就丢失去重）
+        return _diversify_by_source(fused_docs, top_n=top_n)
 
     # Step 2: 跨 query rerank RRF（复用召回层同款 fusion.fuse_query_rankings；rrf_k 与召回层一致）。
     fused_by_rerank_rrf = fuse_query_rankings(valid_rankings, rrf_k=settings.rrf_k)
