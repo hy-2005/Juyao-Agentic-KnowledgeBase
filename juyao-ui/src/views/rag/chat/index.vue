@@ -693,6 +693,16 @@ export default {
     word-break: break-all;
   }
 
+  .md-citations-body .md-citation-link {
+    color: #409eff;
+    text-decoration: underline;
+    cursor: pointer;
+    margin: 0 2px;
+  }
+  .md-citations-body .md-citation-link:hover {
+    color: #337ecc;
+  }
+
   blockquote.md-note {
     margin: 0.65em 0;
     padding: 0.55em 0.9em;
