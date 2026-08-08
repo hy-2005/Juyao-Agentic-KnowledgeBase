@@ -124,10 +124,14 @@ def ingest_file(
     vector_store.add_documents(documents=tqdm(all_chunks, desc="写入向量库"), ids=ids)
     logger.info("【入库】Qdrant 写入完成：%s 条（父 %s + 子 %s）", len(all_chunks), len(chunks), len(child_chunks))
 
-    # 步骤 2：全文（ES _id=chunk_id，幂等覆盖）
+    # 步骤 2：全文（ES _id=chunk_id，幂等覆盖）+ 切片持久化（MySQL，管理查询用）
     logger.info("【入库】开始同步 Elasticsearch")
     sync_chunks_to_elasticsearch(chunks)
     logger.info("【入库】Elasticsearch 同步完成：%s 条", len(chunks))
+    from rag_core.infrastructure.mysql_chunks import sync_chunks_to_mysql
+
+    mysql_count = sync_chunks_to_mysql(all_chunks)
+    logger.info("【入库】MySQL 切片持久化完成：%s 条（父 %s + 子 %s）", mysql_count, len(chunks), len(child_chunks))
 
     # 步骤 3：图谱（MERGE 幂等累加 chunk_ids）
     triple_count = 0
