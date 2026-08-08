@@ -15,6 +15,21 @@ from rag_core.infrastructure.qdrant import get_qdrant_client
 logger = logging.getLogger(__name__)
 
 
+def _rebuild_communities_after_delete(kb_id: int | None) -> None:
+    """删除后重建社区：实体被删后 Community/MEMBER_OF 会残留悬空引用、摘要过时。
+
+    与入库侧对称（入库后 build_communities），保证删除后社区与图谱一致；
+    失败仅告警不阻断删除（社区可后续手动重建）。
+    """
+    try:
+        from rag_core.application.graph.community_build import build_communities
+
+        community_count = build_communities(kb=kb_id, reset=True)
+        logger.info("【删除】社区重建完成：%s 个（kb=%s）", community_count, kb_id)
+    except Exception as exc:
+        logger.warning("【删除】社区重建失败（不阻断删除）：%s", exc)
+
+
 def delete_from_qdrant_by_source_name(source_name: str, kb_id: int | None = None) -> int:
     settings = get_settings()
     client = get_qdrant_client()
@@ -106,6 +121,8 @@ def delete_document_from_indexes(
         Neo4jTripleStore().purge_document_edges(
             name_prefix=prefix, source_display_name=source_name, kb_id=kb_id
         )
+        # 社区同步维护：实体删除后 Community/MEMBER_OF 悬空引用与摘要需重建
+        _rebuild_communities_after_delete(kb_id)
 
 
 def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb_id: int | None = None) -> None:
@@ -145,6 +162,8 @@ def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb
         )
     if include_graph:
         Neo4jTripleStore().purge_chunk_ids(chunk_ids, kb_id=kb_id)
+        # 社区同步维护（差集清理同样会删实体）
+        _rebuild_communities_after_delete(kb_id)
     from rag_core.infrastructure.mysql_chunks import delete_chunks_from_mysql_by_ids
 
     mysql_deleted = delete_chunks_from_mysql_by_ids(chunk_ids)
@@ -229,3 +248,6 @@ def purge_kb(kb_id: int) -> None:
 
     mysql_deleted = purge_kb_from_mysql(kb_id)
     logger.info("【清空 kb】MySQL 删除 %s 条", mysql_deleted)
+
+    # 社区同步维护：kb 清空后 Community/MEMBER_OF 一并重建（此时图谱为空 → 0 社区）
+    _rebuild_communities_after_delete(kb_id)
