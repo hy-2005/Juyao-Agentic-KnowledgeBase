@@ -123,29 +123,107 @@ class QuestionGraphSeedExtractor:
 
 
 def _graph_entity_candidates(question: str, kb: int | None, limit: int = 20) -> list[str]:
-    """按问句与实体名的字符重叠粗筛图谱实体，返回 top limit 个候选（名称解析用）。
+    """按问句与实体名的字符重叠 + embedding 相似度双路粗筛图谱实体，返回 top limit 个候选。
 
-    中文无分词：用问句的 2-3 字 n-gram 与实体名重叠度排序；无重叠时返回空
-    （候选太多反而干扰 LLM 抽取）。
+    双路策略（Step 4 C 阶段升级）：
+    1. **n-gram 重叠**：中文无分词，用问句的 2-3 字 n-gram 与实体名字符重叠度排序（廉价、快速）。
+    2. **embedding 余弦**：仅在 n-gram 候选不足 `limit` 时启用——补齐语义相近但字符无重叠的实体
+       （如问句「挖掘」→ 库内「盾构机」），避免冗余 embedding 调用。
+
+    两者结果按插入顺序去重（n-gram 优先），合并后截断到 `limit`。
+    无重叠且 embedding 失败时返回空列表（候选太多反而干扰 LLM 抽取）。
+
+    实体来源：按 `kb` 过滤边的 `kb_ids` 字段，跨 kb 不串库；
+    `kb=None` 时走全库 `MATCH (e:Entity)`——保留原行为以兼容现有调用。
     """
     from rag_core.infrastructure.neo4j import get_read_graph
 
+    q = (question or "").strip()
+    if not q or len(q) < 2:
+        return []
+
+    # 拉取候选实体名集合：按 kb 隔离（边上的 kb_ids），避免跨库串名
+    if kb is not None:
+        rows = get_read_graph().query(
+            """
+            MATCH (h:Entity)-[r:RELATED]->(t:Entity)
+            WHERE $kb IN coalesce(r.kb_ids, [])
+            RETURN DISTINCT h.name AS name
+            UNION
+            MATCH ()-[r:RELATED]->(t:Entity)
+            WHERE $kb IN coalesce(r.kb_ids, [])
+            RETURN DISTINCT t.name AS name
+            """,
+            params={"kb": int(kb)},
+        )
+    else:
+        rows = get_read_graph().query(
+            "MATCH (e:Entity) RETURN e.name AS name",
+        )
+    all_names = [str(r.get("name") or "").strip() for r in rows]
+    all_names = [n for n in all_names if n]
+    if not all_names:
+        return []
+
+    # 路径 1：n-gram 重叠（廉价路径，先用）
     q_grams = {
-        question[i : i + n]
+        q[i : i + n]
         for n in (2, 3)
-        for i in range(len(question) - n + 1)
-        if question[i : i + n].strip()
+        for i in range(len(q) - n + 1)
+        if q[i : i + n].strip()
     }
-    rows = get_read_graph().query(
-        "MATCH (e:Entity) RETURN e.name AS name",
-    )
-    scored: list[tuple[int, str]] = []
-    for row in rows:
-        name = str(row.get("name") or "").strip()
-        if not name:
-            continue
+    ngram_scored: list[tuple[int, str]] = []
+    for name in all_names:
         overlap = sum(1 for g in q_grams if g in name)
         if overlap > 0:
-            scored.append((overlap, name))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [name for _, name in scored[:limit]]
+            ngram_scored.append((overlap, name))
+    ngram_scored.sort(key=lambda x: x[0], reverse=True)
+    # 去重保持顺序（同名不同行不应重复计入）
+    seen: set[str] = set()
+    selected: list[str] = []
+    for _, name in ngram_scored:
+        if name in seen:
+            continue
+        seen.add(name)
+        selected.append(name)
+        if len(selected) >= limit:
+            return selected[:limit]
+
+    # 路径 2：embedding 余弦（仅 n-gram 不足时启用，补齐语义相近实体）；
+    # 采样上限 100 防 embedding 批过大；失败静默回退纯 n-gram 候选
+    if len(selected) < limit:
+        try:
+            from rag_core.infrastructure.llm.factory import get_embeddings
+
+            embed = get_embeddings()
+            q_vec = embed.embed_query(q)
+            sample = all_names[:100]
+            name_vecs = embed.embed_documents(sample)
+            import numpy as np
+
+            q_arr = np.asarray(q_vec, dtype=float)
+            q_norm = float(np.linalg.norm(q_arr))
+            if q_norm > 0:
+                scored_emb: list[tuple[float, str]] = []
+                for name, vec in zip(sample, name_vecs):
+                    if not vec or name in seen:
+                        continue
+                    n_arr = np.asarray(vec, dtype=float)
+                    n_norm = float(np.linalg.norm(n_arr))
+                    if n_norm <= 0:
+                        continue
+                    cos = float(np.dot(q_arr, n_arr) / (q_norm * n_norm))
+                    if cos > 0.5:  # embedding 阈值，过低认为语义无关
+                        scored_emb.append((cos, name))
+                scored_emb.sort(key=lambda x: x[0], reverse=True)
+                for _, name in scored_emb:
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    selected.append(name)
+                    if len(selected) >= limit:
+                        break
+        except Exception as exc:
+            logger.warning("embedding 候选粗筛失败（回退 n-gram）：%s", exc)
+
+    return selected[:limit]

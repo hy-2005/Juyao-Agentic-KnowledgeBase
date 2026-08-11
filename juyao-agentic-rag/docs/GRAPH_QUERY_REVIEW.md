@@ -1,6 +1,6 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：🔄 进行中（查询/入库/社区全链路已实施；实体消歧为设计限制待确认，重灌策略文档化） · 创建：2026-08-07 · 更新：2026-08-07
+> 状态：🔄 进行中（查询/入库/社区基础设施已完成；**派系 2 主路径改造实施中**——见 §6.5 路线图，**Steps 1-7 已完成，Step 8 评测待跑**） · 创建：2026-08-07 · 更新：2026-08-12
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
@@ -199,17 +199,133 @@ chunk（复用文本切分链路）
 
 ### 6.3 对项目的意义
 
-- 当前系统**只做了 GraphRAG 的前两步**（抽取 + 建图），且归一化缺失；社区检测（Leiden）、社区摘要、local/global 双检索均未实现
-- 现有问答属于 **local 检索**（问句实体 → 多跳），不依赖社区
-- 社区检测 + 社区摘要主要服务 **global 检索**（跨文档主题汇总），对强实体关系场景（小说/合同）价值大，但成本高（Leiden + 每社区一次 LLM 摘要）
-- **建议顺序：先实体归一化（解"混乱"）→ 再做社区（解"全局汇总"）**——社区检测在脏图上做出来也是脏社区
+- 基础设施已具备：实体归一化（§5.4 P0-1 ✅）、社区检测（Leiden，`domain/graph/community.py`）、社区摘要（LLM + Neo4j `Community` 节点）、入库/删除时重建
+- **现有问答只有 local 检索**（问句实体 → 多跳扩展）——社区摘要当前**仅作为弱兜底**（`observation.py:83 _community_summaries_for_question`，n-gram 粗筛）
+- 与标准 GraphRAG（微软 2024）的差距：缺 global 检索主路径；缺 local/global 并行融合
+- §6.4 原规划已部分实施；§6.5 给出派系 2 改造的完整路线图
 
-### 6.4 社区规划（如实施）
+### 6.4 基础设施实施状态（已 ✅）
 
-1. 社区检测：Neo4j GDS 库 Leiden 算法（或 python-louvain/leidenalg），在 Entity 图上跑
-2. 社区摘要：每社区一次 LLM 摘要（实体列表 + 边列表 → 主题摘要），存 Community 节点
-3. 检索接入：global 问题（问句无实体/主题型）→ 社区摘要检索；local 问题 → 现有实体路径
-4. 前提：先完成 §5.4 的实体归一化
+| 阶段 | 状态 | 说明 |
+|---|---|---|
+| 实体归一化（§5.4 P0-1） | ✅ | `normalize_entity_name` 双向引用（入库 + 查询） |
+| 跨 chunk 实体合并 | ✅ | `scripts/merge_entities.py` 工具，embedding 相似度 + 人工确认 |
+| 谓词闭集（§5.4 P1-1） | ✅ | 27 词候选集 + 「其他（具体动词）」兜底 |
+| 查询侧名称解析（§5.4 P1-2） | ✅ | `question_seed.extract` 喂图谱实体 top20（n-gram） |
+| 社区检测（Leiden） | ✅ | `domain/graph/community.py` |
+| 社区摘要 | ✅ | `application/graph/community_build.py` |
+| 入库时重建社区 | ✅ | `ingest.py:147 build_communities(reset=True)` |
+| 删除时重建社区 | ✅ | `cleanup.py:18 _rebuild_communities_after_delete` |
+| 社区 UI 展示 | ✅ | `admin_queries.py` 节点按社区着色 + 社区面板 |
+| 社区作为主路径检索 | ❌→🔄 | 见 §6.5 派系 2 改造路线图 |
+
+### 6.5 派系 2 主路径改造（实施中 · 2026-08-12）
+
+**背景决策**：团队与产品对齐后确认——社区检索应作为主路径而非兜底。详见方案文档 `eager-snacking-planet.md`。
+
+#### 6.5.1 设计目标
+
+| 维度 | 当前（兜底） | 目标（派系 2 主路径） |
+|---|---|---|
+| 社区检索位置 | 实体未命中时弱兜底 | **L1 主路径**（派系 2） |
+| 失败级联 | 单一兜底 | **L1 → L2 → L3 三级**（无 chunk_id 锚定） |
+| query 改写 | 仅 LLM 抽实体 | **A+B+C 链路**（改写 + 拆解 + 实体名映射） |
+| Prompt 与入库一致性 | 两套独立 prompt | **共享合同 `kg_entity_relation_contract.md`** |
+| 社区摘要存储 | 仅 Neo4j `Community` 节点 | **Neo4j + Qdrant 独立 `community_summaries` collection** |
+| 图谱与向量耦合 | `graph_supplement` 读 `state.merged_docs.keys()` 做 chunk_id 锚定 | **图谱完全独立检索路径** |
+
+#### 6.5.2 架构（3 级失败级联）
+
+```
+图谱主路径 run_graph_search(question, kb_id)
+  │
+  ├─ L1 · 派系 2 社区优先
+  │     community_search → top-K 社区
+  │     ├─ top-1 similarity ≥ 0.5 → 在 K 社区子图内做
+  │     │     A 问句改写 → B 问句拆解 → C 实体名映射
+  │     │     → 实体抽取（约束子图）→ 多跳（hops=4, max_edges=40, timeout=10s）
+  │     │     → 命中 → 返回 GraphSearchResult(level="L1")
+  │     │
+  │     └─ 不命中 / 子图 0 边 → 进入 L2
+  │
+  ├─ L2 · 全图降级
+  │     A+B+C（无子图约束）→ 实体抽取（全图）→ 多跳（hops=2, max_edges=20, timeout=5s）
+  │     → 命中 → 返回 GraphSearchResult(level="L2")
+  │     → 0 边 → 进入 L3
+  │
+  └─ L3 · 真没有（终态）
+        返回 GraphSearchResult(level="EMPTY", n_edges=0)
+        had_graph_edges=False → finalize 走「无 KB 依据」分支
+```
+
+#### 6.5.3 8 步实施路线
+
+| Step | 内容 | 状态 |
+|---|---|---|
+| 1 | **Prompt 同构**：新建共享合同 `kg_entity_relation_contract.md`，重构入库 + 查询 prompt 顶部引用 | 🔄 实施中 |
+| 2 | **社区摘要独立 collection**：新增 `community_summaries` Qdrant collection；`build_communities` 同步 embed + upsert；3 个清理入口同步 | 🔄 实施中 |
+| 3 | **community_search 函数**：embedding 检索 top-K，含 kb 过滤与相似度阈值 | ⏸ 依赖 Step 2 |
+| 4 | **A+B+C query 改写**：rewriter + decomposer + entity_mapper；升级 `_graph_entity_candidates` 为 n-gram + embedding 双路 | ✅ 已实施（2026-08-12）|
+| 5 | **run_graph_search 统一入口**：含 L1/L2/L3 级联 | ⏸ 依赖 Step 3+4 |
+| 6 | **`graph_only` / `graph_supplement` 切换**：两个 step 函数都改为调 `run_graph_search`（逻辑完全相同） | ⏸ 依赖 Step 5 |
+| 7 | **删除 chunk_id 锚定**：移除 `build_graph_observation_text`；`flow.py` 检查并删除 `merged_docs.keys()` 图谱路径引用 | ⏸ 依赖 Step 6 |
+| 8 | **测试 + 评测**：6 个新单元测试 + RAGAS 评测输出 `docs/eval/RESULTS_20260812_graphv2.md` | ⏸ 依赖 Step 7 |
+
+#### 6.5.4 关键约束（边界）
+
+- ❌ **不动意图路由**（`route.py` 三分支保持现状）
+- ❌ **不动向量链路**（`domain/retrieval/*`）
+- ❌ **不动 reranker / 充分性判断 / Neo4j schema**
+- ✅ **`state.merged_docs` 不再进入图谱路径**——向量结果是独立检索通道
+- ✅ **`graph_only` 和 `graph_supplement` 逻辑完全相同**——仅触发位置不同
+- ✅ **A+B+C 全做**——不做减法，3 步串行
+- ✅ **Prompt 与入库同构**——共享合同被两侧引用
+
+#### 6.5.5 配置项（新增 settings）
+
+```python
+# 社区摘要独立 collection
+community_summary_collection: str = "community_summaries"
+community_summary_embed_provider: str | None = None  # 默认跟随 embed_provider
+community_summary_embedding_model: str | None = None  # 默认跟随 embed_model
+community_summary_top_k: int = 2
+community_summary_min_similarity: float = 0.5
+
+# L1 子图多跳参数
+graph_search_l1_hops: int = 4
+graph_search_l1_max_edges: int = 40
+graph_search_l1_timeout_s: float = 10.0
+
+# L2 全图降级参数
+graph_search_l2_hops: int = 2
+graph_search_l2_max_edges: int = 20
+graph_search_l2_timeout_s: float = 5.0
+```
+
+阈值 `community_summary_min_similarity=0.5` 是起步值，需 Step 8 评测后校准。
+
+#### 6.5.6 待确认事项（沿用 §7）
+
+1. **图谱规模与密度**：当前库中实体/边数量、碎实体比例
+2. **评测基准**：用 RAGAS `RESULTS_20260807.md` / `RESULTS_20260808.md` 测试集做前后对比
+3. **图数据库资源**：Neo4j 版本/内存
+4. **社区检测范围**：派系 2 是否完全替代 L2 全图降级（取决于 Step 8 评测）
+5. **谓词候选集**：业务自定义词表与共享合同的兼容
+
+---
+
+### 6.6 派系 2 决策记录（2026-08-12 与产品对齐）
+
+| 决策 | 选择 | 理由 |
+|---|---|---|
+| 派系选择 | **派系 2（社区优先 + 子图多跳）** | 用户明确指出"工业 GraphRAG 一般先尝试匹配社区摘要"；社区是天然主题筛选器，避免多跳污染 |
+| query 改写 | **A+B+C 全做** | 单一改写不够：改写后问句更接近库内风格；拆解后实体召回更全；实体名映射解决 P1-2（问句 vs 库内命名不一致） |
+| Prompt 与入库一致性 | **共享合同 + 顶部引用** | 入库与查询是两套独立 LLM 调用，但实体规范化、谓词闭集、JSON schema、抽取哲学必须同构——否则 P0-2 类型问题持续累积 |
+| chunk_id 锚定 | **删除** | 错 chunk 污染图谱扩展（垃圾进垃圾出）；图谱应作为独立检索路径 |
+| 失败级联 | **L1 → L2 → L3** | 用户确认"全图降级仍找不到就是真没有"——不再兜底 |
+| 社区摘要存储 | **Neo4j + Qdrant 双写** | Neo4j 存 Community/MEMBER_OF 用于 UI 着色；Qdrant 存向量用于派系 2 embedding 检索 |
+| 同步时机 | **入库/删除时同步** | 保证图谱 + 社区 + 向量三方一致；删除时按 kb 清空摘要向量 |
+| 评估阈值 | **起步 0.5，评测校准** | 相似度阈值无标准答案，需实测 |
 
 ---
 

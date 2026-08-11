@@ -1,0 +1,1 @@
+() => { localStorage.setItem('Admin-Token', "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJhZG1pbiIsImxvZ2luX3VzZXJfa2V5IjoiMjY5MjBiNWItMjZjZi00MWVmLWE2MzktMzc1OTIwYjhmMzJiIn0.nwxkJbJT0ez_oh4VPGgQeScGZc-sumOnKYjG4Zndsw8jKBMii25dyL5_45TMrRfEN6p-TqhXJ_yVJEsbJgeaTA"); return 'token set'; }

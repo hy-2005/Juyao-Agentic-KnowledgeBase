@@ -24,7 +24,7 @@ juyao:
       listener-group-id: juyao-rag-ingest
       listener-concurrency: 3
       # topic 分区数见 scripts/kafka-init-rag-topic.ps1，建议与 concurrency 一致
-      # 与 FastAPI rag_ingest_internal_token 一致时可设环境变量 RAG_INGEST_INTERNAL_TOKEN；空表示不校验
+      # 与 FastAPI rag_ingest_internal_toke  n 一致时可设环境变量 RAG_INGEST_INTERNAL_TOKEN；空表示不校验
       internal-token: ${RAG_INGEST_INTERNAL_TOKEN:123456}
 
 # 开发环境配置

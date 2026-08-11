@@ -89,16 +89,19 @@ def ensure_community_schema(store: Neo4jTripleStore | None = None) -> None:
 
 
 def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
-    """全量构建：检测社区 → 逐社区摘要 → 存 Neo4j；返回社区数。
+    """全量构建：检测社区 → 逐社区摘要 → 存 Neo4j + 写 Qdrant 摘要向量；返回社区数。
 
     reset=True 时先清空 Community/MEMBER_OF 再重建（单进程内串行，
-    避免跨进程 DELETE 与 MERGE 的时序冲突）。
+    避免跨进程 DELETE 与 MERGE 的时序冲突）。同时按 kb 清空 Qdrant 摘要 collection。
+    摘要向量写入采用 best-effort（失败仅 warn，不阻断主流程）。
     """
     # 顺序关键（坑 8 补充）：必须先清理再建约束——CREATE CONSTRAINT IF NOT EXISTS
     # 会检查全库现有节点的唯一性，历史重复节点会导致约束创建失败
     store = Neo4jTripleStore()
     communities = detect_communities(kb=kb)
     built = 0
+    # 摘要收集：避免再次 LLM 调用，循环里同步装配 payload，写完 Neo4j 后批写 Qdrant
+    summaries_for_vector: list[dict] = []
     # 单一 session 串行 reset + ensure + 全部写入（坑 8 终极修复）：
     # 跨会话/跨连接的 DELETE 与 MERGE 存在因果不一致，必须同会话内完成
     with store._driver.session() as session:
@@ -112,8 +115,40 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
             community_id = f"kb{kb or 0}:community:{idx}"
             summary = _community_summary(entities)
             _store_community(store, community_id, summary, entities, kb=kb, session=session)
+            # 同步收集摘要 payload（写 Neo4j 成功后立刻装入，循环结束统一 upsert Qdrant）
+            summaries_for_vector.append(
+                {
+                    "community_id": community_id,
+                    "summary": summary,
+                    "entity_count": len(entities),
+                    "entities": list(entities),
+                }
+            )
             built += 1
             logger.info("【社区构建】%s 实体=%s 摘要=%s", community_id, len(entities), summary[:60])
+
+    # 写 Qdrant 摘要向量（best-effort，不阻断主流程）
+    # 顺序：先 ensure collection 存在 → reset 模式按 kb 清空旧摘要 → 批量 upsert 新摘要
+    # 无论成功失败都不影响 built 计数（Neo4j 是事实源，Qdrant 是检索副本）
+    try:
+        from rag_core.infrastructure.qdrant import (
+            delete_community_summaries,
+            ensure_community_collection_exists,
+            upsert_community_summaries,
+        )
+        ensure_community_collection_exists()
+        if reset and kb is not None:
+            # reset 模式按 kb 清空（避免删全库；多 kb 共享 collection 的关键）
+            delete_community_summaries(kb)
+        if summaries_for_vector:
+            upsert_community_summaries(summaries_for_vector, kb=kb)
+            logger.info(
+                "【社区构建】摘要向量写入完成：%s 条",
+                len(summaries_for_vector),
+            )
+    except Exception as exc:
+        logger.warning("【社区构建】摘要向量写入失败（不阻断）：%s", exc)
+
     return built
 
 

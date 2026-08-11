@@ -10,6 +10,9 @@ from rag_core.domain.graph.query.edge_queries import (
     query_edges_from_entity_seeds,
     resolve_entity_names,
 )
+# query_edges_for_chunks 仍保留在 imports 中——可能未来用于社区子图内精排（Step 8 后评估）
+# 但 build_graph_observation_text 已删除（chunk_id 锚定路径废弃，见 GRAPH_QUERY_REVIEW §6.5）
+
 from rag_core.domain.graph.query.edge_view import GraphEdgeView
 
 logger = logging.getLogger(__name__)
@@ -123,38 +126,16 @@ def build_graph_observation_question_driven(
     return text, len(edges), matched
 
 
-def build_graph_observation_text(
-    chunk_ids: list[str],
-    *,
-    round_idx: int,
-    settings: Settings | None = None,
-    kb: int | None = None,
-) -> tuple[str, int]:
-    cfg = settings or get_settings()
-    if not chunk_ids:
-        return (
-            f"Observation（第 {round_idx} 次图谱补充）：当前尚无检索 chunk 可作为锚点。",
-            0,
-        )
-    try:
-        edges = query_edges_for_chunks(chunk_ids, settings=cfg, kb=kb)
-    except Exception as exc:
-        logger.warning("Neo4j 图谱查询失败：%s", exc)
-        return (
-            f"Observation（第 {round_idx} 次图谱补充）：图谱查询暂时不可用（{exc.__class__.__name__}）。",
-            0,
-        )
-    if not edges:
-        return (
-            f"Observation（第 {round_idx} 次图谱补充）：未找到与当前检索 chunk 关联的实体关系。",
-            0,
-        )
-    body = format_edges_for_prompt(edges)
-    text = (
-        f"Observation（第 {round_idx} 次图谱补充，共 {len(edges)} 条关系，来自向量检索锚定）：\n"
-        f"{body}"
+def build_graph_observation_text(*args, **kwargs):
+    """已删除：chunk_id 锚定路径（派系 2 改造，GRAPH_QUERY_REVIEW §6.5）。
+
+    保留函数定义仅为兼容旧 import；调用会抛错。如需 chunk 锚定的"确定性信号"
+    保留场景，未来可重新引入（Step 8 评测后再决定是否恢复）。
+    """
+    raise NotImplementedError(
+        "build_graph_observation_text 已删除（派系 2 改造，GRAPH_QUERY_REVIEW §6.5）。"
+        "使用 domain.graph.query.graph_search.run_graph_search 替代。"
     )
-    return text, len(edges)
 
 
 def _char_ngrams(text: str, n: int) -> list[str]:

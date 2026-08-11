@@ -88,11 +88,16 @@ def main() -> None:
         output_json = out_dir / f"{stem}.json"
         output_html = out_dir / f"{stem}.html"
 
+    checkpoint_dir = None
+    if not args.no_report:
+        # 断点缓存与报告同目录(按数据集 stem 命名),断电/崩溃后重跑自动续传
+        checkpoint_dir = out_dir
     run_evaluation(
         dataset_path=dataset_path,
         metric_names=metric_names,
         output=output_json,
         html_output=output_html,
+        checkpoint_dir=checkpoint_dir,
     )
 
 

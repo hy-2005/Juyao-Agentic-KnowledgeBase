@@ -72,14 +72,20 @@ def get_embeddings() -> Embeddings:
 
 
 def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
-    # 问答 / HyDE / Query 改写等：阿里云百炼 OpenAI 兼容接口，与切分、图谱共用 gen_model。
+    # 问答 / HyDE / Query 改写等：与切分、图谱共用 gen_model（当前为 MiniMax）。
     settings = get_settings()
     timeout = kwargs.pop("timeout", None)
-    extra_body = {"enable_thinking": settings.dashscope_enable_thinking}
+    base_url = settings.dashscope_compatible_base_url.rstrip("/")
+    # MiniMax 只认 thinking.type 字段，不认百炼的 enable_thinking；发错字段思考不会禁用，
+    # 输出会带 <think> 前缀污染 answer（gen_qa_100 曾因此需要正则剥离）。
+    if "minimaxi.com" in base_url or "minimax.io" in base_url:
+        extra_body = {"thinking": {"type": "disabled"}}
+    else:
+        extra_body = {"enable_thinking": settings.dashscope_enable_thinking}
     return ChatOpenAI(
         model=settings.gen_model,
         api_key=resolve_llm_api_key(),
-        base_url=settings.dashscope_compatible_base_url.rstrip("/"),
+        base_url=base_url,
         timeout=timeout,
         http_client=build_openai_http_client(timeout=timeout),
         streaming=streaming,
