@@ -14,7 +14,11 @@ METRIC_CHOICES = (
 
 
 def build_ragas_clients() -> tuple[Any, Any]:
-    """RAGAS 评判 LLM + Embedding（测评专用 LLM，不改动主程序 get_chat_llm）。"""
+    """RAGAS 评判 LLM + Embedding。
+
+    评判 LLM 与 answer 生成统一用 MiniMax（get_eval_chat_llm），与运行时一致；
+    MiniMax 只支持 3 并发，RAGAS 侧 batch_size 必须 ≤3，否则 422 限流。
+    """
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
 

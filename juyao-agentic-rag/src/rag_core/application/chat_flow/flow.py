@@ -120,11 +120,12 @@ async def run_chat_flow(state: FlowState) -> AsyncIterator[tuple[str, dict]]:
         state.stop_reason = "route_direct_no_tools"
 
     elif state.route == RouteBranch.GRAPH_ONLY and settings.graph_query_enabled:
-        # B→C→H：问句实体多跳；0 边降级向量（修复 P1-2，原实现直接判无证据）
-        # 步骤为同步函数，to_thread 避免阻塞事件循环（Neo4j 查询耗时）
-        await asyncio.to_thread(run_graph_query_step, state, 1)
+        # B→C→H：派系 2 图谱主路径（内部 L1/L2/L3 级联）。
+        # L1/L2 都失败（had_graph_edges=False）时降级向量（P1-2 兜底保留），
+        # 兜底向量是流程级降级，与图谱内部 L3 终态放弃不冲突。
+        await run_graph_query_step(state, 1)
         if not state.had_graph_edges:
-            logger.info("【编排】graph_only 图谱 0 边，降级向量检索（P1-2 修复）")
+            logger.info("【编排】graph_only L1/L2/L3 全空，降级向量检索（P1-2 修复保留）")
             await asyncio.to_thread(run_retrieve_step, state, 1)
             state.stop_reason = "graph_only_fallback_vector"
         else:
@@ -136,11 +137,11 @@ async def run_chat_flow(state: FlowState) -> AsyncIterator[tuple[str, dict]]:
         state.stop_reason = "graph_disabled_fallback_vector"
 
     else:
-        # B→D→E→(F|G)→H：向量主路径
+        # B→D→E→(F|G)→H：向量主路径；图谱补强走派系 2（不读向量 chunk_ids）
         await asyncio.to_thread(run_retrieve_step, state, 1)
         run_sufficiency_step(state)
         if state.needs_graph and settings.graph_query_enabled:
-            await asyncio.to_thread(run_graph_supplement_step, state, 2)
+            await run_graph_supplement_step(state, 2)
             state.stop_reason = "vector_then_graph_supplement"
         else:
             state.stop_reason = "route_vector_only"

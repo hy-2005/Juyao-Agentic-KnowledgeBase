@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(default="http://localhost:6333")
     qdrant_api_key: str | None = Field(default=None)
     qdrant_collection: str = Field(default="juyao_knowledge_chunks")
+    # 社区摘要独立 collection（派系 2 Step 2）：与 chunks 物理隔离，独立 upsert/delete
+    community_summary_collection: str = Field(default="community_summaries")
+    # 摘要 embedding 可独立指定；None=跟随 embed_provider/embed_model（默认同源）
+    community_summary_embed_provider: str | None = Field(default=None)
+    community_summary_embedding_model: str | None = Field(default=None)
+    community_summary_top_k: int = Field(default=2)
+    community_summary_min_similarity: float = Field(default=0.5)
 
     # --- Elasticsearch ---
     elasticsearch_url: str = Field(default="http://localhost:9201")
@@ -124,6 +131,14 @@ class Settings(BaseSettings):
     graph_max_hops: int = Field(default=4)  # 多跳上限（P1-1 防爆炸；用户定稿 4 跳平衡多跳能力与遍历成本）
     graph_expand_internal_path_cap: int = Field(default=120)
     graph_question_extract_timeout_s: float = Field(default=30.0)
+    # 派系 2 检索分层参数（Step 2 先定义，Step 5 实际使用）：
+    # L1 实体级跳数；L2 社区级跳数（与 L1 形成两层 fallback）
+    graph_search_l1_hops: int = Field(default=4)
+    graph_search_l1_max_edges: int = Field(default=40)
+    graph_search_l1_timeout_s: float = Field(default=10.0)
+    graph_search_l2_hops: int = Field(default=2)
+    graph_search_l2_max_edges: int = Field(default=20)
+    graph_search_l2_timeout_s: float = Field(default=5.0)
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = Field(default="127.0.0.1:9092")
@@ -131,7 +146,7 @@ class Settings(BaseSettings):
     kafka_consumer_group: str = Field(default="juyao-rag-ingest")
     kafka_auto_offset_reset: str = Field(default="earliest")
     rag_ingest_internal_token: str = Field(default="")
-    ingest_graph_workers: int = Field(default=4)  # GraphRAG 按 chunk 并行抽取
+    ingest_graph_workers: int = Field(default=3)  # GraphRAG 按 chunk 并行抽取；MiniMax 只支持 3 并发，超过即 422 限流
     ingest_kafka_workers: int = Field(default=3)  # Python Kafka 消费者并行度
 
     @classmethod

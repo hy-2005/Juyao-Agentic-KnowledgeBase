@@ -1,0 +1,100 @@
+{"question": "感冒通常由什么原因引起？", "ground_truth": "感冒通常由病毒感染引起。", "source": "sample_medical.txt"}
+{"question": "感冒的常见症状包括哪些？", "ground_truth": "常见症状包括发热、咳嗽、咽痛、乏力。", "source": "sample_medical.txt"}
+{"question": "感冒患者在什么情况下应及时就医？", "ground_truth": "若持续高热或呼吸困难，应及时就医。", "source": "sample_medical.txt"}
+{"question": "若协商不成,合同争议应向哪个法院提起诉讼?", "ground_truth": "协商不成的,任何一方可向乙方所在地人民法院提起诉讼。", "source": "合同.txt"}
+{"question": "合同变更需要遵循什么程序?变更后的协议具有怎样的法律效力?", "ground_truth": "合同的任何变更均应以书面形式作出,并经双方签字盖章确认。变更协议与本合同具有同等法律效力。", "source": "合同.txt"}
+{"question": "本合同自何时生效?一式几份,各方执几份?", "ground_truth": "本合同自双方签字盖章之日起生效。本合同一式四份,甲乙双方各执两份,具有同等法律效力。", "source": "合同.txt"}
+{"question": "长城的定义和修筑目的是什么？", "ground_truth": "长城是在中国大陆华北一带历朝修筑的大规模军用隔离墙的统称，旨在抵御来自欧亚草原的游牧民族入侵。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "长城的结构特点以及除了军事防御外的功能是什么？", "ground_truth": "长城并非单一结构，而是分成多节矗立于险要之处，并设有多个关口，实际上亦是帝国边境经济贸易的重要一环。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "万里长城名称的由来及其总长度是多少？", "ground_truth": "长城东西段与前后关卡加总起来可绵延上万华里（约4500-6000公里），因此又称作万里长城。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "林远舟将团队分成了几个小组?每个小组的负责人分别是谁?", "ground_truth": "分成三个小组。方明远带一组,苏晚晴带二组,情报科赵刚(带三组)。", "source": "雾起.txt"}
+{"question": "方明远负责的小组,其调查任务是什么?", "ground_truth": "负责外围调查周锦荣的资金流向。", "source": "雾起.txt"}
+{"question": "苏晚晴带领的二组从哪些方面入手进行调查?", "ground_truth": "从码头工人和报关行入手。", "source": "雾起.txt"}
+{"question": "文档中描述的失踪伐木工人的最终命运是什么？", "ground_truth": "以前失踪的所有伐木工人，没有死。他们化作了森林的一部分，化作了风声、树影、夜语。而熊大熊二，就是聚合体。它们体内住着无数死去的人。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "雨夜过后，光头强出现了哪些具体的变化？", "ground_truth": "他不再吵闹，不再抱怨，不再想着赚钱离开。他变得异常安静、温顺、听话。每天按时起床、按时伐木、按时吃饭。甚至会主动和熊大熊二玩耍。光头强的自我，正在一点点流失。他的情绪越来越淡，喜怒哀乐越来越少。他开始重复同样的动作，每天一模一样。光头强开始失忆。他忘记老家，忘记亲人，忘记自己为什么来这里。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "熊大是如何偷偷反抗森林规则的？", "ground_truth": "熊大开始偷偷反抗。他故意破坏森林的规则。本该每晚去监视猎物的熊二，被熊大强行锁在树洞。本该让光头强逐渐沉沦的迷雾，被熊大刻意驱散。本该慢慢同化的剧情，被熊大一次次打断。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "感冒通常是由什么原因引起的?", "ground_truth": "感冒通常由病毒感染引起。", "source": "sample_medical.txt"}
+{"question": "感冒的常见症状有哪些?", "ground_truth": "常见症状包括发热、咳嗽、咽痛、乏力。", "source": "sample_medical.txt"}
+{"question": "感冒的治疗原则是什么?什么情况下应及时就医?", "ground_truth": "治疗以休息、补液、对症处理为主。若持续高热或呼吸困难，应及时就医。", "source": "sample_medical.txt"}
+{"question": "少数民族占总人口的比例是多少?", "ground_truth": "8.89%少数民族", "source": "维基百科-中华人民共和国.docx"}
+{"question": "在片段中明确列出的少数民族中,占比最高的是哪个民族?其比例是多少?", "ground_truth": "1.39%壮族", "source": "维基百科-中华人民共和国.docx"}
+{"question": "除片段中具体列出的民族外,其他少数民族的合计占比是多少?", "ground_truth": "其他（1.99%）", "source": "维基百科-中华人民共和国.docx"}
+{"question": "「萬里長城」這個名稱是從什麼時候開始的？人們提到它時通常會聯想到誰？", "ground_truth": "萬里長城之名，自秦始皇才開始，因此，人們提到萬里長城的時候，往往把它同秦始皇的名字聯繫起來。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "根據司馬遷《史記·蒙恬列傳》的記載，蒙恬築長城的具體經過和規模是怎樣的？", "ground_truth": "秦已并天下，乃使蒙恬將三十萬眾，北逐戎狄，收河南。築長城。因地形，用制險塞，起臨洮，至遼東，延袤萬餘里。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "《中华人民共和国国务院公报》本期(Issue No.8, Serial No.1907)的发布日期和发布机构是什么?", "ground_truth": "GAZETTE OF THE STATE COUNCIL OF THE PEOPLE'S REPUBLIC OF CHINA, General Office of the State Council, March 20, 2026, Issue No.8 (Serial No.1907)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "《关于加强社区消防工作的意见》是由哪个机构发布的?该文件刊登在第几页?", "ground_truth": "Opinions of the General Office of the State Council on Strengthening Fire Fighting at the Community Level. (4)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "《水利工程建设监督规定》是哪个部门发布的第几号令?刊登在第几页?", "ground_truth": "Decree of the Ministry of Water Resources of the People's Republic of China (No. 59) Provisions on Supervision of Construction of Water Conservancy Projects.. (8)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "这个表格统计了哪些与进出口相关的数据指标？", "ground_truth": "国家和地区、出口额（亿元）、比上年增长（%）、占全部出口比重（%）、进口额（亿元）、比上年增长（%）、占全部进口比重（%）", "source": "统计公报-带表格.docx"}
+{"question": "在这个表格中，\"比上年增长（%）\"这一指标分别对应哪些数据列？", "ground_truth": "出口额（亿元）和进口额（亿元）", "source": "统计公报-带表格.docx"}
+{"question": "表格中\"占全部出口比重（%）\"和\"占全部进口比重（%）\"分别与哪些数据相对应？", "ground_truth": "占全部出口比重（%）对应出口额（亿元），占全部进口比重（%）对应进口额（亿元）", "source": "统计公报-带表格.docx"}
+{"question": "合同争议无法通过协商解决时，应向哪个人民法院提起诉讼？", "ground_truth": "协商不成的，任何一方可向乙方所在地人民法院提起诉讼。", "source": "合同.txt"}
+{"question": "合同变更需要满足什么形式要件才能生效？", "ground_truth": "合同的任何变更均应以书面形式作出，并经双方签字盖章确认。变更协议与本合同具有同等法律效力。", "source": "合同.txt"}
+{"question": "本合同自何时起生效？合同一式几份，如何分配？", "ground_truth": "本合同自双方签字盖章之日起生效。本合同一式四份，甲乙双方各执两份，具有同等法律效力。", "source": "合同.txt"}
+{"question": "在「中華人民共和國」國名中,「中華」、「人民」、「共和國」三個詞分別代表什麼含義?", "ground_truth": "在「中華人民共和國」國名中:「中華」代表中華民族,「人民」包涵工人、農民、小資產階級和民族資產階級,「共和國」代表國體[40]。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "新政治協商會議籌備會最初擬定的國名是什麼?其簡稱是什麼?", "ground_truth": "新政治協商會議籌備會最初曾擬定國名為「中華人民民主共和國」,簡稱「中華民國」。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "「中華人民共和國」國名最終是在什麼時候、通過什麼確定的?", "ground_truth": "1949年9月27日中國人民政治協商會議第一屆全體會議通過《中華人民共和國中央人民政府組織法》後,國名最終定為「中華人民共和國」[41][42]。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "隋朝修筑长城的6次命令中,长城长度的90%位于哪个现行政区境内?", "ground_truth": "从 581 年起,隋文帝、隋炀帝在今陕北和宁夏 6 次下令修筑长城以防卫突厥,长度的 90% 处于现宁夏境内。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "607年隋朝修筑长城时,10天内死亡的人数约为多少?", "ground_truth": "前后动用了 128 万人,607 年在筑长城的过程中 10 天内就死了近 60 万人。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "611年农民起义爆发后,隋朝的北方边界和河套地区分别由谁占据或控制?", "ground_truth": "611 年,农民起义爆发,隋朝以夏和灵州(今陕北和宁夏)一线为北方边界,而河套(今属内蒙)则被突厥占据。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "感冒通常由什么引起？", "ground_truth": "感冒通常由病毒感染引起。", "source": "sample_medical.txt"}
+{"question": "感冒在什么情况下应及时就医？", "ground_truth": "若持续高热或呼吸困难，应及时就医。", "source": "sample_medical.txt"}
+{"question": "中华人民共和国国务院公报2026年第8期(总第1907号)的发布日期及发布机构是什么?", "ground_truth": "GAZETTE OF THE STATE COUNCIL OF THE PEOPLE'S REPUBLIC OF CHINA General Office of the State Council March 20, 2026 Issue No.8 (Serial No.1907)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "《关于加强社区消防工作的意见》的发布机构是什么,该意见位于本期公报第几页?", "ground_truth": "Opinions of the General Office of the State Council on Strengthening Fire Fighting at the Community Level (4)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "本期公报收录的中国证券监督管理委员会第231号令涉及的具体内容是什么,起始页码是多少?", "ground_truth": "Decree of the China Securities Regulatory Commission (No. 231) Implementation Measures for Supervision and Management Actions for Securities and Futures Markets (18)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "中华人民共和国中央人民政府正式成立的具体日期是什么?", "ground_truth": "1949年10月1日，中华人民共和国中央人民政府正式成立。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "解放军何时占领海南岛?占领后海南岛的行政区划发生了怎样的变化?", "ground_truth": "1950年5月，解放军占领海南岛，海南岛并入广东省。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "1950年土地改革中大约有多少地主被批斗?土地改革取得了怎样的效果?", "ground_truth": "透過批鬥約100萬至200萬名地主并向农民分发耕地的土地改革，中華人民共和國政府得以鞏固，並獲得底層民眾的歡迎。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "《中华人民共和国国务院公报》第8期(总第1907期)的出版日期和发行机构是什么?", "ground_truth": "General 0ffice of the State Council March 20, 2026 Issue No.8 (Serial No.1907)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "关于水利工程建设监督管理的规定是由哪个部门以第几号令颁布的?", "ground_truth": "Decree of the Ministry of Water Resources of the People's Republic of China (No. 59) Provisions on Supervision of Construction of Water Conservancy Projects.", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "《国务院办公厅关于加强社区消防工作的意见》刊登在该公报的第几页?", "ground_truth": "Opinions of the General Office of the State Council on Strengthening Fire Fighting at the Community Level. (4)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "蓝西装男人转过身来时，在灯光照亮下的面孔有什么特征？", "ground_truth": "灯光照亮了他的脸——是一张棱角分明的面孔，左眉上方，有一颗并不显眼的痣。", "source": "雾起.txt"}
+{"question": "蓝西装男人说了什么表明自己态度的话？", "ground_truth": "放心，我从来不干那种没有技术含量的事。", "source": "雾起.txt"}
+{"question": "蓝西装男人的痣长在脸上的哪个位置？", "ground_truth": "左眉上方，有一颗并不显眼的痣。", "source": "雾起.txt"}
+{"question": "合同争议无法通过协商解决时，应向哪个法院提起诉讼？", "ground_truth": "协商不成的，任何一方可向乙方所在地人民法院提起诉讼。", "source": "合同.txt"}
+{"question": "合同的变更需要满足什么条件？变更协议的法律效力如何？", "ground_truth": "合同的任何变更均应以书面形式作出，并经双方签字盖章确认。变更协议与本合同具有同等法律效力。", "source": "合同.txt"}
+{"question": "本合同自何时起生效？合同共有几份？", "ground_truth": "本合同自双方签字盖章之日起生效。本合同一式四份，甲乙双方各执两份，具有同等法律效力。", "source": "合同.txt"}
+{"question": "赵刚对那个荒废场所进行了什么调查行为?", "ground_truth": "赵刚去看过几次,虽然外表看起来荒废,但有人最近在里面活动。", "source": "雾起.txt"}
+{"question": "赵刚在码头上发现了哪些表明有人在活动的痕迹?", "ground_truth": "码头上有新的缆绳磨损痕迹,仓库里还发现了一些包装材料。", "source": "雾起.txt"}
+{"question": "根据现场观察,赵刚做出了什么推测?", "ground_truth": "赵刚怀疑他们已经在做准备了。", "source": "雾起.txt"}
+{"question": "感冒通常是由什么引起的？", "ground_truth": "感冒通常由病毒感染引起。", "source": "sample_medical.txt"}
+{"question": "外长城位于中国的哪两个省份?", "ground_truth": "位于山西、河北的外长城", "source": "维基百科-长城-文本型.pdf"}
+{"question": "外长城与内蒙古的省界有什么关系?", "ground_truth": "位于山西、河北的外长城,基本上和内蒙古的省界吻合", "source": "维基百科-长城-文本型.pdf"}
+{"question": "外长城通常被认定为什么时期北疆的国界?", "ground_truth": "通常被认为是中晚明北疆的国界", "source": "维基百科-长城-文本型.pdf"}
+{"question": "这份《中华人民共和国国务院公报》的发布机构、发布日期及期号是什么?", "ground_truth": "GAZETTE OF THE STATE COUNCIL OF THE PEOPLE'S REPUBLIC OF CHINA; General Office of the State Council; March 20, 2026; Issue No.8 (Serial No.1907)", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "国务院办公厅发布的关于基层消防工作的意见文件名称是什么?", "ground_truth": "Opinions of the General Office of the State Council on Strengthening Fire Fighting at the Community Level", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "水利部第59号令的完整名称是什么?由哪个部门发布?", "ground_truth": "Decree of the Ministry of Water Resources of the People's Republic of China (No. 59) — Provisions on Supervision of Construction of Water Conservancy Projects", "source": "国务院公报-消防意见(节选6页).pdf"}
+{"question": "狗熊岭的森林有什么特殊本质？它能做什么？", "ground_truth": "这座森林，活着。它会记仇，会饥饿，会模仿，会吞噬，会把闯入者、居住者、所有活物，一点点同化、消化、变成它的一部分。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "熊大和熊二真正的身份是什么？他们和狗熊岭是什么关系？", "ground_truth": "他们不是普通野熊。他们是这片林地诞生的「容器」。是森林用来观察、模仿、学习、捕猎人类的活体人偶。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "光头强入住木屋的第一个月，经历了哪些异常现象？", "ground_truth": "第一天伐木，他砍倒第一棵松树。树倒的瞬间，树干断裂处渗出暗红色液体，像血，黏腻、温热，带着淡淡的肉腥。半夜醒来，听见窗外有人轻轻说话……细细的、断断续续的，贴着木屋墙壁绕圈……断裂的树干笔直挺立，伤口愈合无痕，仿佛从未被砍过……地上，留下一圈浅浅的人形压痕。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "协商不成的,应向哪个人民法院提起诉讼?", "ground_truth": "协商不成的,任何一方可向乙方所在地人民法院提起诉讼。", "source": "合同.txt"}
+{"question": "合同的变更需要满足什么形式要求才能生效?", "ground_truth": "合同的任何变更均应以书面形式作出,并经双方签字盖章确认。", "source": "合同.txt"}
+{"question": "本合同自何时起生效?一式几份?如何分配?", "ground_truth": "本合同自双方签字盖章之日起生效。本合同一式四份,甲乙双方各执两份,具有同等法律效力。", "source": "合同.txt"}
+{"question": "在该表格中,针对每一个国家或地区,出口方面统计了哪三项指标?", "ground_truth": "出口额（亿元）\t比上年增长（%）\t占全部出口比重（%）", "source": "统计公报-带表格.docx"}
+{"question": "该表格中,出口额和进口额所使用的计量单位是什么?", "ground_truth": "出口额（亿元）、进口额（亿元）", "source": "统计公报-带表格.docx"}
+{"question": "该表格的进口栏目下,除了进口额外,还统计了哪两项指标?", "ground_truth": "比上年增长（%）\t占全部进口比重（%）", "source": "统计公报-带表格.docx"}
+{"question": "长城的修筑持续了多长时间？跨越了哪些历史时期？", "ground_truth": "⻓城的修筑从春秋到明后期，持续了两千多年。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "历代修建的长城在构造、建筑方法及形制方面互有不同的原因是什么？", "ground_truth": "由于各个时代的⽣产⼒、技术⽔平不同，也由于各个政权所⾯临的军事形势不同，历代修建的⻓城在构造、建筑⽅法及形制⽅⾯都互有不同。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "为什么同一时代所修的长城面貌也会有不同？", "ground_truth": "由于各处地理条件的差异，即使同⼀时代所修的⻓城⾯貌也有不同。", "source": "维基百科-长城-文本型.pdf"}
+{"question": "该表格中关于出口数据列示了哪几项指标？", "ground_truth": "出口额（亿元）、比上年增长（%）、占全部出口比重（%）", "source": "统计公报-带表格.docx"}
+{"question": "该表格中关于进口数据列示了哪几项指标？", "ground_truth": "进口额（亿元）、比上年增长（%）、占全部进口比重（%）", "source": "统计公报-带表格.docx"}
+{"question": "该表格中出口额和进口额采用的计量单位是什么？", "ground_truth": "亿元", "source": "统计公报-带表格.docx"}
+{"question": "中华人民共和国2014年的森林覆蓋率是多少?与全球平均水平相比如何?", "ground_truth": "森林覆蓋率僅21.63%(2014),低於全球31%的平均水準[168]。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "中华人民共和国的森林面积是多少,世界排名第几?何时在哪些地区停止商业性采伐?", "ground_truth": "中华人民共和国森林面積2.08億公頃,為世界第五名[167],并在2015年4月位于东北和内蒙古地区的重点国有林区已经停止商业性采伐。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "中华人民共和国有多少种维管束植物?其中种子植物和被子植物各有多少?", "ground_truth": "中华人民共和国有超過32,000種維管束植物[註 18][169],當中種子植物300個科、2,980個屬和24,600個種,而被子植物則有2,946個屬(占世界的23.6%)。", "source": "维基百科-中华人民共和国.docx"}
+{"question": "感冒通常是由什么引起的?", "ground_truth": "感冒通常由病毒感染引起。", "source": "sample_medical.txt"}
+{"question": "感冒的常见症状包括哪些?", "ground_truth": "常见症状包括发热、咳嗽、咽痛、乏力。", "source": "sample_medical.txt"}
+{"question": "感冒患者在什么情况下应及时就医?", "ground_truth": "若持续高热或呼吸困难，应及时就医。", "source": "sample_medical.txt"}
+{"question": "熊二为什么流不出眼泪？", "ground_truth": "因为他眼眶慢慢红了，可他流不出眼泪。因为现在的他，大半部分已经不属于生灵。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "森林是通过什么方式控制熊大熊二的行为的？", "ground_truth": "森林的拟态剧本，锁死了他们的行为逻辑。他们必须永远扮演「善良护林熊」。哪怕明知是献祭，也要温柔目送。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "文中所说的「森林最恐怖的地方」指的是什么？", "ground_truth": "恶意，披着善意的外衣。毁灭，以陪伴的方式到来。", "source": "胸大熊二猎奇小故事.txt"}
+{"question": "审讯周锦荣持续了多长时间？", "ground_truth": "审讯持续了四个小时。", "source": "雾起.txt"}
+{"question": "周锦荣在什么条件下才开始配合回答问题？", "ground_truth": "直到律师到场，周锦荣才配合回答了问题，但说出来的话全都滴水不漏。", "source": "雾起.txt"}
+{"question": "周锦荣对涉事交易是如何表态的？", "ground_truth": "他坚称自己只是去新加坡出差，不知道老船厂那边有什么交易，严国栋的个人行为与他无关。", "source": "雾起.txt"}
+{"question": "萧关的地理位置在哪里？", "ground_truth": "萧关位于宁夏回族自治区固原市境内", "source": "维基百科-长城-文本型.pdf"}
+{"question": "\"关中四关\"包括哪些关口？", "ground_truth": "与武关、大散关、函谷关并称为关中四关", "source": "维基百科-长城-文本型.pdf"}
+{"question": "萧关处于哪些山脉的交界地带？", "ground_truth": "处于六盘山、米仓山、陇山交界地带", "source": "维基百科-长城-文本型.pdf"}
+{"question": "协商不成时,争议应向哪个人民法院提起诉讼?", "ground_truth": "协商不成的,任何一方可向乙方所在地人民法院提起诉讼。", "source": "合同.txt"}
+{"question": "合同的变更需要满足哪些形式要求,变更后具有何种法律效力?", "ground_truth": "合同的任何变更均应以书面形式作出,并经双方签字盖章确认。变更协议与本合同具有同等法律效力。", "source": "合同.txt"}
+{"question": "本合同适用哪国(地区)的法律?", "ground_truth": "本合同适用中华人民共和国法律。", "source": "合同.txt"}
+{"question": "该统计表格中,各国和地区对应的出口数据包含哪些统计指标?", "ground_truth": "出口额(亿元)、比上年增长(%)、占全部出口比重(%)", "source": "统计公报-带表格.docx"}
+{"question": "该表格中进口额的计量单位是什么?", "ground_truth": "进口额(亿元)", "source": "统计公报-带表格.docx"}

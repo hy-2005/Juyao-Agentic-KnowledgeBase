@@ -1,6 +1,7 @@
 # 向量存储封装：Ollama Embedding + Qdrant，供入库与检索共用同一套配置。
 
 import logging
+from uuid import NAMESPACE_URL, uuid5
 
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
@@ -141,3 +142,141 @@ def get_chunk_by_id_from_qdrant(chunk_id: str) -> dict | None:
     if not points:
         return None
     return _qdrant_point_to_row(points[0])
+
+
+# ---------------------------------------------------------------------------
+# 社区摘要独立 collection（派系 2 Step 2）：与 chunks 物理隔离，独立 upsert/delete
+# ---------------------------------------------------------------------------
+
+
+def _get_community_summary_embeddings():
+    """社区摘要 embedding：默认跟随 settings.embed_provider/embed_model，可独立覆盖。
+
+    派系 2 设计：摘要和 chunk 用同一套 embedding 便于后续 step 3 复用检索栈；
+    若后续评估发现摘要用更大模型更合适，可通过 settings.community_summary_embed_provider
+    /community_summary_embedding_model 单独指定（需在 factory 扩展 provider）。
+    """
+    settings = get_settings()
+    if settings.community_summary_embed_provider or settings.community_summary_embedding_model:
+        # 独立 provider/model 暂未在 factory 暴露，落到这里时回退到默认 embedding，
+        # 避免误用主 embedding 模型导致维度不一致（参考 chunk/embedding 维度对齐）
+        logger.info(
+            "社区摘要 embedding 独立配置尚未实现，按主 embedding 走：provider=%s",
+            settings.embed_provider,
+        )
+    return get_embeddings()
+
+
+def ensure_community_collection_exists() -> None:
+    """确保社区摘要 collection 存在；维度用探针取，避免手写与 embedding 模型不一致。
+
+    复用 get_embeddings() 的同源模型，保证 collection 维度与实际写入向量严格匹配。
+    """
+    settings = get_settings()
+    client = get_qdrant_client()
+    try:
+        client.get_collection(collection_name=settings.community_summary_collection)
+        return
+    except UnexpectedResponse as exc:
+        if "doesn't exist" not in str(exc) and "Not found" not in str(exc):
+            raise
+
+    # 探针文本取 embedding 维度（与 chunk collection 走同一套 embedding 模型）
+    dim = len(_get_community_summary_embeddings().embed_query("dimension probe"))
+    client.create_collection(
+        collection_name=settings.community_summary_collection,
+        vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+    )
+    logger.info(
+        "Qdrant 社区摘要 collection 已创建：%s dim=%s",
+        settings.community_summary_collection,
+        dim,
+    )
+
+
+def upsert_community_summaries(communities: list[dict], *, kb: int | None) -> int:
+    """把社区摘要批量写入 Qdrant 独立 collection；返回写入条数。
+
+    输入项 fields：
+      - community_id: str（必填，Neo4j Community.id 同源，如 "kb0:community:1"）
+      - summary: str（必填，LLM 摘要文本）
+      - entity_count: int（社区实体数）
+      - entities: list[str]（实体名列表，写入 payload 便于检索结果直接展示）
+
+    payload 顶层字段：community_id / summary / entity_count / entities / kb_id
+    （保持扁平结构避免嵌套路径，Qdrant filter 走顶层 key 即可）。
+    """
+    settings = get_settings()
+    if not communities:
+        return 0
+
+    client = get_qdrant_client()
+    texts = [str(c.get("summary") or "") for c in communities]
+    # embedding 调用一次批处理，避免逐条调用 N 次 LLM/Embedding 调用
+    vectors = _get_community_summary_embeddings().embed_documents(texts)
+
+    points = []
+    for community, vector in zip(communities, vectors):
+        community_id = str(community["community_id"])
+        # 用 community_id 派生 UUID，保证 upsert 幂等（同一社区重建会覆盖而非重复）
+        point_id = uuid5(NAMESPACE_URL, f"community_summary:{community_id}")
+        points.append(
+            models.PointStruct(
+                id=str(point_id),
+                vector=vector,
+                payload={
+                    "community_id": community_id,
+                    "summary": community.get("summary", ""),
+                    "entity_count": int(community.get("entity_count") or 0),
+                    "entities": list(community.get("entities") or []),
+                    "kb_id": int(kb) if kb is not None else None,
+                },
+            )
+        )
+
+    client.upsert(
+        collection_name=settings.community_summary_collection,
+        points=points,
+    )
+    logger.info(
+        "Qdrant 社区摘要写入：%s 条 → %s",
+        len(points),
+        settings.community_summary_collection,
+    )
+    return len(points)
+
+
+def delete_community_summaries(kb: int | None) -> int:
+    """按 kb_id 删社区摘要 collection 中的点；返回删除条数（0 也正常返回）。
+
+    kb_id 顶层 payload 字段（见 upsert_community_summaries）；None 时不限 kb，
+    但通常只在 reset=True + 已知 kb 的场景下调用，避免误删。
+    """
+    settings = get_settings()
+    client = get_qdrant_client()
+    must: list = []
+    if kb is not None:
+        must.append(
+            models.FieldCondition(
+                key="kb_id",
+                match=models.MatchValue(value=int(kb)),
+            )
+        )
+    flt = models.Filter(must=must) if must else None
+    try:
+        result = client.delete(
+            collection_name=settings.community_summary_collection,
+            points_selector=models.FilterSelector(filter=flt) if flt else models.FilterSelector(),
+        )
+    except UnexpectedResponse as exc:
+        # collection 还没建好时直接视为 0
+        if "doesn't exist" in str(exc) or "Not found" in str(exc):
+            return 0
+        raise
+    deleted = getattr(result, "result", None) or {}
+    # collection_status / points_count 之类的字段；统一只取数字
+    count = int(deleted.get("points_count", 0)) if isinstance(deleted, dict) else 0
+    logger.info(
+        "Qdrant 社区摘要删除：kb=%s count=%s", kb, count,
+    )
+    return count

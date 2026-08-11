@@ -109,7 +109,7 @@ def main() -> None:
         print("无候选片段", file=sys.stderr)
         return
 
-    workers = args.total  # 全并发:每条候选块一个线程,一口气拆完
+    workers = 3  # MiniMax 只支持 3 并发,超过即 422 限流;每条候选块一个线程,线程数固定 3
     print(f"并发 workers={workers}", file=sys.stderr)
 
     # 预构建候选块任务列表(轮转文档保证覆盖)

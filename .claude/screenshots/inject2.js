@@ -1,0 +1,1 @@
+() => { localStorage.setItem('Admin-Token', "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJhZG1pbiIsImxvZ2luX3VzZXJfa2V5IjoiNTkxYTYyMjMtYWJhYy00ZmM0LTllNWEtYzU2MmIzMGM0NDY0In0.b1mjcvNWAso0TrVBMz--b-C7ALqfiI0qy8LjagjggKawMk0PwFyZ8YSlvQFVj6HDQCyMBjZSj3nuzO6JwhRm1g"); location.href = '/rag/chunks'; return 'ok'; }
