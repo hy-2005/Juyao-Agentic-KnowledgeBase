@@ -13,87 +13,19 @@ from rag_core.core.config import get_settings
 from rag_core.domain.graph.schema import KG_JSON_SCHEMA_VERSION, Triple, normalize_entity_name
 
 
-_UPSERT_RELATED = """
-MERGE (h:Entity {name: $head_name})
-ON CREATE SET h.created_at = timestamp()
-SET h.updated_at = timestamp()
+def entity_label(kb_id: int) -> str:
+    """kb 图谱的实体标签（标签隔离：每 kb 一套独立节点，替代 kb_ids 元数据过滤）。
 
-MERGE (t:Entity {name: $tail_name})
-ON CREATE SET t.created_at = timestamp()
-SET t.updated_at = timestamp()
+    标签方案下 MATCH (e:EntityKb{id}) 由标签索引直接定位该 kb 节点集合，
+    社区重建等只遍历本 kb 内部数据；而 kb_ids 数组属性走不了索引，全库边
+    线性扫描（详见 GRAPH_QUERY_REVIEW §标签隔离）。kb_id 是 int，拼接无注入风险。
+    """
+    return f"EntityKb{int(kb_id)}"
 
-MERGE (h)-[r:RELATED {relation: $relation}]->(t)
-ON CREATE SET
-  r.created_at = timestamp(),
-  r.chunk_ids = [$chunk_id],
-  r.doc_ids = [$source_doc_id],
-  r.source_names = [$source_name],
-  r.kb_ids = [$kb_id],
-  r.extract_schema_versions = [$schema_ver],
-  r.triplet_ids = [$triplet_id],
-  r.time_hints = CASE WHEN $time_text <> '' THEN [$time_text] ELSE [] END,
-  r.location_hints = CASE WHEN $location_text <> '' THEN [$location_text] ELSE [] END,
-  r.evidence_snippets = CASE WHEN $evidence <> '' THEN [$evidence] ELSE [] END,
-  r.head_kind_hints = CASE WHEN $head_type <> '' THEN [$head_type] ELSE [] END,
-  r.tail_kind_hints = CASE WHEN $tail_type <> '' THEN [$tail_type] ELSE [] END,
-  r.head_sense_hints = CASE WHEN $head_sense <> '' THEN [$head_sense] ELSE [] END,
-  r.tail_sense_hints = CASE WHEN $tail_sense <> '' THEN [$tail_sense] ELSE [] END,
-  r.relation_category_hints = CASE WHEN $relation_category <> '' THEN [$relation_category] ELSE [] END,
-  r.relation_full_hints = CASE WHEN $relation_full <> '' THEN [$relation_full] ELSE [] END,
-  r.modality_hints = CASE WHEN $modality <> '' THEN [$modality] ELSE [] END
-ON MATCH SET
-  r.updated_at = timestamp(),
-  r.chunk_ids = CASE WHEN $chunk_id IN coalesce(r.chunk_ids, []) THEN r.chunk_ids ELSE coalesce(r.chunk_ids, []) + $chunk_id END,
-  r.doc_ids = CASE WHEN $source_doc_id IN coalesce(r.doc_ids, []) THEN r.doc_ids ELSE coalesce(r.doc_ids, []) + $source_doc_id END,
-  r.source_names = CASE WHEN $source_name IN coalesce(r.source_names, []) THEN r.source_names ELSE coalesce(r.source_names, []) + $source_name END,
-  r.kb_ids = CASE WHEN $kb_id IN coalesce(r.kb_ids, []) THEN r.kb_ids ELSE coalesce(r.kb_ids, []) + $kb_id END,
-  r.extract_schema_versions = CASE
-    WHEN $schema_ver IN coalesce(r.extract_schema_versions, []) THEN r.extract_schema_versions
-    ELSE coalesce(r.extract_schema_versions, []) + $schema_ver END,
-  r.triplet_ids = CASE
-    WHEN $triplet_id IN coalesce(r.triplet_ids, []) THEN r.triplet_ids
-    ELSE coalesce(r.triplet_ids, []) + $triplet_id END,
-  r.time_hints = CASE
-    WHEN $time_text <> '' AND NOT $time_text IN coalesce(r.time_hints, [])
-    THEN coalesce(r.time_hints, []) + $time_text
-    ELSE coalesce(r.time_hints, []) END,
-  r.location_hints = CASE
-    WHEN $location_text <> '' AND NOT $location_text IN coalesce(r.location_hints, [])
-    THEN coalesce(r.location_hints, []) + $location_text
-    ELSE coalesce(r.location_hints, []) END,
-  r.evidence_snippets = CASE
-    WHEN $evidence <> '' AND NOT $evidence IN coalesce(r.evidence_snippets, [])
-    THEN coalesce(r.evidence_snippets, []) + $evidence
-    ELSE coalesce(r.evidence_snippets, []) END,
-  r.head_kind_hints = CASE
-    WHEN $head_type <> '' AND NOT $head_type IN coalesce(r.head_kind_hints, [])
-    THEN coalesce(r.head_kind_hints, []) + $head_type
-    ELSE coalesce(r.head_kind_hints, []) END,
-  r.tail_kind_hints = CASE
-    WHEN $tail_type <> '' AND NOT $tail_type IN coalesce(r.tail_kind_hints, [])
-    THEN coalesce(r.tail_kind_hints, []) + $tail_type
-    ELSE coalesce(r.tail_kind_hints, []) END,
-  r.head_sense_hints = CASE
-    WHEN $head_sense <> '' AND NOT $head_sense IN coalesce(r.head_sense_hints, [])
-    THEN coalesce(r.head_sense_hints, []) + $head_sense
-    ELSE coalesce(r.head_sense_hints, []) END,
-  r.tail_sense_hints = CASE
-    WHEN $tail_sense <> '' AND NOT $tail_sense IN coalesce(r.tail_sense_hints, [])
-    THEN coalesce(r.tail_sense_hints, []) + $tail_sense
-    ELSE coalesce(r.tail_sense_hints, []) END,
-  r.relation_category_hints = CASE
-    WHEN $relation_category <> '' AND NOT $relation_category IN coalesce(r.relation_category_hints, [])
-    THEN coalesce(r.relation_category_hints, []) + $relation_category
-    ELSE coalesce(r.relation_category_hints, []) END,
-  r.relation_full_hints = CASE
-    WHEN $relation_full <> '' AND NOT $relation_full IN coalesce(r.relation_full_hints, [])
-    THEN coalesce(r.relation_full_hints, []) + $relation_full
-    ELSE coalesce(r.relation_full_hints, []) END,
-  r.modality_hints = CASE
-    WHEN $modality <> '' AND NOT $modality IN coalesce(r.modality_hints, [])
-    THEN coalesce(r.modality_hints, []) + $modality
-    ELSE coalesce(r.modality_hints, []) END
-"""
+
+def community_label(kb_id: int) -> str:
+    """kb 图谱的社区标签（与实体标签配套；社区/成员关系仅存在于本 kb 标签内）。"""
+    return f"CommunityKb{int(kb_id)}"
 
 
 
@@ -111,23 +43,29 @@ def clear_read_graph_cache() -> None:
     get_read_graph.cache_clear()
 
 
-_UPSERT_RELATED_BATCH = """
+def _upsert_related_batch_query(kb_id: int) -> str:
+    """UNWIND 批量写图模板（标签隔离版：实体按 EntityKb{id} 隔离，不再维护 kb_ids 数组）。
+
+    kb_id 是 int，f-string 拼接标签无注入风险；Cypher 属性花括号在 f-string 里双写转义。
+    注意：f-string 里出现真正的变量花括号要小心，此模板只有标签占位是变量。
+    """
+    label = entity_label(kb_id)
+    return f"""
 UNWIND $triples AS t
-MERGE (h:Entity {name: t.head_name})
+MERGE (h:{label} {{name: t.head_name}})
 ON CREATE SET h.created_at = timestamp()
 SET h.updated_at = timestamp()
 
-MERGE (tgt:Entity {name: t.tail_name})
+MERGE (tgt:{label} {{name: t.tail_name}})
 ON CREATE SET tgt.created_at = timestamp()
 SET tgt.updated_at = timestamp()
 
-MERGE (h)-[r:RELATED {relation: t.relation}]->(tgt)
+MERGE (h)-[r:RELATED {{relation: t.relation}}]->(tgt)
 ON CREATE SET
   r.created_at = timestamp(),
   r.chunk_ids = [t.chunk_id],
   r.doc_ids = [t.source_doc_id],
   r.source_names = [t.source_name],
-  r.kb_ids = [t.kb_id],
   r.extract_schema_versions = [t.schema_ver],
   r.triplet_ids = [t.triplet_id],
   r.time_hints = CASE WHEN t.time_text <> '' THEN [t.time_text] ELSE [] END,
@@ -145,7 +83,6 @@ ON MATCH SET
   r.chunk_ids = CASE WHEN t.chunk_id IN coalesce(r.chunk_ids, []) THEN r.chunk_ids ELSE coalesce(r.chunk_ids, []) + t.chunk_id END,
   r.doc_ids = CASE WHEN t.source_doc_id IN coalesce(r.doc_ids, []) THEN r.doc_ids ELSE coalesce(r.doc_ids, []) + t.source_doc_id END,
   r.source_names = CASE WHEN t.source_name IN coalesce(r.source_names, []) THEN r.source_names ELSE coalesce(r.source_names, []) + t.source_name END,
-  r.kb_ids = CASE WHEN t.kb_id IN coalesce(r.kb_ids, []) THEN r.kb_ids ELSE coalesce(r.kb_ids, []) + t.kb_id END,
   r.extract_schema_versions = CASE
     WHEN t.schema_ver IN coalesce(r.extract_schema_versions, []) THEN r.extract_schema_versions
     ELSE coalesce(r.extract_schema_versions, []) + t.schema_ver END,
@@ -219,12 +156,19 @@ class Neo4jTripleStore:
         else:
             self._driver.execute_query(query, params or {})
 
-    def ensure_schema(self) -> None:
+    def ensure_schema(self, kb_id: int = 0) -> None:
+        """按 kb 建实体唯一约束/索引（标签隔离：约束名与标签都带 kb 后缀，互不干扰）。
+
+        约束自带索引——MATCH (e:EntityKb{id}) 走标签索引定位，社区重建等
+        查询只遍历本 kb 数据，不随全库大小线性增长（kb_ids 数组过滤做不到）。
+        """
+        label = entity_label(kb_id)
         self._run(
-            "CREATE CONSTRAINT entity_name_unique IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE"
+            f"CREATE CONSTRAINT entity_name_unique_{int(kb_id)} IF NOT EXISTS "
+            f"FOR (e:{label}) REQUIRE e.name IS UNIQUE"
         )
         self._run(
-            "CREATE INDEX entity_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.type)"
+            f"CREATE INDEX entity_type_idx_{int(kb_id)} IF NOT EXISTS FOR (e:{label}) ON (e.type)"
         )
 
     def upsert_triples(
@@ -250,7 +194,6 @@ class Neo4jTripleStore:
                     "chunk_id": chunk_id,
                     "source_doc_id": source_doc_id,
                     "source_name": source_name,
-                    "kb_id": kb_id,
                     "time_text": triple.time_text or "",
                     "location_text": triple.location_text or "",
                     "evidence": (triple.evidence or "")[:600],
@@ -265,7 +208,7 @@ class Neo4jTripleStore:
                     "schema_ver": KG_JSON_SCHEMA_VERSION,
                 }
             )
-        self._run(_UPSERT_RELATED_BATCH, {"triples": rows})
+        self._run(_upsert_related_batch_query(kb_id), {"triples": rows})
         return len(rows)
 
     def purge_document_edges(
@@ -273,40 +216,31 @@ class Neo4jTripleStore:
     ) -> None:
         """按 source_doc_id / chunk_id 前缀（与 contracts 中 safe_name: 一致）清理 RELATED 边，并删除孤立 Entity。
 
-        kb_id 非 None 时仅清理属于该 kb 的边（边按 kb_ids 隔离；Entity 节点全局共享）。
+        标签隔离版：直接按 EntityKb{id} 标签圈定本 kb 图，不再需要 kb_ids 数组过滤；
+        kb_id 缺省按 0（单库默认）处理。
         """
-        if kb_id is not None:
-            self._run(
-                """
-                MATCH ()-[r:RELATED]->()
-                WHERE $kb IN coalesce(r.kb_ids, [])
-                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $np],
-                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $np],
-                    r.source_names = [s IN coalesce(r.source_names, []) WHERE s <> $sn]
-                """,
-                {"np": name_prefix, "sn": source_display_name, "kb": int(kb_id)},
-            )
-        else:
-            self._run(
-                """
-                MATCH ()-[r:RELATED]->()
-                WHERE ANY(d IN coalesce(r.doc_ids, []) WHERE d STARTS WITH $np)
-                   OR ANY(c IN coalesce(r.chunk_ids, []) WHERE c STARTS WITH $np)
-                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $np],
-                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $np],
-                    r.source_names = [s IN coalesce(r.source_names, []) WHERE s <> $sn]
-                """,
-                {"np": name_prefix, "sn": source_display_name},
-            )
+        kb = int(kb_id or 0)
+        label = entity_label(kb)
         self._run(
-            """
-            MATCH ()-[r:RELATED]->()
+            f"""
+            MATCH (h:{label})-[r:RELATED]->(t:{label})
+            WHERE ANY(d IN coalesce(r.doc_ids, []) WHERE d STARTS WITH $np)
+               OR ANY(c IN coalesce(r.chunk_ids, []) WHERE c STARTS WITH $np)
+            SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $np],
+                r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $np],
+                r.source_names = [s IN coalesce(r.source_names, []) WHERE s <> $sn]
+            """,
+            {"np": name_prefix, "sn": source_display_name},
+        )
+        self._run(
+            f"""
+            MATCH (h:{label})-[r:RELATED]->(t:{label})
             WHERE size(coalesce(r.chunk_ids, [])) = 0 AND size(coalesce(r.doc_ids, [])) = 0
             DELETE r
             """
         )
         # DETACH:实体可能还挂着 MEMBER_OF(社区成员)边,普通 DELETE 会因"仍有关系"报错
-        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
+        self._run(f"MATCH (e:{label}) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
 
     def purge_chunk_ids(self, chunk_ids: list[str], kb_id: int | None = None) -> None:
         """按具体 chunk_id 列表移除边引用（先写后删差集清理用）。
@@ -318,39 +252,28 @@ class Neo4jTripleStore:
         - 只清 `r.chunk_ids` 中的指定 chunk_id 引用；**不动 r.doc_ids**（doc_ids 里存的是
           source_doc_id = `kb_id:safe_name:digest`，与 chunk_id 不是同一字符串，用 chunk_ids
           当过滤条件去打 doc_ids 是错误语义，见 PITFALLS.md #15）
-        - 跨 kb 共享的边：r.kb_ids = [kb_a, kb_b] 同时被两个 kb 引用时，本函数只清
-          r.chunk_ids，不影响 doc_ids 也不影响 kb_ids；删后 r.kb_ids 仍包含其他 kb，
-          size() != 0 不会触发边删除，kb_ids 数组保留（kb 隔离语义）
         - r.chunk_ids 清空后才考虑删边（size() = 0 时 r.doc_ids 必然也空，因为入库时
           chunk_ids 和 doc_ids 是同步累加的，差集清理场景下不会出现 chunk_ids 空而
           doc_ids 非空）
         """
         if not chunk_ids:
             return
-        if kb_id is not None:
-            self._run(
-                """
-                MATCH ()-[r:RELATED]->()
-                WHERE $kb IN coalesce(r.kb_ids, [])
-                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids]
-                """,
-                {"chunk_ids": chunk_ids, "kb": int(kb_id)},
-            )
-        else:
-            self._run(
-                """
-                MATCH ()-[r:RELATED]->()
-                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids]
-                """,
-                {"chunk_ids": chunk_ids},
-            )
+        kb = int(kb_id or 0)
+        label = entity_label(kb)
         self._run(
-            """
-            MATCH ()-[r:RELATED]->()
+            f"""
+            MATCH (h:{label})-[r:RELATED]->(t:{label})
+            SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids]
+            """,
+            {"chunk_ids": chunk_ids},
+        )
+        self._run(
+            f"""
+            MATCH (h:{label})-[r:RELATED]->(t:{label})
             WHERE size(coalesce(r.chunk_ids, [])) = 0 AND size(coalesce(r.doc_ids, [])) = 0
             DELETE r
             """
         )
         # DETACH:实体可能还挂着 MEMBER_OF(社区成员)边,普通 DELETE 会因"仍有关系"报错
-        self._run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
+        self._run(f"MATCH (e:{label}) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
 

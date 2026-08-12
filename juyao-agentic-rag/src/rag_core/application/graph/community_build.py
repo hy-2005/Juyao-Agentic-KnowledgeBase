@@ -49,27 +49,29 @@ def _store_community(
 ) -> None:
     """写 Community 节点 + 实体 MEMBER_OF 边（幂等：community_id 唯一约束保证 MERGE 合并）。
 
+    标签隔离版：Community 用 CommunityKb{id} 标签，成员实体用 EntityKb{id} 标签
+    ——社区与成员天然限定在本 kb 图谱内，不再维护 kb_ids 数组。
     session 传入时在外部 session 内执行（同一会话串行，保证因果一致性——
     DELETE 后新会话 MERGE 会读到旧快照报 already exists，坑 8 根因）。
     """
+    from rag_core.infrastructure.neo4j import community_label, entity_label
+
+    clabel = community_label(kb or 0)
+    elabel = entity_label(kb or 0)
     store._run(
-        """
-        MERGE (c:Community {id: $cid})
+        f"""
+        MERGE (c:{clabel} {{id: $cid}})
         ON CREATE SET c.created_at = timestamp()
-        SET c.summary = $summary,
-            c.updated_at = timestamp(),
-            c.kb_ids = CASE WHEN $kb IS NULL THEN coalesce(c.kb_ids, [])
-                            WHEN $kb IN coalesce(c.kb_ids, []) THEN c.kb_ids
-                            ELSE coalesce(c.kb_ids, []) + $kb END
+        SET c.summary = $summary, c.updated_at = timestamp()
         """,
-        {"cid": community_id, "summary": summary, "kb": kb},
+        {"cid": community_id, "summary": summary},
         session=session,
     )
     store._run(
-        """
+        f"""
         UNWIND $entities AS ename
-        MATCH (e:Entity {name: ename})
-        MATCH (c:Community {id: $cid})
+        MATCH (e:{elabel} {{name: ename}})
+        MATCH (c:{clabel} {{id: $cid}})
         MERGE (e)-[:MEMBER_OF]->(c)
         """,
         {"entities": entities, "cid": community_id},
@@ -77,14 +79,19 @@ def _store_community(
     )
 
 
-def ensure_community_schema(store: Neo4jTripleStore | None = None) -> None:
+def ensure_community_schema(store: Neo4jTripleStore | None = None, kb: int | None = None) -> None:
     """Community.id 唯一约束（防止 MERGE 重复建节点——历史 bug）。
 
-    store 必须与 reset 共用同一连接——CREATE CONSTRAINT 会检查全库唯一性，
+    标签隔离版：约束按 CommunityKb{id} 建（约束名带 kb 后缀，每 kb 独立）。
+    store 必须与 reset 共用同一连接——CREATE CONSTRAINT 会检查该标签节点唯一性，
     跨连接看不到刚 DELETE 的节点会导致约束创建失败（坑 8 同根）。
     """
+    from rag_core.infrastructure.neo4j import community_label
+
+    clabel = community_label(kb or 0)
     (store or Neo4jTripleStore())._run(
-        "CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (c:Community) REQUIRE c.id IS UNIQUE"
+        f"CREATE CONSTRAINT community_id_unique_{int(kb or 0)} IF NOT EXISTS "
+        f"FOR (c:{clabel}) REQUIRE c.id IS UNIQUE"
     )
 
 
@@ -102,15 +109,17 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
     built = 0
     # 摘要收集：避免再次 LLM 调用，循环里同步装配 payload，写完 Neo4j 后批写 Qdrant
     summaries_for_vector: list[dict] = []
+    from rag_core.infrastructure.neo4j import community_label
+
+    clabel = community_label(kb or 0)
     # 单一 session 串行 reset + ensure + 全部写入（坑 8 终极修复）：
     # 跨会话/跨连接的 DELETE 与 MERGE 存在因果不一致，必须同会话内完成
     with store._driver.session() as session:
         if reset:
-            session.run("MATCH ()-[m:MEMBER_OF]->() DELETE m")
-            session.run("MATCH (c:Community) DELETE c")
-        session.run(
-            "CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (c:Community) REQUIRE c.id IS UNIQUE"
-        )
+            # 标签隔离版：只删本 kb 的社区与成员边（CommunityKb{id} 标签内）
+            session.run(f"MATCH ()-[m:MEMBER_OF]->(c:{clabel}) DELETE m")
+            session.run(f"MATCH (c:{clabel}) DELETE c")
+        ensure_community_schema(store, kb=kb)
         for idx, entities in enumerate(communities, start=1):
             community_id = f"kb{kb or 0}:community:{idx}"
             summary = _community_summary(entities)
@@ -154,25 +163,19 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
 
 def list_community_summaries(kb: int | None = None) -> list[dict]:
     """global 检索数据源：返回 (社区 id, 摘要, 实体数)。"""
-    # 实体数用 COUNT 子查询（Neo4j 5.x 不支持 size() 模式表达式）
-    if kb is not None:
-        rows = get_read_graph().query(
-            """
-            MATCH (c:Community)
-            WHERE $kb IN coalesce(c.kb_ids, [])
-            RETURN c.id AS cid, c.summary AS summary,
-                   COUNT { (:Entity)-[:MEMBER_OF]->(c) } AS entity_count
-            """,
-            params={"kb": int(kb)},
-        )
-    else:
-        rows = get_read_graph().query(
-            """
-            MATCH (c:Community)
-            RETURN c.id AS cid, c.summary AS summary,
-                   COUNT { (:Entity)-[:MEMBER_OF]->(c) } AS entity_count
-            """
-        )
+    from rag_core.infrastructure.neo4j import community_label, entity_label
+
+    clabel = community_label(kb or 0)
+    elabel = entity_label(kb or 0)
+    # 实体数用 COUNT 子查询（Neo4j 5.x 不支持 size() 模式表达式）；
+    # 标签隔离版：直接按 CommunityKb{id} 标签查，无需 WHERE kb_ids 过滤
+    rows = get_read_graph().query(
+        f"""
+        MATCH (c:{clabel})
+        RETURN c.id AS cid, c.summary AS summary,
+               COUNT {{ (:{elabel})-[:MEMBER_OF]->(c) }} AS entity_count
+        """
+    )
     return [
         {"community_id": str(r.get("cid") or ""), "summary": str(r.get("summary") or ""),
          "entity_count": int(r.get("entity_count") or 0)}

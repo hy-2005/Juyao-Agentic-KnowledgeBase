@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,6 +21,7 @@ import com.juyao.rag.RagAdminClient;
 
 /**
  * RAG 知识图谱管理：转发至 Python FastAPI /api/v1/admin/graph。
+ * 全部接口支持 kbId 参数（多知识库图谱隔离：EntityKb{id} 标签 + MySQL 快照表）。
  */
 @RestController
 @RequestMapping("/rag/graph")
@@ -30,11 +30,15 @@ public class RagGraphController extends BaseController{
     private RagAdminClient ragAdminClient;
 
     @GetMapping("/stats")
-    public AjaxResult stats(@RequestParam(value = "topN", defaultValue = "10") Integer topN){
+    public AjaxResult stats(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam(value = "topN", defaultValue = "10") Integer topN){
         try{
             Map<String, Object> data = ragAdminClient.getJson(
                     "/api/v1/admin/graph/stats",
-                    RagAdminClient.params("topN", String.valueOf(topN)));
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "topN", String.valueOf(topN)));
             return success(data);
         } catch (Exception e){
             return error("查询图谱统计失败: " + e.getMessage());
@@ -43,6 +47,7 @@ public class RagGraphController extends BaseController{
 
     @GetMapping("/edges")
     public TableDataInfo edges(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
             @RequestParam(value = "sourceName", required = false) String sourceName,
             @RequestParam(value = "entity", required = false) String entity,
             @RequestParam(value = "relation", required = false) String relation,
@@ -52,6 +57,7 @@ public class RagGraphController extends BaseController{
             return ragAdminClient.getTable(
                     "/api/v1/admin/graph/edges",
                     RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
                             "sourceName", sourceName,
                             "entity", entity,
                             "relation", relation,
@@ -67,6 +73,7 @@ public class RagGraphController extends BaseController{
 
     @GetMapping("/entities")
     public TableDataInfo entities(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
             @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize){
@@ -74,6 +81,7 @@ public class RagGraphController extends BaseController{
             return ragAdminClient.getTable(
                     "/api/v1/admin/graph/entities",
                     RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
                             "keyword", keyword,
                             "pageNum", String.valueOf(pageNum),
                             "pageSize", String.valueOf(pageSize)));
@@ -87,6 +95,7 @@ public class RagGraphController extends BaseController{
 
     @GetMapping("/subgraph")
     public AjaxResult subgraph(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
             @RequestParam("seed") String seed,
             @RequestParam(value = "hops", defaultValue = "1") Integer hops,
             @RequestParam(value = "limit", defaultValue = "0") Integer limit){
@@ -94,6 +103,7 @@ public class RagGraphController extends BaseController{
             Map<String, Object> data = ragAdminClient.getJson(
                     "/api/v1/admin/graph/subgraph",
                     RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
                             "seed", seed,
                             "hops", String.valueOf(hops),
                             "limit", String.valueOf(limit)));
@@ -104,11 +114,15 @@ public class RagGraphController extends BaseController{
     }
 
     @GetMapping("/full")
-    public AjaxResult fullGraph(@RequestParam(value = "limit", defaultValue = "0") Integer limit){
+    public AjaxResult fullGraph(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam(value = "limit", defaultValue = "0") Integer limit){
         try{
             Map<String, Object> data = ragAdminClient.getJson(
                     "/api/v1/admin/graph/full",
-                    RagAdminClient.params("limit", String.valueOf(limit)));
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "limit", String.valueOf(limit)));
             return success(data);
         } catch (Exception e){
             return error("查询全图失败: " + e.getMessage());
@@ -117,12 +131,15 @@ public class RagGraphController extends BaseController{
 
     @GetMapping("/communities")
     public AjaxResult communities(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
             @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
             @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize){
         try{
             Map<String, Object> data = ragAdminClient.getJson(
                     "/api/v1/admin/graph/communities",
-                    RagAdminClient.params("pageNum", String.valueOf(pageNum),
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "pageNum", String.valueOf(pageNum),
                             "pageSize", String.valueOf(pageSize)));
             return success(data);
         } catch (Exception e){
@@ -131,11 +148,15 @@ public class RagGraphController extends BaseController{
     }
 
     @GetMapping("/edges/all")
-    public TableDataInfo allEdges(@RequestParam(value = "limit", defaultValue = "0") Integer limit){
+    public TableDataInfo allEdges(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam(value = "limit", defaultValue = "0") Integer limit){
         try{
             return ragAdminClient.getTable(
                     "/api/v1/admin/graph/edges/all",
-                    RagAdminClient.params("limit", String.valueOf(limit)));
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "limit", String.valueOf(limit)));
         } catch (Exception e){
             TableDataInfo empty = new TableDataInfo();
             empty.setCode(500);
@@ -146,9 +167,12 @@ public class RagGraphController extends BaseController{
 
     @Log(title = "知识图谱", businessType = BusinessType.INSERT)
     @PostMapping("/entities")
-    public AjaxResult createEntity(@RequestBody Map<String, String> body){
+    public AjaxResult createEntity(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestBody Map<String, String> body){
         try{
-            Map<String, Object> data = ragAdminClient.postJson("/api/v1/admin/graph/entities", body);
+            Map<String, Object> data = ragAdminClient.postJson(
+                    "/api/v1/admin/graph/entities?kbId=" + kbId, body);
             return success(data);
         } catch (Exception e){
             return error("新增实体失败: " + e.getMessage());
@@ -157,9 +181,12 @@ public class RagGraphController extends BaseController{
 
     @Log(title = "知识图谱", businessType = BusinessType.UPDATE)
     @PutMapping("/entities")
-    public AjaxResult renameEntity(@RequestBody Map<String, String> body){
+    public AjaxResult renameEntity(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestBody Map<String, String> body){
         try{
-            Map<String, Object> data = ragAdminClient.putJson("/api/v1/admin/graph/entities", body);
+            Map<String, Object> data = ragAdminClient.putJson(
+                    "/api/v1/admin/graph/entities?kbId=" + kbId, body);
             return success(data);
         } catch (Exception e){
             return error("修改实体失败: " + e.getMessage());
@@ -168,11 +195,15 @@ public class RagGraphController extends BaseController{
 
     @Log(title = "知识图谱", businessType = BusinessType.DELETE)
     @DeleteMapping("/entities")
-    public AjaxResult deleteEntity(@RequestParam("name") String name){
+    public AjaxResult deleteEntity(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam("name") String name){
         try{
             Map<String, Object> data = ragAdminClient.deleteJson(
                     "/api/v1/admin/graph/entities",
-                    RagAdminClient.params("name", name));
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "name", name));
             return success(data);
         } catch (Exception e){
             return error("删除实体失败: " + e.getMessage());
@@ -181,9 +212,12 @@ public class RagGraphController extends BaseController{
 
     @Log(title = "知识图谱", businessType = BusinessType.INSERT)
     @PostMapping("/edges")
-    public AjaxResult createEdge(@RequestBody Map<String, String> body){
+    public AjaxResult createEdge(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestBody Map<String, String> body){
         try{
-            Map<String, Object> data = ragAdminClient.postJson("/api/v1/admin/graph/edges", body);
+            Map<String, Object> data = ragAdminClient.postJson(
+                    "/api/v1/admin/graph/edges?kbId=" + kbId, body);
             return success(data);
         } catch (Exception e){
             return error("新增关系失败: " + e.getMessage());
@@ -192,9 +226,12 @@ public class RagGraphController extends BaseController{
 
     @Log(title = "知识图谱", businessType = BusinessType.UPDATE)
     @PutMapping("/edges")
-    public AjaxResult updateEdge(@RequestBody Map<String, Object> body){
+    public AjaxResult updateEdge(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestBody Map<String, Object> body){
         try{
-            Map<String, Object> data = ragAdminClient.putJson("/api/v1/admin/graph/edges", body);
+            Map<String, Object> data = ragAdminClient.putJson(
+                    "/api/v1/admin/graph/edges?kbId=" + kbId, body);
             return success(data);
         } catch (Exception e){
             return error("修改关系失败: " + e.getMessage());
@@ -204,6 +241,7 @@ public class RagGraphController extends BaseController{
     @Log(title = "知识图谱", businessType = BusinessType.DELETE)
     @DeleteMapping("/edges")
     public AjaxResult deleteEdge(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
             @RequestParam("headName") String headName,
             @RequestParam("relationPredicate") String relationPredicate,
             @RequestParam("tailName") String tailName){
@@ -211,6 +249,7 @@ public class RagGraphController extends BaseController{
             Map<String, Object> data = ragAdminClient.deleteJson(
                     "/api/v1/admin/graph/edges",
                     RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
                             "headName", headName,
                             "relationPredicate", relationPredicate,
                             "tailName", tailName));

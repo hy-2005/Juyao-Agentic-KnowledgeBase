@@ -220,6 +220,24 @@
 
 ---
 
+## 24. 多知识库图谱隔离：kb_ids 数组过滤「越来越慢」→ 标签命名空间隔离
+
+- **场景**：企业多知识库（Dify 模式）需要每 kb 独立图谱。Neo4j 社区版无多数据库（`CREATE DATABASE` 是企业版功能），最初用边/社区上的 `kb_ids` 数组 + `WHERE $kb IN r.kb_ids` 过滤
+- **现象**：社区重建（`fetch_entity_graph`）随全库边数线性变慢——kb 越多、全库越大，每次重建扫描全库所有 RELATED 边；且共享实体/共享边导致删除逻辑（清理 kb_ids 残留）越来越复杂
+- **根因**：
+  1. **数组属性建不了索引**——`WHERE $kb IN r.kb_ids` 只能全表扫描逐条判断（类比 MySQL `FIND_IN_SET` 废索引）；Neo4j 的 label 则有自己的 token 索引，`MATCH (a:EntityKb1)` 由标签索引 O(1) 定位节点集合，只遍历本 kb 内部边——**数据局部性**，扫描量不随全库/kb 数量增长
+  2. 共享数据模型（实体全库共享）在 kb 增多后查询处处要过滤、删除处处要清残留
+- **修复**：
+  - 标签命名空间隔离：`EntityKb{id}` / `CommunityKb{id}`（kb_id 是 int，f-string 拼接无注入风险）
+  - 全链路 20+ 处 Cypher 按标签查询，**零 WHERE kb_ids 过滤**；`ensure_schema(kb_id)` 按 kb 建唯一约束（自带索引）
+  - `purge_kb` 简化为按标签 DETACH DELETE 整片删；同名实体跨 kb 独立（Dify 语义）
+  - 管理台展示数据落 MySQL 快照表（`rag_graph_*`，社区重建后 30s debounce 分批同步），管理查询按 `kb_id` 过滤
+  - 存量迁移：`scripts/migrate_neo4j_labels.py`
+- **教训**：**「元数据过滤」不等于「标签过滤」——Neo4j 对 label 与属性是两套机制：label 有索引定位（数据分类），属性数组过滤只能全表扫描**。多租户/多实例隔离优先考虑结构隔离（标签/分表/多库），不要用查询时过滤；过滤方案在数据量增长后是不可逆的性能债
+- **备选**：Neo4j 企业版多数据库（`CREATE DATABASE`）是物理隔离的更强方案；Desktop 免费带企业版开发者许可可先测，生产需授权（≤50 人公司可申请 Startup License）
+
+---
+
 ## 踩坑模式总结（教训提炼）
 
 1. **"先 X 后 Y"的顺序改动，Y 的删除/清理条件必须精确到原子键**（坑 2）
@@ -245,6 +263,7 @@
 20. **LLM 供应商的 extra_body 字段不是通用约定，切换供应商必须逐字段核对；未知供应商什么都不发**（坑 21）
 22. **「0=特殊语义（全量）」的参数跨层传递时，任何一层做 falsy 转换（0→None）都会静默改变语义——转换只能发生在唯一一处判定**（坑 22）
 23. **ECharts 中跟随系列 roam 的装饰元素必须做成 series 数据点（虚拟节点/自定义 symbol），graphic 元素固定不动**（坑 23）
+24. **「元数据过滤」≠「标签过滤」——Neo4j 的 label 有索引定位（数据分类），属性数组过滤只能全表扫描**；多租户隔离优先结构隔离，过滤方案是数据量增长后的不可逆性能债（坑 24）
 21. **Python `x or default` 无法区分「未传」和「显式 falsy（0/空）」——"0 表示特殊语义"的参数必须用 `if x is None`**；Cypher `LIMIT 0` 是 0 条不是不限（坑 22）
 
 ## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler

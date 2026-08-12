@@ -133,33 +133,18 @@ def _graph_entity_candidates(question: str, kb: int | None, limit: int = 20) -> 
     两者结果按插入顺序去重（n-gram 优先），合并后截断到 `limit`。
     无重叠且 embedding 失败时返回空列表（候选太多反而干扰 LLM 抽取）。
 
-    实体来源：按 `kb` 过滤边的 `kb_ids` 字段，跨 kb 不串库；
-    `kb=None` 时走全库 `MATCH (e:Entity)`——保留原行为以兼容现有调用。
+    实体来源：按 EntityKb{id} 标签直接取本 kb 实体集合，跨 kb 不串库
+    （标签索引定位，替代 kb_ids 数组过滤 + UNION 双查）。
     """
-    from rag_core.infrastructure.neo4j import get_read_graph
+    from rag_core.infrastructure.neo4j import entity_label, get_read_graph
 
     q = (question or "").strip()
     if not q or len(q) < 2:
         return []
 
-    # 拉取候选实体名集合：按 kb 隔离（边上的 kb_ids），避免跨库串名
-    if kb is not None:
-        rows = get_read_graph().query(
-            """
-            MATCH (h:Entity)-[r:RELATED]->(t:Entity)
-            WHERE $kb IN coalesce(r.kb_ids, [])
-            RETURN DISTINCT h.name AS name
-            UNION
-            MATCH ()-[r:RELATED]->(t:Entity)
-            WHERE $kb IN coalesce(r.kb_ids, [])
-            RETURN DISTINCT t.name AS name
-            """,
-            params={"kb": int(kb)},
-        )
-    else:
-        rows = get_read_graph().query(
-            "MATCH (e:Entity) RETURN e.name AS name",
-        )
+    # 拉取候选实体名集合：标签隔离版一条查询即可（EntityKb{id} 即本 kb 实体）
+    label = entity_label(kb or 0)
+    rows = get_read_graph().query(f"MATCH (e:{label}) RETURN e.name AS name")
     all_names = [str(r.get("name") or "").strip() for r in rows]
     all_names = [n for n in all_names if n]
     if not all_names:

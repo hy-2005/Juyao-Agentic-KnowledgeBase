@@ -88,7 +88,7 @@ async def _do_query_edges(
         )
 
     cfg = get_settings()
-    matched = resolve_entity_names(list(entities), settings=cfg)
+    matched = resolve_entity_names(list(entities), settings=cfg, kb=kb_id)
     matched_t = tuple(matched) if matched else ()
 
     if not matched:

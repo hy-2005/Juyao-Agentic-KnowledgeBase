@@ -154,6 +154,11 @@ def ingest_file(
                 from rag_core.application.graph.community_build import build_communities as _build
 
                 community_count = _build(kb=kb_id, reset=True)
+                # CLI/直连路径顺带同步图谱管理快照（生产 HTTP 链路由调度器统一重建+同步，
+                # 此处覆盖无调度器进程的 CLI 场景）
+                from rag_core.infrastructure.mysql_graph import sync_graph_snapshot_to_mysql
+
+                sync_graph_snapshot_to_mysql(kb_id)
                 logger.info("【入库】社区重建完成：%s 个（kb=%s）", community_count, kb_id)
             except Exception as exc:
                 logger.warning("【入库】社区构建失败（不阻断入库）：%s", exc)

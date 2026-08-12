@@ -2,7 +2,7 @@
 
 > 状态：🔄 进行中（P0/P1/P2 全部实施：kbId 贯通、API 鉴权、kb 授权模型、kb 管理 API、上传删除 admin 校验、级联清理） · 创建：2026-08-07 · 更新：2026-08-07
 > 范围：juyao-agentic-rag 租户（知识库 kb）隔离与权限体系（Java 网关 → Python FastAPI → 三库数据）
-> 配套代码：`RagController.java`（聊天网关）、`RagDocIngestService.java`（上传/删除）、`RagChatClient.java`（Java→Python HTTP）、`api/routes/chat.py`、`api/routes/ingest.py`（Python API）、`retriever.py`（检索）、`memory/redis_session.py`（会话）、`sql/rag_document_registry.sql`（MySQL 注册表）
+> 配套代码：`RagController.java`（聊天网关）、`RagDocIngestService.java`（上传/删除）、`RagChatClient.java`（Java→Python HTTP）、`api/routes/chat.py`、`api/routes/ingest.py`（Python API）、`retriever.py`（检索）、`memory/redis_session.py`（会话）、`sql/rag_all.sql`（MySQL 注册表）
 > 关联文档：`INGESTION_UPDATE_REVIEW.md`（P0-1 kbId 入库，同一病根）、`RETRIEVAL_REVIEW.md`（检索链路）
 
 ---
@@ -40,7 +40,7 @@
 
 ### 🔴 P0-2：入库侧 kbId 被忽略
 
-- 位置：events.py:22（只用 docLogicalKey 当 source_name）；sql/rag_document_registry.sql（MySQL 明确 multi-kb）
+- 位置：events.py:22（只用 docLogicalKey 当 source_name）；sql/rag_all.sql（MySQL 明确 multi-kb）
 - 问题：跨 kb 同名文档互删（详情见 INGESTION_UPDATE_REVIEW P0-1，同一病根）
 - 修复：source_name = {kbId}:{logicalKey}，与 INGESTION_UPDATE_REVIEW 合并实施
 
@@ -69,7 +69,7 @@
 | P0-1 | 检索链路通 kbId | 参数链路全通 + chunk metadata 写 kb_id（Qdrant payload + ES source）→ 检索 filter；图谱按 kb 前缀过滤 |
 | P0-2 | 入库 kbId 并入 source_name | {kbId}:{logicalKey}，与 INGESTION_UPDATE_REVIEW P0-1 合并实施 |
 | P1-1 | Python 全路由鉴权 | ✅ 已实施 | api/security.py 公共校验，chat/sessions/ingest 全接入；Java RagChatClient 6 处请求带 token；验证无 token 403 |
-| P1-2 | kb 实体 + 授权模型 | ✅ 已实施 | sql/rag_kb_permission.sql + RagKbMapper.selectUserAccess + RagController.stream 校验（kbId>0 时）；null/0 兼容单库旧前端 |
+| P1-2 | kb 实体 + 授权模型 | ✅ 已实施 | sql/rag_all.sql + RagKbMapper.selectUserAccess + RagController.stream 校验（kbId>0 时）；null/0 兼容单库旧前端 |
 | P2 | kb 管理 API | ✅ 已实施 | RagKbController（创建/列表/授权/删除）+ RagChatClient.purgeKb 调 Python purge_kb 级联清三库；上传/删除文档需 admin（checkKbAdmin） |
 
 **本质判断**：单知识库场景可跑（kb_id 默认 0），但任何多知识库/多租户设想（目录 rag/{kb}/、MySQL 表、Kafka payload 已有痕迹）都在 Python 侧断掉。**数据越权是 P0**，入库 kbId 与检索隔离必须一起修——链路贯通：入库写不进 kb_id → 检索时没得过滤。

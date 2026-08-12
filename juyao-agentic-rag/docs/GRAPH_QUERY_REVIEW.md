@@ -1,11 +1,34 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：🔄 进行中（查询/入库/社区基础设施已完成；**派系 2 主路径改造实施中**——见 §6.5 路线图，**Steps 1-7 已完成，Step 8 评测待跑**） · 创建：2026-08-07 · 更新：2026-08-12
+> 状态：🔄 进行中（查询/入库/社区基础设施已完成；**派系 2 主路径改造实施中**——见 §6.5 路线图，**Steps 1-7 已完成，Step 8 评测待跑**；2026-08-12 追加「标签隔离 + MySQL 快照」多图谱改造 ✅ 已实施待实测） · 创建：2026-08-07 · 更新：2026-08-12
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
 > - 入库侧：`extractor.py`（LLM 抽取）、`schema.py`（Triple 模型/校验）、`store.py`（Neo4j 写入）、`graph_writer.py`（并行入库）、`prompts/text/kg_triple_extraction_system.md`（抽取 prompt）
 > 关联文档：`CHUNK_SPLITTING_REVIEW.md`、`RETRIEVAL_REVIEW.md`（min_relevance=0.35 阈值问题与 sufficiency 联动）、`INGESTION_UPDATE_REVIEW.md`（图增量/引用计数式删除）
+
+---
+
+## 0. 多图谱改造：标签隔离 + MySQL 管理快照（2026-08-12 已实施 ✅ 待实测）
+
+**背景**：企业多知识库（Dify 模式）需要「一库管理多图谱」的结构性隔离。Neo4j 社区版无多数据库（企业版功能），
+弃用 kb_ids 数组 + WHERE 过滤方案（数组属性走不了索引，全库边线性扫描，kb 越多社区重建越慢），
+改为**标签命名空间隔离**：`EntityKb{id}` / `CommunityKb{id}`。
+
+**改造内容**：
+1. **Neo4j 标签隔离**（`neo4j.py` 提供 `entity_label/community_label` 辅助函数）：
+   - 写图/清理/管理/检索/社区全链路 20+ 处 Cypher 按标签查询，**零 WHERE kb_ids 过滤**
+   - `ensure_schema(kb_id)` / `ensure_community_schema(store, kb)` 按 kb 建唯一约束（自带索引）
+   - `purge_kb` 简化为 `MATCH (n:EntityKb{id}) DETACH DELETE n` 整片删
+2. **MySQL 管理快照**（`mysql_graph.py` + `sql/rag_all.sql` 4 张表）：
+   - `sync_graph_snapshot_to_mysql(kb_id)`：Neo4j 分批拉（LIMIT 游标）+ MySQL 分批 executemany（每批 500），防 OOM
+   - 调度器 `_rebuild_one` 社区重建后自动同步快照（30s debounce 合并）
+   - 管理查询切 MySQL（entities/edges/stats/communities/full/edges-all 按 kb_id 过滤）；
+     **subgraph 保留 Neo4j**（图遍历语义）
+3. **接口契约**：管理接口/Java 网关新增 `kbId` 参数（缺省 0 单库，前端现有行为不变）
+4. **存量迁移**：`scripts/migrate_neo4j_labels.py` 按 kb_ids 展开旧数据到标签结构（先建约束再迁移）
+
+**待实测**：迁移后重启服务 → 社区重建 + 快照同步 → 图谱页数据正常；多 kb 建库后各 kb 图谱隔离验证。
 
 ---
 

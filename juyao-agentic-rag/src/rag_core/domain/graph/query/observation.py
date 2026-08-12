@@ -80,7 +80,7 @@ def build_graph_observation_question_driven(
             [],
         )
 
-    matched = resolve_entity_names(entities, settings=cfg)
+    matched = resolve_entity_names(entities, settings=cfg, kb=kb)
     if not matched:
         # global 检索兜底（GRAPH_QUERY_REVIEW §6）：实体未命中时用社区摘要
         global_text = _community_summaries_for_question(question, kb=kb)

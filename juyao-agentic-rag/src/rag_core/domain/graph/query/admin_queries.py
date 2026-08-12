@@ -1,6 +1,8 @@
-"""图谱管理查询（合并进来的 admin-graph API 支撑，补齐缺失模块）。
+"""图谱管理查询（数据源：MySQL 快照表；subgraph 例外保留 Neo4j 图遍历）。
 
-数据源 Neo4j（原生驱动读）。返回 dict/列表供 admin 路由序列化。
+管理台列表/统计/社区面板走 rag_graph_* 快照表（由 community_scheduler 同步），
+查询快且按 kb_id 过滤天然隔离；subgraph（种子多跳）是图遍历语义，
+MySQL 做不了，保留 Neo4j（标签隔离：EntityKb{id}）。
 """
 
 from __future__ import annotations
@@ -8,9 +10,83 @@ from __future__ import annotations
 import logging
 
 from rag_core.domain.graph.query.edge_view import GraphEdgeView
-from rag_core.infrastructure.neo4j import get_read_graph
+from rag_core.infrastructure.neo4j import community_label, entity_label, get_read_graph
 
 logger = logging.getLogger(__name__)
+
+
+def list_entities(
+    kb_id: int = 0,
+    keyword: str | None = None,
+    page_num: int = 1,
+    page_size: int = 20,
+) -> tuple[list[dict], int]:
+    """实体分页列表（MySQL 快照；含入出度）。"""
+    from rag_core.infrastructure.mysql_graph import list_entities_mysql
+
+    return list_entities_mysql(
+        kb_id, keyword=keyword, page_num=page_num, page_size=page_size
+    )
+
+
+def list_edges(
+    kb_id: int = 0,
+    source_name: str | None = None,
+    entity: str | None = None,
+    relation: str | None = None,
+    page_num: int = 1,
+    page_size: int = 20,
+) -> tuple[list[dict], int]:
+    """边分页列表（MySQL 快照，按实体/谓词子串过滤）。"""
+    from rag_core.infrastructure.mysql_graph import list_edges_mysql
+
+    return list_edges_mysql(
+        kb_id,
+        source_name=source_name,
+        entity=entity,
+        relation=relation,
+        page_num=page_num,
+        page_size=page_size,
+    )
+
+
+def fetch_all_edges(kb_id: int = 0, limit: int | None = None) -> list[dict]:
+    """全量边（MySQL 快照；limit=None 默认 500 防卡死，limit=0 全量不加 LIMIT）。"""
+    from rag_core.infrastructure.mysql_graph import fetch_all_edges_mysql
+
+    return fetch_all_edges_mysql(kb_id, limit=limit)
+
+
+def list_communities(
+    kb_id: int = 0, page_num: int = 1, page_size: int = 10
+) -> tuple[list[dict], int]:
+    """社区列表（MySQL 快照，分页：id/摘要/实体数/成员实体）。"""
+    from rag_core.infrastructure.mysql_graph import list_communities_mysql
+
+    return list_communities_mysql(kb_id, page_num=page_num, page_size=page_size)
+
+
+def graph_stats(kb_id: int = 0, top_n: int = 10) -> dict:
+    """图谱统计（MySQL 快照聚合）。"""
+    from rag_core.infrastructure.mysql_graph import graph_stats_mysql
+
+    return graph_stats_mysql(kb_id, top_n=top_n)
+
+
+def full_graph(kb_id: int = 0, limit: int | None = None) -> dict:
+    """全图节点边（MySQL 快照组装，节点带 community_id）。
+
+    limit=None → 默认 300（防大库卡死）；limit=0 → 全量不加 LIMIT（PITFALLS #22：
+    路由层与函数层必须统一「0=全量」，禁止 falsy 转换）。
+    """
+    from rag_core.infrastructure.mysql_graph import full_graph_mysql
+
+    return full_graph_mysql(kb_id, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# 子图（Neo4j 图遍历，标签隔离版）
+# ---------------------------------------------------------------------------
 
 
 def _edge_view_to_dict(view: GraphEdgeView) -> dict:
@@ -27,124 +103,20 @@ def _edge_view_to_dict(view: GraphEdgeView) -> dict:
     }
 
 
-def list_entities(
-    keyword: str | None = None, page_num: int = 1, page_size: int = 20
-) -> tuple[list[dict], int]:
-    """实体分页列表；keyword 命中实体名子串。"""
-    if keyword:
-        rows = get_read_graph().query(
-            "MATCH (e:Entity) WHERE e.name CONTAINS $kw "
-            "RETURN e.name AS name ORDER BY e.name SKIP $skip LIMIT $limit",
-            params={"kw": keyword, "skip": (page_num - 1) * page_size, "limit": page_size},
-        )
-        total = get_read_graph().query(
-            "MATCH (e:Entity) WHERE e.name CONTAINS $kw RETURN count(e) AS n",
-            params={"kw": keyword},
-        )[0]["n"]
-    else:
-        rows = get_read_graph().query(
-            "MATCH (e:Entity) RETURN e.name AS name ORDER BY e.name SKIP $skip LIMIT $limit",
-            params={"skip": (page_num - 1) * page_size, "limit": page_size},
-        )
-        total = get_read_graph().query("MATCH (e:Entity) RETURN count(e) AS n")[0]["n"]
-    return [{"name": r["name"]} for r in rows], int(total)
-
-
-def list_edges(
-    source_name: str | None = None,
-    entity: str | None = None,
-    relation: str | None = None,
-    page_num: int = 1,
-    page_size: int = 20,
-) -> tuple[list[dict], int]:
-    """边分页列表（按实体/谓词子串过滤）。"""
-    where: list[str] = []
-    params: dict = {"skip": (page_num - 1) * page_size, "limit": page_size}
-    if source_name:
-        where.append("any(s IN coalesce(r.source_names, []) WHERE s = $sn)")
-        params["sn"] = source_name
-    if entity:
-        where.append("(h.name CONTAINS $ent OR t.name CONTAINS $ent)")
-        params["ent"] = entity
-    if relation:
-        where.append("r.relation CONTAINS $rel")
-        params["rel"] = relation
-    where_clause = ("WHERE " + " AND ".join(where)) if where else ""
-    rows = get_read_graph().query(
-        f"""
-        MATCH (h:Entity)-[r:RELATED]->(t:Entity)
-        {where_clause}
-        RETURN h.name AS h, r.relation AS rel, t.name AS t, r.chunk_ids AS chunk_ids
-        ORDER BY h.name SKIP $skip LIMIT $limit
-        """,
-        params=params,
-    )
-    total = get_read_graph().query(
-        f"""
-        MATCH (h:Entity)-[r:RELATED]->(t:Entity)
-        {where_clause}
-        RETURN count(r) AS n
-        """,
-        params={k: v for k, v in params.items() if k not in ("skip", "limit")},
-    )[0]["n"]
-    return (
-        [
-            {
-                "head_name": r["h"],
-                "relation_predicate": r["rel"],
-                "tail_name": r["t"],
-                "chunk_ids": list(r.get("chunk_ids") or []),
-            }
-            for r in rows
-        ],
-        int(total),
-    )
-
-
-def fetch_all_edges(limit: int | None = None) -> list[dict]:
-    """全量边（管理台导出/全图兜底用）。
-
-    limit=None → 默认 500（防大库卡死）；limit=0 → 全量不加 LIMIT（PITFALLS #22：
-    原硬编码 LIMIT 500 导致前端「全量展示」仍只拿到 500 条）。
-    """
-    if limit is None:
-        query = (
-            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT 500"
-        )
-        params: dict | None = None
-    elif limit > 0:
-        query = (
-            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT $limit"
-        )
-        params = {"limit": limit}
-    else:
-        query = (
-            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-            "RETURN h.name AS h, r.relation AS rel, t.name AS t"
-        )
-        params = None
-    rows = get_read_graph().query(query, params=params)
-    return [
-        {"head_name": r["h"], "relation_predicate": r["rel"], "tail_name": r["t"]}
-        for r in rows
-    ]
-
-
-def _fetch_community_map(entity_names: list[str]) -> dict[str, str]:
-    """实体名 → community_id（无归属实体不在返回中）。"""
+def _fetch_community_map(kb_id: int, entity_names: list[str]) -> dict[str, str]:
+    """实体名 → community_id（无归属实体不在返回中；按 kb 标签查询）。"""
     if not entity_names:
         return {}
+    label = entity_label(kb_id)
     rows = get_read_graph().query(
-        "MATCH (e:Entity)-[:MEMBER_OF]->(c:Community) "
+        f"MATCH (e:{label})-[:MEMBER_OF]->(c:{community_label(kb_id)}) "
         "WHERE e.name IN $names RETURN e.name AS name, c.id AS cid",
         params={"names": entity_names},
     )
     return {r["name"]: str(r["cid"]) for r in rows}
 
 
-def _edges_to_subgraph(rows: list[dict]) -> dict:
+def _edges_to_subgraph(kb_id: int, rows: list[dict]) -> dict:
     """边行 → {nodes, edges}（管理台可视化结构）。
 
     Cypher 返回列名不统一：list 接口走 _edge_rows_to_dict（head_name/tail_name），
@@ -168,58 +140,28 @@ def _edges_to_subgraph(rows: list[dict]) -> dict:
             }
         )
     # 批量注入社区归属：一次查询避免 N+1
-    community_map = _fetch_community_map(list(nodes.keys()))
+    community_map = _fetch_community_map(kb_id, list(nodes.keys()))
     for node in nodes.values():
         cid = community_map.get(node["name"])
         if cid:
             node["community_id"] = cid
-    # 契约对齐：GraphSubgraphResponse/前端可视化组件用 links（不是 edges），
-    # 列名不统一的问题已在行取值处兼容
+    # 契约对齐：GraphSubgraphResponse/前端可视化组件用 links（不是 edges）
     return {"nodes": list(nodes.values()), "links": edges}
 
 
-def list_communities(page_num: int = 1, page_size: int = 10) -> tuple[list[dict], int]:
-    """社区列表：id/摘要/实体数/成员实体名（社区面板 + 点击聚焦用）。
-
-    分页：先取社区摘要全量列表（快），只对当前页查成员实体（避免 N+1 全量成员查询）。
-    返回 (rows, total)。
-    """
-    from rag_core.application.graph.community_build import list_community_summaries
-
-    summaries = list_community_summaries()
-    total = len(summaries)
-    start = max(0, (page_num - 1) * page_size)
-    page = summaries[start : start + page_size]
-    result: list[dict] = []
-    for s in page:
-        cid = s.get("community_id")
-        if not cid:
-            continue
-        members = get_read_graph().query(
-            "MATCH (e:Entity)-[:MEMBER_OF]->(c:Community {id: $cid}) RETURN e.name AS name ORDER BY e.name",
-            params={"cid": cid},
-        )
-        result.append(
-            {
-                "community_id": cid,
-                "summary": s.get("summary", ""),
-                "entity_count": s.get("entity_count", 0),
-                "entities": [r["name"] for r in members],
-            }
-        )
-    return result, total
-
-
-def subgraph_from_seeds(seed_names: list[str], hops: int = 1, limit: int | None = None) -> dict:
-    """种子实体多跳子图（管理台可视化）。"""
+def subgraph_from_seeds(
+    seed_names: list[str], hops: int = 1, limit: int | None = None, kb_id: int = 0
+) -> dict:
+    """种子实体多跳子图（Neo4j 图遍历——MySQL 快照表做不了路径查询）。"""
     if not seed_names:
         return {"nodes": [], "edges": []}
     hops = max(1, min(int(hops), 5))
+    label = entity_label(kb_id)
     rows = get_read_graph().query(
-        """
-        MATCH (s:Entity)
+        f"""
+        MATCH (s:{label})
         WHERE s.name IN $seeds
-        MATCH p=(s)-[:RELATED*1..%d]-()
+        MATCH p=(s)-[:RELATED*1..%d]-(:{label})
         WITH p LIMIT $path_cap
         UNWIND relationships(p) AS rel
         WITH DISTINCT rel AS r
@@ -229,52 +171,4 @@ def subgraph_from_seeds(seed_names: list[str], hops: int = 1, limit: int | None 
         % hops,
         params={"seeds": seed_names, "path_cap": limit or 200},
     )
-    return _edges_to_subgraph(rows)
-
-
-def full_graph(limit: int | None = None) -> dict:
-    """全图节点边（limit 截断防前端卡死）。
-
-    limit=None → 默认 300（防大库卡死）；limit=0 → 全量不加 LIMIT。
-    注意：不能写 `limit or 300`——Python 的 or 会把 0 当 falsy 回退 300，
-    导致显式「全量」请求仍被截断（PITFALLS #22）。
-    """
-    if limit is None:
-        query = (
-            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT 300"
-        )
-        params: dict | None = None
-    elif limit > 0:
-        query = (
-            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT $limit"
-        )
-        params = {"limit": limit}
-    else:
-        query = (
-            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-            "RETURN h.name AS h, r.relation AS rel, t.name AS t"
-        )
-        params = None
-    rows = get_read_graph().query(query, params=params)
-    return _edges_to_subgraph(rows)
-
-
-def graph_stats(top_n: int = 10) -> dict:
-    """图谱统计：实体数/边数/高扇出实体 topN。"""
-    entity_count = get_read_graph().query("MATCH (e:Entity) RETURN count(e) AS n")[0]["n"]
-    edge_count = get_read_graph().query("MATCH ()-[r:RELATED]->() RETURN count(r) AS n")[0]["n"]
-    top = get_read_graph().query(
-        """
-        MATCH (e:Entity)-[r:RELATED]-()
-        RETURN e.name AS name, count(r) AS degree
-        ORDER BY degree DESC LIMIT $top_n
-        """,
-        params={"top_n": top_n},
-    )
-    return {
-        "entity_count": int(entity_count),
-        "edge_count": int(edge_count),
-        "top_entities": [{"name": r["name"], "degree": int(r["degree"])} for r in top],
-    }
+    return _edges_to_subgraph(kb_id, rows)
