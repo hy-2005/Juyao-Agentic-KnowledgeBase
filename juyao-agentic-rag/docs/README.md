@@ -3,7 +3,7 @@
 > 维护规则（见 CLAUDE.md）：新增/改名文档必须同步本索引；状态变化同步更新标记。
 > 状态标记（严格三态，见 CLAUDE.md）：✅ 已完成 / 🔄 进行中 / ❌ 未完成
 > 时间维护：每份文档头部保留「创建 / 更新」日期；本索引同时落两列便于审计（按 CLAUDE.md 「禁止事后回填或猜测」）。
-> 创建：2026-08-07 · 更新：2026-08-12
+> 创建：2026-08-07 · 更新：2026-08-13
 
 ## 评审与方案（docs/）
 
@@ -39,6 +39,8 @@
 | 路径 | 说明 | 创建 | 更新 |
 |---|---|---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 项目原始架构文档（非评审产出） | 2026-05-24 | 2026-06-18 |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | 本地启动与测试（安装/配置/依赖/入库/问答/FAQ，2026-08-13 自旧分支恢复并修正断链） | 未记录 | 2026-08-13 |
+| [API.md](API.md) | HTTP API 说明（FastAPI 四组接口 + Java 网关对照，2026-08-13 自旧分支恢复） | 未记录 | 2026-08-13 |
 | `src/data/samples/downloaded/` | 开源真实样本（README/PDF/源码，结构识别测试用） | — | — |
 | `src/data/samples/multiformat/` | 本地生成多格式样本（docx/pdf/扫描件/csv/md/html/json） | — | — |
 | `reports/` | 评测报告（baseline/after12/final/calib*） | — | — |

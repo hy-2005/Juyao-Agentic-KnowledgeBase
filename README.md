@@ -1,4 +1,9 @@
-# JuYao Agentic RAG
+# JuYao Agentic RAG · 聚耀智能知识库
+
+<p align="center">
+  <strong>Enterprise Knowledge Base with Agentic RAG + GraphRAG</strong><br>
+  Hybrid Retrieval · Intent Routing · Graph-Enhanced Q&A · Streaming Chat · Async Ingestion
+</p>
 
 <p align="center">
   <strong>面向企业知识库的 Agentic RAG + GraphRAG 开源方案</strong><br>
@@ -9,127 +14,172 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/langchain-1.x-orange.svg" alt="LangChain">
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg" alt="Spring Boot">
+  <img src="https://img.shields.io/badge/Vue-3-4FC08D.svg" alt="Vue">
 </p>
+
+JuYao Agentic RAG is a full-stack enterprise knowledge base built on **Agentic RAG + GraphRAG**. The Python engine (`juyao-agentic-rag/`) handles retrieval, agentic orchestration and knowledge graphs; the Spring Boot admin (`juyao-admin/`) and Vue frontend (`juyao-ui/`) provide document management, chunk management, graph visualization and multi-tenant control.
+
+> 项目是完整的企业知识库方案：Python 引擎为核心（检索/对话/图谱），Spring Boot 管理端 + Vue 前端提供文档管理、切片管理、图谱可视化与多租户能力。只想体验 RAG 能力的话，只跑 Python 引擎即可，无需 Java 与 Vue。
 
 ---
 
-## 特性
+## Features / 核心特性
 
-- **混合检索**：向量（Qdrant）+ 全文（Elasticsearch）+ Multi-Query 改写 + HyDE + 双层 RRF + Cross-Encoder 重排
-- **Agentic 编排**：意图路由（direct / graph_only / vector_only）、RAG 充分性评估、按需图谱补强
-- **GraphRAG**：入库时 LLM 抽取三元组写入 Neo4j，问答时实体种子多跳关系查询
-- **工程化**：TOML + `.env` 分层配置，Prompt 外置为 Markdown 可热编辑
-- **多接入**：CLI / FastAPI（SSE 流式）/ Kafka 异步入库
-- **优雅降级**：LLM 不可用时自动回退到规则；ES 不可用时降级为纯向量检索
+### Hybrid Retrieval · 混合检索
+- **Dual-channel**: vector (Qdrant) + full-text BM25 (Elasticsearch) in parallel
+- **Query rewriting** + **Multi-Query** + **HyDE** (fake answers stripped of `think` blocks, vector-channel only to avoid polluting BM25)
+- **Double-layer RRF** fusion (within-query + cross-query) + **Cross-Encoder reranking**
+- **Parent-child chunking (Small-to-Big)**: child chunks for precise embedding hits, parent chunks for full-context generation
+- **Layout-aware PDF parsing** (PyMuPDF4LLM): tables → Markdown, cross-page table merging
 
-## 架构概览
+### Agentic Orchestration · 意图编排
+- **Cascade intent routing**: rule fast-path first (zero LLM cost), LLM judgment only for ambiguous queries
+- Branches: `direct` / `graph_only` / `vector_only`
+- **Sufficiency evaluation** → on-demand graph reinforcement when vector evidence is insufficient
+- **Streaming SSE** answers with citation links
 
+### GraphRAG · 知识图谱
+- **Community-first search**: Leiden community detection + community summaries (persisted to MySQL)
+- **L1 → L2 → L3 cascade**: community-first → global fallback → terminal, no chunk_id anchoring
+- **A+B+C query pipeline**: rewriter + decomposer + entity mapping (n-gram + embedding dual-channel)
+- Entity extraction on ingest, multi-hop relation queries (hops=2, edge/timeout bounded)
+- Multi-graph isolation by label + tenant `kb_id` isolation end-to-end (Qdrant / ES / Neo4j / MySQL)
+
+### Engineering · 工程化
+- **Layered config**: env vars → `.env` → `config/local.toml` → `config/default.toml`; prompts externalized as hot-editable Markdown
+- **Multiple access**: CLI / FastAPI (SSE) / Kafka async ingestion (3 partitions, parallel consumers, manual commit/retry/DLQ)
+- **RAGAS evaluation toolkit**: concurrent retrieval + batch scoring, curated QA datasets
+- **Graceful degradation**: rule fallback when LLM is down; vector-only fallback when ES is down
+- **Chunk management UI**: parent-child drill-down, per-type slice rendering (table/code/text)
+
+> 中文要点：混合检索（向量+BM25、改写+HyDE、双层 RRF+重排）；Agentic 编排（级联意图路由、充分性评估、按需图谱补强）；GraphRAG 社区优先（Leiden 社区 + L1/L2/L3 三级级联 + A+B+C 查询改写）；父子分块（子块检索→父块生成）；PDF 布局感知解析；多租户 kb_id 全链路隔离；CLI/FastAPI/Kafka 三接入；RAGAS 离线评测；LLM/ES 不可用时优雅降级。
+
+## Architecture / 架构概览
+
+### Q&A Path · 问答链路
+
+```mermaid
+flowchart TD
+    Q[User Question] --> B{Intent Router<br/>rule fast-path → LLM}
+    B -- direct --> H[Streaming Answer<br/>SSE with citations]
+    B -- graph_only --> G[Graph Search<br/>L1 community → L2 global → L3]
+    B -- vector_only --> D[Hybrid Retrieval<br/>vector + BM25 · rewrite/HyDE · RRF · rerank]
+    D --> E{Evidence<br/>Sufficient?}
+    E -- yes --> H
+    E -- no --> G
+    G --> H
 ```
-用户问题
-  → 意图路由（LLM / 规则）
-  → 向量检索 + 图谱查询（并行）
-  → 充分性评估 → 按需图谱补强
-  → 流式 SSE 作答（含引用溯源、免责声明）
+
+### Ingestion Path · 入库链路
+
+```mermaid
+flowchart LR
+    SRC[PDF / DOCX / MD / TXT / CSV] --> L[Loader<br/>layout-aware parsing]
+    L --> SP[Splitter<br/>structure-aware parent-child chunks]
+    SP --> Q[Qdrant<br/>vector]
+    SP --> E[Elasticsearch<br/>BM25]
+    SP --> N[Neo4j<br/>triples + communities]
 ```
 
-```
-文档入库
-  → 加载（TXT/MD/PDF/DOCX/CSV）
-  → 语义切分（LLM 三层策略 + 规则降级）
-  → Qdrant + Elasticsearch 双写
-  → 可选 Neo4j 三元组抽取
-```
+## Quick Start / 快速开始
 
-## 快速开始
-
-### 方式一：Docker Compose（推荐）
+### Option 1: Docker Compose (recommended) · 方式一：Docker Compose（推荐）
 
 ```bash
-# 1. 启动全部基础设施
+# 1. Start all infra services (Ollama / MySQL / Redis / ES / Qdrant / Neo4j / Kafka)
 docker compose up -d
 
-# 2. 拉取 Embedding 模型
+# 2. Pull the embedding model
 docker exec -it juyao-ollama ollama pull mxbai-embed-large:latest
 ```
 
-然后按 [引擎文档](juyao-agentic-rag/README.md) 安装 Python 包，即可开始入库与问答。
+Then follow the [Engine README](juyao-agentic-rag/README.md) to install the Python package and start ingesting & chatting.
 
-### 方式二：手动启动
+> 然后按引擎文档安装 Python 包，即可开始入库与问答。
+
+### Option 2: Manual · 方式二：手动启动
 
 ```powershell
 cd juyao-agentic-rag
 pip install -e .
 copy .env.example .env
-# 编辑 .env，填入 DASHSCOPE_API_KEY
+# edit .env, fill in DASHSCOPE_API_KEY
 
 python -m rag_core.cli.ingest --file src/data/samples/sample_medical.txt
 python -m rag_core.cli.qa --question "简要介绍样例文档中的关键信息"
 ```
 
-完整环境准备见 [快速启动指南](juyao-agentic-rag/docs/GETTING_STARTED.md)。
+Full environment setup: [GETTING_STARTED.md](juyao-agentic-rag/docs/GETTING_STARTED.md) · 完整环境准备见[快速启动指南](juyao-agentic-rag/docs/GETTING_STARTED.md)。
 
-## 仓库结构
+## Repository Layout / 仓库结构
 
 ```
-juyao-agentic-rag/          # Python RAG 引擎（核心，可独立安装与开源分发）
+juyao-agentic-rag/          # Python RAG engine (core, standalone-installable)
 ├── src/rag_core/
-│   ├── core/               # 配置（TOML + .env）
-│   ├── domain/             # chunk_id 数据公约
-│   ├── llm/                # LLM 工厂、JSON 结构化输出
-│   ├── prompts/text/       # System Prompt（Markdown，可直接编辑）
-│   ├── ingestion/          # 加载 → 切分 → 入库管线
-│   ├── indexing/           # Qdrant、Elasticsearch 封装
-│   ├── retrieval/          # 混合检索（改写、HyDE、RRF、重排）
-│   ├── knowledge_graph/    # Neo4j 三元组抽取与查询
-│   ├── orchestration/      # Agentic 对话编排（routed_flow）
-│   ├── memory/             # Redis 多轮会话
-│   ├── api/                # FastAPI（8 个端点）
-│   └── cli/                # 命令行入口
-├── config/                 # 默认配置 + local.toml 模板
-├── docs/                   # 架构、API、GraphRAG 文档
-└── tests/                  # 单元测试
+│   ├── core/               # config (TOML + .env)
+│   ├── domain/             # chunk_id / source_doc_id conventions
+│   ├── llm/                # LLM factory, JSON structured output
+│   ├── prompts/text/       # system prompts (editable Markdown)
+│   ├── ingestion/          # load → split → index pipeline
+│   ├── indexing/           # Qdrant / Elasticsearch clients
+│   ├── retrieval/          # hybrid retrieval (rewrite, HyDE, RRF, rerank)
+│   ├── knowledge_graph/    # Neo4j extraction, community detection & L1/L2/L3 search
+│   ├── orchestration/      # agentic chat flow (routed_flow)
+│   ├── memory/             # Redis multi-turn sessions
+│   ├── api/                # FastAPI (SSE streaming)
+│   └── cli/                # command-line entry points
+├── src/rag_eval/           # RAGAS evaluation toolkit
+├── config/                 # default config + local.toml template
+├── docs/                   # architecture, API, design docs
+└── tests/                  # unit tests
 │
-juyao-admin/                # Spring Boot 管理端（HTTP + Kafka）
-juyao-ui/                   # Vue 前端（知识库对话、文档管理）
-juyao-system/               # 系统模块（文档注册表等）
-docker-compose.yml          # 一键启动全部基础设施
+juyao-admin/                # Spring Boot 3 admin (HTTP + Kafka)
+juyao-ui/                   # Vue 3 frontend (chat, document & chunk management, graph viz)
+juyao-system/               # system module (document registry, tenant)
+docker-compose.yml          # one-command infra startup
 ```
 
 > 只需体验 RAG 能力，进入 `juyao-agentic-rag/` 即可，无需 Java 与 Vue。
 
-## 依赖服务
+## Dependencies / 依赖服务
 
-| 服务 | 用途 | 必需 |
-|------|------|------|
-| Ollama | Embedding / 本地重排 | 是 |
-| Qdrant | 向量检索 | 是 |
-| Elasticsearch 7.x | BM25 全文检索 | 推荐 |
-| Neo4j 5.x | GraphRAG 知识图谱 | 可选 |
-| Redis | 多轮会话记忆 | HTTP API 模式必需 |
-| Kafka | 异步入库 | 与 Java 管理端集成时必需 |
-| DashScope API | 对话 / 切分 / 图谱抽取 / 重排 | 是（可替换为 OpenAI） |
+| Service | Purpose | Required |
+|---------|---------|----------|
+| Ollama | Embedding / local reranking | ✅ Yes |
+| Qdrant | Vector search | ✅ Yes |
+| Elasticsearch 7.x | BM25 full-text search | ⭐ Recommended |
+| Neo4j 5.x | GraphRAG knowledge graph | Optional (GraphRAG) |
+| Redis 7.x | Multi-turn session memory | Optional (HTTP API mode) |
+| Kafka 7.x (Confluent) | Async ingestion | Optional (Java admin integration) |
+| MySQL 8.x | Chunk / community persistence, tenant | Optional (Java admin integration) |
+| DashScope API | Chat / split / extraction / rerank | ✅ Yes (OpenAI-compatible) |
 
-## 文档
+All infra services can be started with the repo's `docker-compose.yml` — 全部基础设施可用仓库内 `docker-compose.yml` 一键启动。
 
-| 文档 | 说明 |
-|------|------|
-| [引擎 README](juyao-agentic-rag/README.md) | 安装、CLI 命令、配置、HTTP API |
-| [快速启动](juyao-agentic-rag/docs/GETTING_STARTED.md) | 环境搭建、自检清单、常见问题 |
-| [架构说明](juyao-agentic-rag/docs/ARCHITECTURE.md) | 请求 / 入库 / 检索链路 |
-| [HTTP API](juyao-agentic-rag/docs/API.md) | FastAPI 完整接口 + Java 网关对照 |
-| [知识图谱](juyao-agentic-rag/docs/KNOWLEDGE_GRAPH.md) | GraphRAG 构建与查询 |
-| [贡献指南](juyao-agentic-rag/CONTRIBUTING.md) | 开发规范、改 Prompt、PR 流程 |
+## Documentation / 文档
 
-## 贡献
+| Doc | Description |
+|-----|-------------|
+| [Engine README](juyao-agentic-rag/README.md) | Installation, CLI commands, config, HTTP API |
+| [Getting Started](juyao-agentic-rag/docs/GETTING_STARTED.md) | Environment setup, self-check list, FAQ |
+| [Architecture](juyao-agentic-rag/docs/ARCHITECTURE.md) | Request / ingestion / retrieval chains |
+| [Agent Flow](juyao-agentic-rag/docs/AGENT_FLOW.md) | Full agentic pipeline incl. L1/L2/L3 graph cascade |
+| [Parent-Child Chunking](juyao-agentic-rag/docs/PARENT_CHILD_CHUNKING.md) | Small-to-Big chunking design |
+| [Evaluation](juyao-agentic-rag/docs/eval/GETTING_STARTED.md) | RAGAS setup, workflow & metrics |
+| [Contributing](juyao-agentic-rag/CONTRIBUTING.md) | Dev conventions, PR process |
+| [Design Reviews](juyao-agentic-rag/docs/README.md) | Full index of design & review docs (Chinese) |
 
-欢迎提交 Issue 和 Pull Request。请先阅读 [贡献指南](juyao-agentic-rag/CONTRIBUTING.md)。
+## Contributing / 贡献
 
-## 许可证
+Issues and Pull Requests are welcome — 欢迎提交 Issue 和 Pull Request。Please read [CONTRIBUTING.md](juyao-agentic-rag/CONTRIBUTING.md) first.
 
-本项目基于 [MIT License](LICENSE) 开源。
+## License / 许可证
+
+MIT License — see [LICENSE](LICENSE). 本项目基于 [MIT License](LICENSE) 开源。
 
 ---
 
 <p align="center">
-  <sub>Built with LangChain · Qdrant · Elasticsearch · Neo4j · FastAPI</sub>
+  <sub>Built with LangChain · Qdrant · Elasticsearch · Neo4j · FastAPI · Spring Boot · Vue</sub>
 </p>
