@@ -1,0 +1,311 @@
+# 意图路由规则（被 application/chat_flow/steps/route.py 调用）
+#
+# 命中规则后按 branch 返回：
+#   direct       - 问候/寒暄/确认，不调检索（strict 模式下退化为 vector_only）
+#   vector_only  - 字面/语义型问题，走向量检索
+#   graph_only   - 关系型/多实体问题，走图谱检索
+#
+# 规则类型（type）：
+#   regex_fullmatch - 整句匹配（fullmatch），常用于问候语
+#   regex_search    - 子串搜索（search），常用于特征词
+#   length          - 字符串长度判定（如空/单字符）
+#
+# 优先级（冲突解决）：
+#   1. direct 命中即返回，不看其他规则
+#   2. graph_only 之间是 OR 关系（首个命中即生效）
+#   3. vector_only 仅在没有任何 graph_only 命中时生效
+#   4. 都没命中 → 返回 None，进 LLM
+#
+# 调试：每次路由会打印 "matched_rule=<name> branch=<branch>" 日志，便于排查
+
+rules:
+
+  # =============================================================
+  # direct 类（寒暄/确认/极短输入）—— 命中即返回，不调检索
+  # =============================================================
+
+  - name: empty_or_too_short
+    branch: direct
+    type: length
+    min_length: 0
+    max_length: 1
+    description: 空字符串或单字符（"<" "<="），按 direct 处理
+
+  - name: only_punctuation_or_emoji
+    branch: direct
+    type: regex_fullmatch
+    patterns:
+      - "^[\\s!！?？。.,，、~～*\\-—_+=@#￥$%^&()()【】\\[\\]<>:;:'\"`…·]+$"
+      - "^[\\s\\ud83c[\\udf00-\\udfff]\\ud83d[\\udc00-\\ude4f]\\ud83d[\\ude80-\\udeff]+$"
+    max_length: 16
+    description: 纯标点 / 纯 emoji（如 "。"、"？？"、"👍😂"），按 direct 处理
+
+  - name: chinese_greeting
+    branch: direct
+    type: regex_fullmatch
+    patterns:
+      - "^(你好|您好|嗨|哈喽|哈啰|hi|hello|hey|在吗|在么|谢谢|多谢|辛苦了|不客气|再见|拜拜|拜|回见|回头见|早安|晚安|早上好|中午好|下午好|晚上好)([！!。.…~～\\s,.，]*)?$"
+    max_length: 16
+    case_insensitive: true
+    description: 中文/英文问候、寒暄、感谢、告别（整句 ≤ 16 字）
+
+  - name: acknowledgement
+    branch: direct
+    type: regex_fullmatch
+    patterns:
+      - "^(好的|好|行|可以|没问题|嗯|哦|啊|噢|哦哦|嗯嗯|好的好的|行吧|ok|OK|Ok|yes|no|nope|yeah|yep|sure|got it|好的呢|对|对的|没错|收到|了解|明白|知道了|我知道了|好吧|行吧|那就|可以可以|嗯好|好的好的|OK|好的收到|收到收到|哈哈哈|哈哈|呵呵|嘿嘿|嘻嘻|哇塞|厉害|牛逼|棒|赞)+([！!。.…~～\\s,.，]*)?$"
+    max_length: 16
+    description: 确认/回应/语气词（"好的"/"OK"/"嗯"/"好的好的"等，整句 ≤ 16 字）
+
+  - name: short_test_or_help
+    branch: direct
+    type: regex_fullmatch
+    patterns:
+      - "^(测试|test|Test|TEST|在吗|你在吗|你能听到吗|你能听到我说话吗|在听吗|你能帮我一下吗|帮个忙)([！!。.…~～\\s?？]*)?$"
+    max_length: 16
+    description: 测试连通性 / 短求助（不调检索，按 direct 处理）
+
+  # =============================================================
+  # graph_only 类（关系/多实体/位置/组织）—— 命中走图谱检索
+  # =============================================================
+
+  - name: graph_relations
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(关系|关联|联系|因果|为什么|为何|怎么会|导致|引发|造成|促成|结果|影响|相互作用|多跳|路径|循环|几轮|次数|时间线|时间顺序|发展史|演化|变迁|流程|步骤|先后|层级|归属|隶属于|谁和谁|之间|三人|四人|多人)"
+    description: 关系/因果/时间线/层级型问题
+
+  - name: graph_hierarchy_and_membership
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(属于|隶属于|归属于|归属|隶属于|包含|包括|包含哪些|包括哪些|由.{1,8}组成|组成|构成|父子|上级|下级|同级|包含关系|从属|上下级)"
+    description: 层级/从属/组成关系（"A 属于 B"、"A 由 B 组成"）
+
+  - name: graph_multi_entity
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "[\\u4e00-\\u9fff]{1,16}\\s*和\\s*[\\u4e00-\\u9fff]{1,16}"
+      - "[\\u4e00-\\u9fff]{1,8}与[\\u4e00-\\u9fff]{1,8}"
+      - "[A-Za-z0-9]{2,16}\\s*(and|AND|vs|VS|or|OR)\\s*[A-Za-z0-9]{2,16}"
+    description: 'A 和 B / A 与 B / A and B / A vs B 等多实体问句'
+
+  - name: graph_address_location
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(地址|在哪|哪儿|哪里|何地|门牌号|街道|巷|弄|位于|坐落于|坐标|定位|地理位置|总部地址|办公地址|办公地点|办公位置)"
+    description: 地址/位置/坐标型问题
+
+  - name: graph_org_person
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(事务所|组织|公司|机构|创始人|合伙人|法人|法人代表|总经理|董事长|老板|上级|下属|隶属|归属于|旗下|参股|控股|股东|投资方|母公司|子公司|分公司|关联公司)"
+    description: 组织/法人/股东/控股型问题
+
+  - name: graph_person_query
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "^(谁|哪个人|哪些人|哪位|哪几位|是谁|是什么人)"
+    description: 谁/哪个人/是谁 开头的人物/关系查询
+
+  - name: graph_event_relation
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(合作|签署|签订|发起|参与|负责|管理|管理过|主管|任命|委任|收购|并购|上市|注资|撤资|投资|融资|参股|控股|代理|经销|供货|采购|签约|缔约)"
+    description: 商业事件/合作/签约/投融资类关系查询
+
+  # =============================================================
+  # vector_only 类（字面/语义/定义/方法/数量）—— 命中走向量检索
+  # =============================================================
+
+  - name: vector_literal
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(什么样|什么样子|长什么样|多高|多大|什么颜色|外观|容貌|穿着|哪一句|原文|摘录|描写|比喻|修辞|第一段|第二段|第三段|首句|尾句|开头|结尾|原文是|原文摘录|原话)"
+    description: 字面/原文/描写/外貌查询（"长什么样"、"原文是"）
+
+  - name: vector_definition
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(什么是|是什么|意思是什么|定义|含义|概念|解释|说明|介绍|简介|概述|简述|讲讲|讲一下|讲讲看|说说|说一下|讲的是|的意思是|指的是|讲清楚)"
+    description: 定义/概念/含义/解释型查询（"什么是 X"、"X 的定义"）
+
+  - name: vector_how_to
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(怎么写|怎么算|怎么做|怎么做|怎么用|怎么说|怎么表达|怎么描述|怎么称呼|怎么叫|怎么称呼|怎么称呼|怎么实现|怎么搭建|怎么部署|怎么配置|怎么启动|如何|怎样)"
+    description: 方法/步骤/操作型查询（"怎么写"、"怎么用"、"如何 X"）
+
+  - name: vector_quantity_enumeration
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(多少|几个|几种|哪几种|有哪些|列举|列一下|列出|都有哪些|有哪些|都有什么|哪几个|哪一些|哪几项|列出来|说说.{0,3}几种|说说.{0,3}几个)"
+    description: 数量/列举型查询（"X 有哪些"、"列举 X"）
+
+  - name: vector_summary
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(总结|归纳|概括|摘要|总结一下|归纳一下|概括一下|概要|大意|主要内容|核心要点|关键点|核心内容|主要内容是什么|大概.{0,3}讲.{0,3}什么|讲了.{0,3}什么|主要内容|内容是什么)"
+    description: 总结/摘要/归纳型查询（"总结一下"、"主要内容"）
+
+  - name: vector_difference_comparison
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(区别|差异|不同|不同之处|对比|比较|相比|对照|哪个.{0,3}好|哪个.{0,3}合适|哪个.{0,3}更|优劣|优缺点|利弊|各自的.{0,3}特点|有什么区别|有什么不一样)"
+    description: 对比/区别/差异型查询（"A 和 B 的区别"、"哪个更好"）
+
+  - name: vector_time_range
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(何时|什么时候|哪一年|哪一年|哪月|几月|几日|几号|什么时候.{0,3}生效|什么时候.{0,3}实施|什么时候.{0,3}开始|什么时候.{0,3}结束|什么时候.{0,3}到期|什么时候.{0,3}过期|有效期|生效日期|到期日期|截至.{0,3}日期|起始.{0,3}日期)"
+    description: 时间/日期/有效期型查询（"什么时候"、"有效期"、"何时生效"）
+
+  - name: vector_documentation
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(文档|文档里|文档内|文档中|文档上|条款|规定|法规|法则|条文|规章|规范|要求|标准|规范要求|技术要求|性能要求|参数|规格|参数表|技术参数|技术规格|性能指标|功能.{0,3}指标|验收.{0,3}标准|技术.{0,3}指标)"
+    description: 文档/条款/参数/规格型查询（"X 的条款"、"参数表"、"验收标准"）
+
+  - name: vector_pricing_cost
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(多少钱|几钱|价格|价位|价钱|售价|报价|定价|单价|总价|报价单|价格表|费|费用|收费|收费标准|价目|折扣|优惠|优惠价|促销|折后|优惠幅度|成本|预算|报价范围|价格区间)"
+    description: 价格/费用/报价/折扣型查询（"多少钱"、"价格"、"报价"、"折扣"）
+
+  - name: vector_feature_capability
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(功能|特性|特点|优势|卖点|亮点|具备.{0,3}功能|支持.{0,3}功能|能.{0,3}做什么|可以.{0,3}做什么|适用.{0,3}场景|适用于|适用场景|应用场景|使用场景|典型场景|核心.{0,3}能力|主要.{0,3}能力)"
+    description: 功能/特点/优势/适用场景型查询（"X 的功能"、"适用场景"、"主要能力"）
+
+  - name: vector_technical_api
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(API|SDK|接口|端点|endpoint|接口.{0,3}文档|接口.{0,3}说明|接口.{0,3}规范|版本|兼容性|支持.{0,3}版本|升级|迁移|部署|运维|监控|告警|日志|性能|性能.{0,3}指标|QPS|TPS|并发|吞吐量|延迟|响应时间|超时)"
+    description: 技术/API/性能/运维型查询（"X 的 API"、"性能指标"、"QPS"、"如何部署"）
+
+  - name: vector_statistic_metric
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(比例|占比|百分比|百分点|增长率|增幅|增速|下降率|降幅|规模|体量|总量|总.{0,3}量|统计|数据|指标|数值|数字|平均值|中位数|众数|方差|标准差|同比|环比|增量|绝对值|占比.{0,3}多少)"
+    description: 统计/指标/比例/增长率型查询（"增长率"、"占比"、"同比"）
+
+  - name: vector_ranking_extreme
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(排名前|排行|排行榜|最大.{0,3}的|最小.{0,3}的|最高.{0,3}的|最低.{0,3}的|最优|最差|最好|最坏|最强|最弱|最.{0,3}的|前几|后几|前.{0,3}名|第.{0,3}名|排序|排名)"
+    description: 排名/排序/极值型查询（"最大的"、"前几名"、"最优"）
+
+  - name: vector_usage_method
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(用法|用法.{0,3}用量|用量|服用.{0,3}方法|食用.{0,3}方法|使用方法|使用.{0,3}步骤|操作.{0,3}步骤|操作.{0,3}方法|操作.{0,3}流程|使用.{0,3}流程|使用.{0,3}说明|说明书|指南|攻略|教程|如何.{0,3}使用|使用.{0,3}技巧|技巧)"
+    description: 用法/用量/操作步骤/教程型查询（"X 的用法"、"教程"、"操作步骤"）
+
+  - name: vector_status_progress
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(进度|状态|当前.{0,3}状态|进展|实施.{0,3}情况|完成.{0,3}情况|进行.{0,3}情况|当前.{0,3}进展|到.{0,3}什么.{0,3}阶段|什么.{0,3}阶段|完成度|完成率|剩余.{0,3}时间|还要.{0,3}多久|还需要.{0,3}多久)"
+    description: 进度/状态/阶段型查询（"进度如何"、"当前状态"、"完成率"）
+
+  - name: vector_scope_range
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(范围|覆盖.{0,3}范围|适用范围|有效.{0,3}范围|距离|多远|半径|周围|附近|相邻|周边|边界|范围.{0,3}内|以内|以下|以上|.{0,3}到.{0,3}之间|.{0,3}~.{0,3}|.{0,3}至.{0,3})"
+    description: 范围/距离/边界型查询（"X 的范围"、"距离多远"、"覆盖范围"）
+
+  - name: vector_quantity_counting
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(几|多少|几个|多少次|几回|频率|频次|多少次|间隔|周期|时长|持续.{0,3}多久|持续.{0,3}时间|共.{0,3}多少|一共.{0,3}多少|共计|累计|总数|总.{0,3}数)"
+    description: 数量/频率/周期/时长型查询（"X 多少次"、"频率"、"周期"）
+
+  - name: vector_contract_terms
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(合同|协议|契约|签约|履约|违约|违约金|保证金|担保|保证|抵押|质押|解除|终止|续约|转让|变更|修改|补充|附件|付款.{0,3}方式|付款.{0,3}条件|结算.{0,3}方式|结算.{0,3}周期|验收.{0,3}方式|交付.{0,3}方式|交付.{0,3}时间|质保|保修|售后|维护)"
+    description: 合同/协议/履约/付款型查询（"合同条款"、"违约金"、"付款方式"、"交付时间"）
+
+  - name: vector_role_attribute
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(年龄|性别|民族|籍贯|学历|学位|专业|毕业.{0,3}院校|工作.{0,3}经历|任职.{0,3}资格|任职.{0,3}要求|岗位.{0,3}要求|职位.{0,3}要求|薪酬|薪资|工资|福利|岗位职责|工作内容)"
+    description: 人物属性/任职资格/岗位要求型查询（"X 的学历"、"岗位要求"、"薪酬"）
+
+  - name: vector_process_procedure
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(流程|申请.{0,3}流程|审批.{0,3}流程|办理.{0,3}流程|流程.{0,3}步骤|申报|报备|备案|审批|批准|核准|审核|审查|批复|申请.{0,3}材料|所需.{0,3}材料|办理.{0,3}材料|材料|时限|办理.{0,3}时限|审批.{0,3}时限)"
+    description: 流程/审批/办理/材料型查询（"申请流程"、"所需材料"、"办理时限"）
+
+  - name: vector_legal_compliance
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(法律|法规|法条|条款|司法|诉讼|起诉|应诉|仲裁|调解|管辖|法院|审判|判决|裁定|举证|证据|责任|义务|权利|义务|免责|豁免|承担.{0,3}责任|违约责任|侵权|合规|合法|违法|违规|刑事责任|民事责任|行政责任)"
+    description: 法律/合规/责任/权利型查询（"法律责任"、"合规要求"、"权利义务"）
+
+  - name: vector_medical_health
+    branch: vector_only
+    type: regex_search
+    patterns:
+      - "(症状|临床表现|体征|诊断|治疗|用药|药物|药品|剂量|副作用|不良反应|禁忌|注意事项|病因|病因.{0,3}是什么|发病.{0,3}机制|预防|并发症|预后|疗效|康复|护理|护理.{0,3}措施|手术|检查.{0,3}项目|化验)"
+    description: 医疗/症状/治疗/药物型查询（"症状是什么"、"用什么药"、"副作用"、"如何预防"）—— 仅医疗领域知识库适用
+
+  # =============================================================
+  # graph_only 补充：角色/事件/比较/履约
+  # =============================================================
+
+  - name: graph_party_role
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(职务|职位|岗位|职责|职能|角色|身份|头衔|职务.{0,3}是什么|职位.{0,3}是什么|担任.{0,3}什么|出任|任职|在任|前任|继任|上级.{0,3}是谁|下级|下属|平级)"
+    description: 角色/职务/职能型问题（"X 的职务"、"担任什么职位"、"上级是谁"）
+
+  - name: graph_event_chronology
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(经过|来龙去脉|起因|导火索|前因后果|先.{0,3}后.{0,3}|先.{0,3}再|起因.{0,3}是|导致.{0,3}发生|引发.{0,3}发生|事件|发生.{0,3}经过|全过程|全流程|时间.{0,3}节点|关键.{0,3}节点|里程碑)"
+    description: 事件经过/前因后果/时间节点型问题（"X 的来龙去脉"、"先...后..."、"关键节点"）
+
+  - name: graph_compare_two_entities
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(A.{0,4}与.{0,4}B|甲.{0,2}与.{0,2}乙|甲乙|双方|两方|双方.{0,3}关系|两方.{0,3}关系|谁.{0,4}更|哪个.{0,4}更|比.{0,3}更|胜过|优于|强于|弱于|不敌)"
+    description: 两个实体比较/胜过型问题（"A 与 B 谁更强"、"甲乙双方关系"）—— 与 vector_difference 区分：这里强调实体比较而非特征比较
+
+  - name: graph_ownership_chain
+    branch: graph_only
+    type: regex_search
+    patterns:
+      - "(所有权|股权|控股|参股|投资|出资|占比|持股|股东|控股股东|实际控制人|实控人|最终受益人|受益人|持有|认购|并购|收购|重组|分立|合并)"
+    description: 股权/控股/所有权链型问题（"X 持有多少股份"、"实际控制人"、"最终受益人"）

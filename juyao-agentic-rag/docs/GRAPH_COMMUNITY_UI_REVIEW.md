@@ -1,7 +1,7 @@
 # 知识图谱社区展示方案
 
-> 状态:✅ 已完成(2026-08-08 实施并验证)
-> 创建:2026-08-08 · 更新:2026-08-08
+> 状态:✅ 已完成(2026-08-08 实施，2026-08-12 §1 聚类布局 + §2 边界气泡增强恢复 + §2 气泡跟随 roam 重构)
+> 创建:2026-08-08 · 更新:2026-08-12
 > 关联:[GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md)(社区检测是其中的待办项,现补展示层)
 
 ## 实施验证(2026-08-08)
@@ -76,11 +76,12 @@
 - 效果:同社区节点聚成「团」,与着色叠加,社区结构一目了然
 
 ### 2. 社区边界气泡(KgGraphPanel)
-- 用 ECharts `graphic` 元素在 series 之下画半透明椭圆:
-  - cx/cy = 社区成员平均位置,rx/ry = 成员分布半径(最小半径兜底)
-  - fill = 社区色 10% 透明度,stroke = 社区色,虚线
-- 气泡绘制在 series 之前(底层),节点在上层不遮挡
-- 限制:节点被手动拖动后气泡不跟随(静态布局,可接受)
+- **气泡 = graph series 的虚拟节点**(2026-08-12 重构):`symbol: 'circle'` + `symbolSize: [rx*2, ry*2]` 拉伸成椭圆
+  - cx/cy = 成员坐标包围盒中心,rx/ry = 包围盒半宽 + 留白(随成员分布动态变化)
+  - fill = 社区色 10% 透明度,stroke = 社区色,`borderType: 'dashed'` 虚线
+  - `silent: true` + `emphasis.disabled: true`:不响应 hover/点击/拖拽,不参与 focus/blur 淡化
+- 气泡排在 seriesData 最前(底层),实体节点在上层不遮挡
+- **为什么不用 `graphic` 元素**:graphic 挂在 chart 的 viewRoot 下,不随 series 的 roam/拖拽变换——全图缩放平移时虚线框留在原地(用户反馈「框写死不动」);作为 series 数据点则天然跟随 roam(PITFALLS #23)
 
 ### 3. 社区聚合节点(index.vue + KgGraphPanel)
 - 全图模式下新增「社区视图」切换(controls 区按钮):

@@ -15,19 +15,46 @@ from rag_core.infrastructure.qdrant import get_qdrant_client
 logger = logging.getLogger(__name__)
 
 
-def _rebuild_communities_after_delete(kb_id: int | None) -> None:
-    """删除后重建社区：实体被删后 Community/MEMBER_OF 会残留悬空引用、摘要过时。
+def _prune_orphan_communities(kb_id: int | None) -> None:
+    """删除后轻量清理社区：只删「没有成员实体的孤儿 Community 节点」+ 对应 Qdrant 摘要。
 
-    与入库侧对称（入库后 build_communities），保证删除后社区与图谱一致；
-    失败仅告警不阻断删除（社区可后续手动重建）。
+    不重跑 Leiden、不调 LLM 摘要——存活社区的摘要保留旧版（略过时可接受，
+    下次任何入库会由调度器全量重建刷新，见 community_scheduler.py）。
+    相比旧版全量重建（每次 30 社区 × LLM 摘要 ≈ 60 秒），本路径 <1 秒。
+    失败仅告警不阻断删除。
     """
     try:
-        from rag_core.application.graph.community_build import build_communities
+        from rag_core.infrastructure.neo4j import Neo4jTripleStore
+        from rag_core.infrastructure.qdrant import delete_community_summaries_by_ids
 
-        community_count = build_communities(kb=kb_id, reset=True)
-        logger.info("【删除】社区重建完成：%s 个（kb=%s）", community_count, kb_id)
+        store = Neo4jTripleStore()
+        # 1. 查孤儿社区（无任何 MEMBER_OF 成员；MEMBER_OF 边在 purge 时已被 DETACH 清掉，这里兜底确认）
+        if kb_id is not None:
+            result = store._driver.execute_query(
+                "MATCH (c:Community) WHERE $kb IN coalesce(c.kb_ids, []) "
+                "AND NOT EXISTS { MATCH (:Entity)-[:MEMBER_OF]->(c) } RETURN c.id AS cid",
+                {"kb": int(kb_id)},
+            )
+        else:
+            result = store._driver.execute_query(
+                "MATCH (c:Community) WHERE NOT EXISTS { MATCH (:Entity)-[:MEMBER_OF]->(c) } "
+                "RETURN c.id AS cid",
+            )
+        orphan_ids = [str(rec["cid"]) for rec in result.records]
+        if not orphan_ids:
+            return
+        # 2. 删孤儿 Community 节点（DETACH 兜底清掉残留关系）
+        store._run("MATCH (c:Community) WHERE c.id IN $ids DETACH DELETE c", {"ids": orphan_ids})
+        # 3. 删 Qdrant 摘要向量（避免检索命中已在 Neo4j 消失的社区）
+        deleted = delete_community_summaries_by_ids(orphan_ids)
+        logger.info(
+            "【删除】孤儿社区清理完成：%s 个（kb=%s，Qdrant 摘要 %s 条）",
+            len(orphan_ids),
+            kb_id,
+            deleted,
+        )
     except Exception as exc:
-        logger.warning("【删除】社区重建失败（不阻断删除）：%s", exc)
+        logger.warning("【删除】孤儿社区清理失败（不阻断删除）：%s", exc)
 
 
 def delete_from_qdrant_by_source_name(source_name: str, kb_id: int | None = None) -> int:
@@ -121,8 +148,8 @@ def delete_document_from_indexes(
         Neo4jTripleStore().purge_document_edges(
             name_prefix=prefix, source_display_name=source_name, kb_id=kb_id
         )
-        # 社区同步维护：实体删除后 Community/MEMBER_OF 悬空引用与摘要需重建
-        _rebuild_communities_after_delete(kb_id)
+        # 社区同步维护：实体删除后清理孤儿社区（轻量，不调 LLM；全量刷新靠下次入库调度）
+        _prune_orphan_communities(kb_id)
 
 
 def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb_id: int | None = None) -> None:
@@ -162,8 +189,8 @@ def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb
         )
     if include_graph:
         Neo4jTripleStore().purge_chunk_ids(chunk_ids, kb_id=kb_id)
-        # 社区同步维护（差集清理同样会删实体）
-        _rebuild_communities_after_delete(kb_id)
+        # 社区同步维护（差集清理同样会删实体）：轻量清理孤儿社区，不调 LLM
+        _prune_orphan_communities(kb_id)
     from rag_core.infrastructure.mysql_chunks import delete_chunks_from_mysql_by_ids
 
     mysql_deleted = delete_chunks_from_mysql_by_ids(chunk_ids)
@@ -249,5 +276,5 @@ def purge_kb(kb_id: int) -> None:
     mysql_deleted = purge_kb_from_mysql(kb_id)
     logger.info("【清空 kb】MySQL 删除 %s 条", mysql_deleted)
 
-    # 社区同步维护：kb 清空后 Community/MEMBER_OF 一并重建（此时图谱为空 → 0 社区）
-    _rebuild_communities_after_delete(kb_id)
+    # 社区同步维护：kb 清空后图谱为空 → 所有社区变孤儿，轻量清理即可删光（等价全量重建的空结果）
+    _prune_orphan_communities(kb_id)

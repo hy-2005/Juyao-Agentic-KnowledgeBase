@@ -129,7 +129,8 @@ export default {
     graphData: { type: Object, default: () => ({ nodes: [], links: [] }) },
     graphMode: { type: String, default: 'subgraph' },
     highlightKeyword: { type: String, default: '' },
-    communityView: { type: Boolean, default: false }
+    communityView: { type: Boolean, default: false },
+    clusterByCommunity: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -147,8 +148,16 @@ export default {
     graphMode() { this.renderChart() },
     highlightKeyword() { this.renderChart() },
     communityView() { this.renderChart() },
-    height() { this.$nextTick(() => this.resize()) },
-    width() { this.$nextTick(() => this.resize()) }
+    clusterByCommunity() { this.renderChart() },
+    height() {
+      // 聚类布局的坐标依赖容器尺寸——尺寸变化必须重算坐标而非仅 resize
+      if (this.clusterByCommunity) this.renderChart()
+      else this.$nextTick(() => this.resize())
+    },
+    width() {
+      if (this.clusterByCommunity) this.renderChart()
+      else this.$nextTick(() => this.resize())
+    }
   },
   mounted() {
     this.$nextTick(() => {
@@ -205,7 +214,221 @@ export default {
     },
     renderChart() {
       if (!this.chart) return
+      const nodes = (this.graphData && this.graphData.nodes) || []
+      const hasCommunity = nodes.some((n) => n && n.community_id)
+      const isFull = this.graphMode === 'full'
+      // 全图模式 + 开启聚类 + 有 community_id + 未切到社区视图 → 走聚类布局（带边界气泡）
+      if (isFull && this.clusterByCommunity && !this.communityView && hasCommunity) {
+        return this.renderClusteredGraph()
+      }
       this.renderForceGraph()
+    },
+
+    // 社区聚类布局（GRAPH_COMMUNITY_UI_REVIEW §1/§2 增强版）：
+    //  - 社区中心用黄金角极坐标分布（紧凑 + 视觉均衡，避免均匀圆周的稀疏外圈）
+    //  - 成员按度数降序环形排布（不是同心圆展开，避免大社区半径爆炸）
+    //  - 边界气泡用 graphic group 画半透明椭圆 + 虚线边框（跟随节点坐标）
+    //  - 关键修复原"难看且缩放错位"：watch width/height 触发重算而非仅 resize；
+    //    节点用像素坐标 + layout:'none'，确保气泡和节点同步缩放
+    renderClusteredGraph() {
+      const nodes = (this.graphData && this.graphData.nodes) || []
+      const links = (this.graphData && this.graphData.links) || []
+      if (!nodes.length) {
+        this.chart.clear()
+        return
+      }
+      const width = this.chart.getWidth() || 600
+      const height = this.chart.getHeight() || 400
+      const cx = width / 2
+      const cy = height / 2
+
+      // 节点按 community_id 分组
+      const byCid = new Map()
+      nodes.forEach((n) => {
+        const cid = n.community_id || ''
+        if (!byCid.has(cid)) byCid.set(cid, [])
+        byCid.get(cid).push(n)
+      })
+      const cids = Array.from(byCid.keys())
+      const communityCount = cids.length
+
+      // 1. 社区中心：黄金角（≈137.5°）极坐标 + √i 缩放半径（避免外圈过稀）
+      const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)) // 黄金角 ≈2.39996 rad
+      const ringMax = Math.min(width, height) * 0.32
+      const communityCenters = new Map() // cid -> {x, y}
+      cids.forEach((cid, i) => {
+        const r = ringMax * Math.sqrt((i + 1) / communityCount)
+        const a = i * GOLDEN_ANGLE
+        communityCenters.set(cid, {
+          x: cx + r * Math.cos(a),
+          y: cy + r * Math.sin(a)
+        })
+      })
+
+      // 2. 度数（越大越中心）+ 成员环形分布
+      const degreeOf = (name) => {
+        let d = 0
+        for (const l of links) {
+          if (l.source === name || l.target === name) d++
+        }
+        return d
+      }
+      const MAX_RING = Math.min(width, height) * 0.16 // 社区成员最大外圈半径
+      const MIN_RING = 28 // 最小外圈（成员少时也给点视觉范围）
+      const memberPos = new Map() // nodeName -> {x, y}
+      const bubbleMeta = [] // 椭圆参数
+      cids.forEach((cid) => {
+        const center = communityCenters.get(cid)
+        const members = byCid.get(cid).slice().sort((a, b) => {
+          // 度数降序、名字升序做稳定排序
+          const dd = degreeOf(b.name || b.id) - degreeOf(a.name || a.id)
+          return dd !== 0 ? dd : String(a.name || a.id).localeCompare(String(b.name || b.id))
+        })
+        const m = members.length
+        // 外圈半径：m=1 给最小，m 大时受 MAX_RING 限制（不再按 √m 爆炸）
+        const ring = Math.min(MAX_RING, MIN_RING + Math.sqrt(m) * 6)
+        members.forEach((node, idx) => {
+          // 起始角偏移让大社区在视觉上不被压扁
+          const startOffset = (m % 2) * (Math.PI / m)
+          const a = startOffset + (idx / Math.max(m, 1)) * Math.PI * 2
+          memberPos.set(node.name || node.id, {
+            x: center.x + ring * Math.cos(a),
+            y: center.y + ring * Math.sin(a)
+          })
+        })
+        // 气泡：按成员实际坐标的包围盒计算椭圆（形状随成员分布变化，
+        // 不再是写死的正圆 ring+18）
+        let minX = Infinity
+        let maxX = -Infinity
+        let minY = Infinity
+        let maxY = -Infinity
+        members.forEach((node) => {
+          const p = memberPos.get(node.name || node.id)
+          if (p) {
+            minX = Math.min(minX, p.x)
+            maxX = Math.max(maxX, p.x)
+            minY = Math.min(minY, p.y)
+            maxY = Math.max(maxY, p.y)
+          }
+        })
+        const pad = 24 // 边框到成员边缘的留白
+        bubbleMeta.push({
+          cx: (minX + maxX) / 2,
+          cy: (minY + maxY) / 2,
+          rx: Math.max((maxX - minX) / 2 + pad, 46),
+          ry: Math.max((maxY - minY) / 2 + pad, 46),
+          color: communityColor(cid),
+          cid
+        })
+      })
+
+      // 3. seriesData（气泡虚拟节点 + 实体节点）
+      const kw = (this.highlightKeyword || '').trim().toLowerCase()
+      // 气泡作为 graph series 的虚拟节点（circle symbol 被 symbolSize 宽高拉伸成椭圆）：
+      // 不能用 graphic 元素——graphic 挂在 chart 的 viewRoot 下，不随 series 的
+      // roam/拖拽变换，全图缩放平移时虚线框会留在原地（用户反馈"框写死不动"）。
+      // 作为 series 数据点则天然跟随 roam，且包围盒参数随成员坐标动态计算
+      const seriesData = bubbleMeta.map((b) => ({
+        id: `bubble-${b.cid}`,
+        name: '',
+        x: b.cx,
+        y: b.cy,
+        symbol: 'circle',
+        symbolSize: [b.rx * 2, b.ry * 2],
+        silent: true, // 不响应 hover/点击/拖拽
+        emphasis: { disabled: true }, // 不参与 focus/blur 淡化
+        label: { show: false },
+        tooltip: { show: false },
+        itemStyle: {
+          color: b.color + '1A', // 10% 透明度（hex 后缀 1A ≈ 26/255）
+          borderColor: b.color,
+          borderWidth: 1.5,
+          borderType: 'dashed',
+          opacity: 1
+        }
+      }))
+      nodes.forEach((n) => {
+        const name = n.name || n.id
+        const pos = memberPos.get(name) || { x: cx, y: cy }
+        const matched = kw && String(name).toLowerCase().includes(kw)
+        const color = n.community_id ? communityColor(n.community_id) : COLORS.full
+        seriesData.push({
+          id: n.id || name,
+          name,
+          x: pos.x,
+          y: pos.y,
+          fixed: true, // 拖动时位置不参与 force（但仍可手动调整）
+          ...(n.community_id ? { community_id: n.community_id } : {}),
+          symbolSize: matched ? 40 : 28,
+          itemStyle: {
+            color,
+            borderColor: matched ? '#fff' : '#fff',
+            borderWidth: matched ? 3 : 2,
+            opacity: kw && !matched ? 0.45 : 1
+          },
+          label: {
+            show: true,
+            position: 'inside',
+            formatter: truncateText(name, 5),
+            fontSize: 10,
+            color: '#fff',
+            fontWeight: 600
+          }
+        })
+      })
+
+      const showEdgeLabels = links.length <= 80
+      const option = {
+        backgroundColor: '#f0f2f5',
+        animation: true,
+        animationDurationUpdate: 600,
+        animationEasingUpdate: 'cubicOut',
+        tooltip: {
+          confine: true,
+          formatter: (params) => {
+            if (params.dataType === 'edge') return this.edgeTooltip(params.data || {})
+            const cid = params.data && params.data.community_id
+            const cidHtml = cid
+              ? `<div style="margin-top:4px;font-size:12px;color:${communityColor(cid)}">所属社区：${cid}</div>`
+              : ''
+            return `<strong>${params.name || ''}</strong>${cidHtml}<div style="margin-top:4px;font-size:12px;color:#909399">点击查看子图 · 滚轮缩放 · 拖动节点</div>`
+          }
+        },
+        series: [{
+          type: 'graph',
+          layout: 'none',
+          roam: true,
+          draggable: true,
+          symbol: 'circle',
+          edgeSymbol: ['none', 'arrow'],
+          edgeSymbolSize: [0, 8],
+          data: seriesData,
+          links: links.map((l) => ({
+            source: l.source,
+            target: l.target,
+            relation: l.relation,
+            evidence_snippets: l.evidence_snippets,
+            label: edgeRelationLabel(showEdgeLabels),
+            lineStyle: {
+              color: COLORS.edge,
+              width: 1,
+              curveness: 0.18,
+              opacity: 0.55
+            }
+          })),
+          emphasis: {
+            focus: 'adjacency',
+            scale: true,
+            lineStyle: { width: 2.4, color: COLORS.edgeHighlight, opacity: 1 },
+            label: { show: true, fontWeight: 'bold', fontSize: 11 }
+          },
+          blur: {
+            itemStyle: { opacity: 0.22 },
+            lineStyle: { opacity: 0.12 }
+          }
+        }]
+      }
+      this.chart.setOption(option, true)
     },
     // #region agent log helpers
     _dbgLog(location, message, data, hypothesisId) {

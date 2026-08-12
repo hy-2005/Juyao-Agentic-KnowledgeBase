@@ -74,3 +74,4 @@ venv/
 # Docker Compose .env
 .env.docker.local
 .env
+，codegraph/

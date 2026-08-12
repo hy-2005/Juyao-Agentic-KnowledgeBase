@@ -77,12 +77,16 @@ def ingest_file(
     purge_before_write: bool = False,
     content_sha256: str | None = None,
     kb_id: int = 0,
+    build_communities: bool = True,
 ) -> tuple[int, int]:
     """导入单个文件，返回（向量侧 chunk 数，图侧关系数）。
 
     purge_before_write=True 时先写后删：写入前记录旧 chunk_id 集合，
     三库全部写成功后按「旧 id − 新 id」差集精确清理（P0-2 原子性修复）；
     任一步失败抛错且旧数据保留。
+
+    build_communities=True 时入库后立即全量重建社区（CLI/单文档路径）；
+    False 时跳过，由上层调度器在静默窗口统一重建（批量入库合并，避免 N 文档 N 次重建）。
     """
     begin = time.time()
     path = Path(file_path)
@@ -141,15 +145,18 @@ def ingest_file(
     triple_count = 0
     if enable_graph:
         _, triple_count = write_chunks_to_graph(chunks=chunks, source_name=logical_name, kb_id=kb_id)
-        # 社区构建：图谱数据变化后自动重建社区（Leiden 检测 + LLM 摘要）。
+        # 社区构建：图谱数据变化后重建社区（Leiden 检测 + LLM 摘要）。
+        # build_communities=False 时跳过——由上层调度器（HTTP 入口 30s 静默窗口）统一重建，
+        # 批量入库只重建一次，避免 N 文档 N 次全量重建 + 多线程并行踩踏（PITFALLS #8 风险）。
         # 失败不阻断入库主流程（社区可后续手动重建），避免 LLM 摘要异常导致文档入库失败。
-        try:
-            from rag_core.application.graph.community_build import build_communities
+        if build_communities:
+            try:
+                from rag_core.application.graph.community_build import build_communities as _build
 
-            community_count = build_communities(kb=kb_id, reset=True)
-            logger.info("【入库】社区重建完成：%s 个（kb=%s）", community_count, kb_id)
-        except Exception as exc:
-            logger.warning("【入库】社区构建失败（不阻断入库）：%s", exc)
+                community_count = _build(kb=kb_id, reset=True)
+                logger.info("【入库】社区重建完成：%s 个（kb=%s）", community_count, kb_id)
+            except Exception as exc:
+                logger.warning("【入库】社区构建失败（不阻断入库）：%s", exc)
 
     # 步骤 4：先写后删——按 chunk_id 差集精确清理旧数据（失败则保留旧数据）
     if purge_before_write and old_chunk_ids:

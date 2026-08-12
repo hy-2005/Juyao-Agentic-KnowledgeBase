@@ -45,8 +45,11 @@ chunk_overlap = 120
 top_k = 15
 rrf_top_n = 12
 rerank_top_n = 6
-min_relevance_score = 0.35
+min_relevance_score = 0.5
 rrf_k = 60
+
+# --- 社区重建调度（批量入库合并重建的静默窗口）---
+community_rebuild_debounce_s = 30.0
 
 # --- Query 改写 ---
 query_rewrite_enabled = true

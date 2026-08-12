@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -115,11 +116,14 @@ public class RagGraphController extends BaseController{
     }
 
     @GetMapping("/communities")
-    public AjaxResult communities(){
+    public AjaxResult communities(
+            @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize){
         try{
             Map<String, Object> data = ragAdminClient.getJson(
                     "/api/v1/admin/graph/communities",
-                    RagAdminClient.params());
+                    RagAdminClient.params("pageNum", String.valueOf(pageNum),
+                            "pageSize", String.valueOf(pageSize)));
             return success(data);
         } catch (Exception e){
             return error("查询社区列表失败: " + e.getMessage());
@@ -127,9 +131,11 @@ public class RagGraphController extends BaseController{
     }
 
     @GetMapping("/edges/all")
-    public TableDataInfo allEdges(){
+    public TableDataInfo allEdges(@RequestParam(value = "limit", defaultValue = "0") Integer limit){
         try{
-            return ragAdminClient.getTable("/api/v1/admin/graph/edges/all", RagAdminClient.params());
+            return ragAdminClient.getTable(
+                    "/api/v1/admin/graph/edges/all",
+                    RagAdminClient.params("limit", String.valueOf(limit)));
         } catch (Exception e){
             TableDataInfo empty = new TableDataInfo();
             empty.setCode(500);

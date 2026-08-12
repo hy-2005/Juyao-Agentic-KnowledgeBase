@@ -101,12 +101,31 @@ def list_edges(
     )
 
 
-def fetch_all_edges() -> list[dict]:
-    """全量边（管理台导出用，limit 由调用方控制）。"""
-    rows = get_read_graph().query(
-        "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-        "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT 500"
-    )
+def fetch_all_edges(limit: int | None = None) -> list[dict]:
+    """全量边（管理台导出/全图兜底用）。
+
+    limit=None → 默认 500（防大库卡死）；limit=0 → 全量不加 LIMIT（PITFALLS #22：
+    原硬编码 LIMIT 500 导致前端「全量展示」仍只拿到 500 条）。
+    """
+    if limit is None:
+        query = (
+            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
+            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT 500"
+        )
+        params: dict | None = None
+    elif limit > 0:
+        query = (
+            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
+            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT $limit"
+        )
+        params = {"limit": limit}
+    else:
+        query = (
+            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
+            "RETURN h.name AS h, r.relation AS rel, t.name AS t"
+        )
+        params = None
+    rows = get_read_graph().query(query, params=params)
     return [
         {"head_name": r["h"], "relation_predicate": r["rel"], "tail_name": r["t"]}
         for r in rows
@@ -159,13 +178,20 @@ def _edges_to_subgraph(rows: list[dict]) -> dict:
     return {"nodes": list(nodes.values()), "links": edges}
 
 
-def list_communities() -> list[dict]:
-    """社区列表：id/摘要/实体数/成员实体名（社区面板 + 点击聚焦用）。"""
+def list_communities(page_num: int = 1, page_size: int = 10) -> tuple[list[dict], int]:
+    """社区列表：id/摘要/实体数/成员实体名（社区面板 + 点击聚焦用）。
+
+    分页：先取社区摘要全量列表（快），只对当前页查成员实体（避免 N+1 全量成员查询）。
+    返回 (rows, total)。
+    """
     from rag_core.application.graph.community_build import list_community_summaries
 
     summaries = list_community_summaries()
+    total = len(summaries)
+    start = max(0, (page_num - 1) * page_size)
+    page = summaries[start : start + page_size]
     result: list[dict] = []
-    for s in summaries:
+    for s in page:
         cid = s.get("community_id")
         if not cid:
             continue
@@ -181,7 +207,7 @@ def list_communities() -> list[dict]:
                 "entities": [r["name"] for r in members],
             }
         )
-    return result
+    return result, total
 
 
 def subgraph_from_seeds(seed_names: list[str], hops: int = 1, limit: int | None = None) -> dict:
@@ -207,12 +233,31 @@ def subgraph_from_seeds(seed_names: list[str], hops: int = 1, limit: int | None 
 
 
 def full_graph(limit: int | None = None) -> dict:
-    """全图节点边（limit 截断防前端卡死）。"""
-    rows = get_read_graph().query(
-        "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
-        "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT $limit",
-        params={"limit": limit or 300},
-    )
+    """全图节点边（limit 截断防前端卡死）。
+
+    limit=None → 默认 300（防大库卡死）；limit=0 → 全量不加 LIMIT。
+    注意：不能写 `limit or 300`——Python 的 or 会把 0 当 falsy 回退 300，
+    导致显式「全量」请求仍被截断（PITFALLS #22）。
+    """
+    if limit is None:
+        query = (
+            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
+            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT 300"
+        )
+        params: dict | None = None
+    elif limit > 0:
+        query = (
+            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
+            "RETURN h.name AS h, r.relation AS rel, t.name AS t LIMIT $limit"
+        )
+        params = {"limit": limit}
+    else:
+        query = (
+            "MATCH (h:Entity)-[r:RELATED]->(t:Entity) "
+            "RETURN h.name AS h, r.relation AS rel, t.name AS t"
+        )
+        params = None
+    rows = get_read_graph().query(query, params=params)
     return _edges_to_subgraph(rows)
 
 

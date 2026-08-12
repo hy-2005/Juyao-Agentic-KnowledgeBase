@@ -7,6 +7,9 @@ from langchain_openai import ChatOpenAI
 from rag_core.core.config import get_settings
 from rag_core.infrastructure.llm.dashscope_embeddings import get_dashscope_embeddings
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def build_openai_http_client(*, timeout: float | None = None) -> httpx.Client:
     # 显式 http_client 可避免 langchain-openai 走系统代理自动探测链路。
@@ -66,6 +69,10 @@ def _resolve_dashscope_task_llm(
 def get_embeddings() -> Embeddings:
     settings = get_settings()
     provider = (settings.embed_provider or "ollama").strip().lower()
+    logger.info(
+        "[LLM] get_embeddings → provider=%s model=%s",
+        provider, settings.embed_model
+    )
     if provider == "dashscope":
         return get_dashscope_embeddings()
     return OllamaEmbeddings(model=settings.embed_model, base_url=settings.ollama_base_url)
@@ -76,12 +83,20 @@ def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
     settings = get_settings()
     timeout = kwargs.pop("timeout", None)
     base_url = settings.dashscope_compatible_base_url.rstrip("/")
-    # MiniMax 只认 thinking.type 字段，不认百炼的 enable_thinking；发错字段思考不会禁用，
-    # 输出会带 <think> 前缀污染 answer（gen_qa_100 曾因此需要正则剥离）。
+    # 供应商对 thinking 字段语义不同（PITFALLS #17 同源）：
+    # - MiniMax 只认 thinking.type 字段
+    # - 百炼认 enable_thinking
+    # - DeepSeek 等第三方不认识任何 thinking 字段——发出去可能 400 或忽略，必须不发
     if "minimaxi.com" in base_url or "minimax.io" in base_url:
         extra_body = {"thinking": {"type": "disabled"}}
-    else:
+    elif "dashscope" in base_url or "aliyuncs.com" in base_url:
         extra_body = {"enable_thinking": settings.dashscope_enable_thinking}
+    else:
+        extra_body = {}
+    logger.info(
+        "[LLM] get_chat_llm → model=%s base_url=%s streaming=%s",
+        settings.gen_model, base_url, streaming
+    )
     return ChatOpenAI(
         model=settings.gen_model,
         api_key=resolve_llm_api_key(),
@@ -104,6 +119,10 @@ def get_chunk_llm(**kwargs) -> ChatOpenAI:
         api_key=settings.chunk_llm_api_key,
         fallback_base_url=settings.json_llm_base_url,
         fallback_model=settings.json_gen_model,
+    )
+    logger.info(
+        "[LLM] get_chunk_llm → model=%s base_url=%s",
+        model, base_url
     )
     return ChatOpenAI(
         model=model,

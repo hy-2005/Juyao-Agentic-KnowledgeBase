@@ -1,6 +1,6 @@
 # 检索层面评审与规划
 
-> 状态：🔄 进行中（P0-P3 路线图已完成；rerank 截断/结果缓存遗留） · 创建：2026-08-07 · 更新：2026-08-07
+> 状态：🔄 进行中（P0-P3 路线图已完成；rerank 截断/结果缓存遗留；2026-08-12 阈值/相对截断/HyDE/simple_query 调整已落地） · 创建：2026-08-07 · 更新：2026-08-12
 > 范围：juyao-agentic-rag 检索链路（`rag_core/retrieval/` + `orchestration/`）
 > 配套代码：`retriever.py`（主流程）、`fusion.py`（RRF）、`reranker.py`（重排）、`query_rewrite.py`、`hyde.py`、`elasticsearch.py`（BM25）、`observations.py`
 > 关联文档：`CHUNK_SPLITTING_REVIEW.md`（chunk 拆分评审）、`GRAPH_QUERY_REVIEW.md`（图谱查询评审；P0 embedding 窗口问题与 sufficiency 阈值联动）、`TENANT_PERMISSION_REVIEW.md`（检索链路 kbId 隔离）
@@ -28,7 +28,8 @@ search_context(query)
 | top_k | 15 | 每路召回数 |
 | rrf_top_n | 8 | 跨 query RRF 后进 rerank 的候选数 |
 | rerank_top_n | 5 | 最终给 LLM 的 chunk 数 |
-| min_relevance_score | 0.35 | 向量路全局绝对值过滤阈值 |
+| min_relevance_score | 0.5 | 向量路全局绝对值过滤阈值（2026-08-12 从 0.35 上调） |
+| min_relevance_relative_ratio | 0.0 | 相对截断比例（2026-08-12 关闭，见 §4） |
 | rrf_k | 60 | RRF 平滑常数 |
 | query_rewrite_max_subqueries | 4 | sub-query 上限 |
 | rerank_provider / model | dashscope / gte-rerank-v2 | 重排模型 |
@@ -94,7 +95,10 @@ search_context(query)
 | 优先级 | 改动 | 状态 | 说明 |
 |---|---|---|---|
 | P0 | `_HYDE_MAX_LEN` 压缩 | ✅ 事实修正 | 实际 .env 用 text-embedding-v4（8192 token 窗口），600 字不超窗，保留为旋钮 |
-| P1 | 向量阈值改相对截断 | ✅ 已实施 | `min_relevance_relative_ratio=0.6`：门槛 = min(绝对, 最高分×比例)，低分 query 放宽交给 rerank |
+| P1 | 向量阈值改相对截断 | ⚠️ 已回退（2026-08-12） | 原 `min_relevance_relative_ratio=0.6`（门槛 = min(绝对, 最高分×比例)）；实测发现"最高分低 = 库里没相关"时相对比例自动放水（0.2 分 → 门槛 0.12），弱相关 chunk 大量进 RRF → LLM 幻觉风险。**已回退为纯绝对阈值**（ratio=0.0） |
+| P1 | min_relevance 上调 | ✅ 已实施（2026-08-12） | 0.35 → 0.5（text-embedding-v4 相似度分布中位合理值）；弱相关 0.35~0.5 区间被过滤，召回变严（PITFALLS #19） |
+| P1 | HyDE 字数配置化 | ✅ 已实施（2026-08-12） | `hyde_min_chars=120 / hyde_target_chars=300 / hyde_max_chars=1500`（原 80~200/600 写死）；max 上调避免截断，prompt 动态注入字数要求（PITFALLS #21 关联） |
+| P2 | simple_query 配置化 | ✅ 已实施（2026-08-12） | `simple_query_max_len=12` + `simple_query_block_words`（49 词，从 13 词扩充：推理/数量/对比/分析/假设/时间等）；从硬编码正则改为 settings 读取 |
 | P2 | 漏斗扩容 | ✅ 已实施 | rrf_top_n 8→12、rerank_top_n 5→6 |
 | P2 | 同源多样性采样 | ✅ 已实施 | `_diversify_by_source`（每文档 2 条，不足回填） |
 | P2 | ES 加 match_phrase | ✅ 已实施 | bool should + match_phrase(slop=2, boost=2)，配合 IK 分词（已确认 ik_max_word/ik_smart 生效） |

@@ -14,6 +14,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from langchain_core.documents import Document
 from qdrant_client.http import models
@@ -28,6 +29,27 @@ from rag_core.domain.retrieval.reranker import rerank_documents_multi
 from rag_core.infrastructure.qdrant import get_vector_store
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _compile_simple_query_block_re(words: tuple[str, ...]) -> re.Pattern:
+    """根据屏蔽词列表编译正则（cached：进程级单例）。"""
+    if not words:
+        return re.compile(r"(?!)")  # 永不命中
+    return re.compile("(" + "|".join(re.escape(w) for w in words) + ")")
+
+
+def _is_simple_query(query: str, settings: Settings | None = None) -> bool:
+    """短 query 且无屏蔽词 → 视为简单事实型，跳过 LLM 改写/HyDE 省时延。
+
+    阈值与屏蔽词从 settings 读（simple_query_max_len / simple_query_block_words）。
+    """
+    s = settings or get_settings()
+    q = (query or "").strip()
+    if not (0 < len(q) <= s.simple_query_max_len):
+        return False
+    block_re = _compile_simple_query_block_re(tuple(s.simple_query_block_words))
+    return not block_re.search(q)
 
 
 @dataclass
@@ -78,16 +100,7 @@ def search_context(query: str, kb_id: int = 0) -> RetrievedContext:
     return RetrievedContext(documents=documents, max_score=max_score)
 
 
-# 简单问题判定：短 query 且无推理/对比动词 → 单 query 检索（跳过 LLM 改写/HyDE，省时延）
-_SIMPLE_QUERY_MAX_LEN = 12
-_SIMPLE_QUERY_BLOCK_RE = re.compile(
-    r"(为什么|如何|怎么|多少|对比|区别|分析|总结|影响|原因|若|如果|假设)"
-)
-
-
-def _is_simple_query(query: str) -> bool:
-    q = (query or "").strip()
-    return 0 < len(q) <= _SIMPLE_QUERY_MAX_LEN and not _SIMPLE_QUERY_BLOCK_RE.search(q)
+# 简单问题判定：见模块顶部 _is_simple_query（从 settings 读阈值与屏蔽词）
 
 
 def _build_query_specs(query: str, settings: Settings) -> list[_QuerySpec]:

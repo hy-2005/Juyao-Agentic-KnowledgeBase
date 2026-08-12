@@ -262,11 +262,12 @@ export function getRagGraphFull(params) {
   })
 }
 
-/** 全部关系（无分页上限） */
-export function listAllRagGraphEdges() {
+/** 全部关系（limit=0 全量，N 截断；配合全图显示上限） */
+export function listAllRagGraphEdges(params) {
   return request({
     url: `${BASE}/graph/edges/all`,
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 
@@ -356,10 +357,11 @@ export function listChunkChildren(chunkId) {
   })
 }
 
-/** 社区列表（id/摘要/实体数/成员实体），社区面板用 */
-export function listCommunities() {
+/** 社区列表（分页：pageNum/pageSize），社区面板用 */
+export function listCommunities(params) {
   return request({
     url: `${BASE}/graph/communities`,
-    method: 'get'
+    method: 'get',
+    params
   })
 }

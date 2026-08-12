@@ -90,10 +90,12 @@ class Settings(BaseSettings):
     top_k: int = Field(default=15)
     rrf_top_n: int = Field(default=12)
     rerank_top_n: int = Field(default=6)
-    min_relevance_score: float = Field(default=0.35)
+    min_relevance_score: float = Field(default=0.5)
     # 相对截断比例：向量过滤门槛 = min(绝对阈值, 本次最高分 * 比例)。
-    # 高分 query 用绝对下限，低分 query 放宽交给 rerank 裁决（RETRIEVAL_REVIEW P1）
-    min_relevance_relative_ratio: float = Field(default=0.6)
+    # 默认 0（纯绝对阈值）：整库最高分低时相对比例会"自动放水"，把弱相关 chunk 放进 RRF，
+    # 增加 LLM 幻觉风险（详见 RETRIEVAL_REVIEW P1 与 2026-08-12 讨论结论）。
+    # 需要小幅放宽时可在 config 覆盖为非 0（如 0.85）。
+    min_relevance_relative_ratio: float = Field(default=0.0)
     rrf_k: int = Field(default=60)
 
     # --- Query 改写 ---
@@ -104,6 +106,41 @@ class Settings(BaseSettings):
     # --- HyDE ---
     hyde_enabled: bool = Field(default=True)
     hyde_timeout_s: float = Field(default=20.0)
+    # HyDE 假答案字数控制：prompt 要求生成 {min}~{target} 字；超过 {max} 强制截断
+    # max_chars 上限调到 1500：text-embedding-v4 支持 8K token 上下文，约 3000+ 汉字；
+    # 上限留够冗余，但避免超长 query 拉低向量精度（过长稀释语义）
+    hyde_min_chars: int = Field(default=120, description="HyDE 假答案最小字数（prompt 要求）")
+    hyde_target_chars: int = Field(default=300, description="HyDE 假答案目标字数（prompt 要求）")
+    hyde_max_chars: int = Field(default=1500, description="HyDE 假答案截断上限（embedding 保护）")
+
+    # --- 简单问题判定（retriever._is_simple_query）---
+    # 短 query 且无推理/对比动词 → 单 query 检索（跳过 LLM 改写/HyDE，省时延）
+    simple_query_max_len: int = Field(default=12, description="简单问题长度上限（字符）")
+    simple_query_block_words: list[str] = Field(
+        default_factory=lambda: [
+            # 推理动词
+            "为什么", "为何", "如何", "怎么", "怎样", "怎么能",
+            # 数量/范围
+            "多少", "几", "几个", "哪些", "哪种", "哪几", "哪一些",
+            # 对比/区别
+            "对比", "比较", "区别", "差异", "不同", "优缺点", "利弊", "优劣",
+            # 分析/总结
+            "分析", "总结", "归纳", "概括", "推断", "判断", "评估", "预测",
+            # 原因/影响
+            "影响", "原因", "导致", "引发", "造成", "作用", "效果",
+            # 假设/条件
+            "若", "如果", "假设", "假如", "要是", "除非", "只要", "当",
+            # 复杂结构
+            "哪些情况", "什么时候", "什么情况下", "为什么", "为什",
+        ],
+        description="命中即视为复杂问题的关键词（触发 LLM 改写/HyDE）",
+    )
+
+    # --- 社区重建调度（合并批量入库的重建触发）---
+    # 入库不再立即全量重建社区，改为标记 dirty + 静默窗口 debounce：
+    # 连续 N 秒无新入库请求才统一重建（批量上传只重建一次，避免 N 文档 N 次重建 + 并行踩踏）。
+    # 内部人员手动上传必然有停顿，30 秒静默窗口足以覆盖批量操作间隙。
+    community_rebuild_debounce_s: float = Field(default=30.0)
 
     # --- Agentic RAG ---
     vector_then_graph_supplement: bool = Field(default=True)

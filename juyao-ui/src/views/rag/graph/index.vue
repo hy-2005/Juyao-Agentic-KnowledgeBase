@@ -137,7 +137,7 @@
             @pagination="getList"
           />
 
-          <!-- 社区列表：点击头部展开摘要与成员，右上角聚焦子图 -->
+          <!-- 社区列表（分页）：点击头部展开摘要与成员，右上角聚焦子图 -->
           <div v-if="activeTab === 'communities'" class="community-pane">
             <div v-if="communities.length" class="community-pane-list">
               <div
@@ -170,6 +170,15 @@
               </div>
             </div>
             <el-empty v-else description="暂无社区数据（入库后自动构建）" :image-size="72" />
+            <pagination
+              v-show="communityTotal > 0"
+              class="community-pagination"
+              :total="communityTotal"
+              :page.sync="communityPageNum"
+              :limit.sync="communityPageSize"
+              :page-sizes="[5, 10, 20, 50]"
+              @pagination="loadCommunities"
+            />
           </div>
         </el-card>
       </div>
@@ -185,6 +194,19 @@
           <div slot="header" class="graph-header">
             <span>KG 可视化面板</span>
             <div class="graph-controls">
+              <el-select
+                v-model="fullLimit"
+                size="mini"
+                style="width: 110px"
+                title="全图显示上限（边数）"
+                @change="handleFullLimitChange"
+              >
+                <el-option label="上限 100" :value="100" />
+                <el-option label="上限 300" :value="300" />
+                <el-option label="上限 500" :value="500" />
+                <el-option label="上限 1000" :value="1000" />
+                <el-option label="全量展示" :value="0" />
+              </el-select>
               <el-button size="mini" type="success" :loading="graphLoading" @click="loadFullGraph">全图</el-button>
               <template v-if="graphMode === 'subgraph'">
                 <el-input-number v-model="subgraphHops" :min="1" size="mini" />
@@ -221,8 +243,10 @@
       @community-click="handleCommunityClick"
       :returned-edges="graphMeta.returned_edges"
       :fullscreen="true"
+      :full-limit="fullLimit"
       @exit-fullscreen="closeFullScreen"
       @drill-subgraph="drillFromFullGraph"
+      @limit-change="handleFullLimitChange"
     />
 
     <!-- 关系详情 -->
@@ -316,6 +340,9 @@ export default {
       entityList: [],
       stats: {},
       communities: [],
+      communityTotal: 0,
+      communityPageNum: 1,
+      communityPageSize: 10,
       expandedCommunity: null,
       leftPanelWidth: 0,
       graphPanelHeight: 460,
@@ -333,6 +360,7 @@ export default {
       currentSeed: '',
       subgraphHops: 1,
       communityView: false,
+      fullLimit: 0, // 全图显示上限（边数）；0 = 全量展示（后端 limit=0 不截断）
       graphData: { nodes: [], links: [] },
       graphMeta: { truncated: false, total_edges: 0, returned_edges: 0 },
       edgeDetailOpen: false,
@@ -394,11 +422,16 @@ export default {
       return palette[Math.abs(h) % palette.length]
     },
     loadCommunities() {
-      listCommunities().then((res) => {
+      listCommunities({
+        pageNum: this.communityPageNum,
+        pageSize: this.communityPageSize
+      }).then((res) => {
         // RuoYi 拦截器返回 res.data(AjaxResult.data),社区列表在 data.rows
         this.communities = (res && res.data && res.data.rows) || []
+        this.communityTotal = (res && res.data && res.data.total) || 0
       }).catch(() => {
         this.communities = []
+        this.communityTotal = 0
       })
     },
     loadCommunitySubgraph(community) {
@@ -573,7 +606,7 @@ export default {
       }
     },
     async fetchAllGraphEdges() {
-      const res = await listAllRagGraphEdges()
+      const res = await listAllRagGraphEdges({ limit: this.fullLimit })
       if (res.code && res.code !== 200) {
         throw new Error(res.msg || '查询关系失败')
       }
@@ -600,13 +633,21 @@ export default {
         this.graphLoading = false
       })
     },
+    handleFullLimitChange(limit) {
+      // 显示上限变更：更新选择，若全图已打开则按新上限重新加载
+      this.fullLimit = limit
+      if (this.fullScreenOpen) {
+        this.loadFullGraph(false)
+      }
+    },
     loadFullGraph(showConfirm = true) {
       const run = async () => {
         this.currentSeed = ''
         this.graphLoading = true
         try {
+          const cap = this.fullLimit > 0 ? this.fullLimit : Infinity
           const [fullRes, edgeRows] = await Promise.all([
-            getRagGraphFull({ limit: 0 }),
+            getRagGraphFull({ limit: this.fullLimit }),
             this.fetchAllGraphEdges()
           ])
           const fullData = (fullRes && fullRes.data) || {}
@@ -618,7 +659,9 @@ export default {
             evidence_snippets: e.evidence_snippets
           }))
           const visLinks = fullData.links || []
-          const links = linksFromTable.length >= visLinks.length ? linksFromTable : visLinks
+          // 取边数更多的一份（后端 limit 截断 vs 管理台全量表），再按用户选择的上限截断
+          const allLinks = linksFromTable.length >= visLinks.length ? linksFromTable : visLinks
+          const links = allLinks.slice(0, cap)
           const nodeSet = new Set()
           links.forEach((l) => {
             nodeSet.add(l.source)
@@ -633,8 +676,8 @@ export default {
           })
           this.fullGraphData = { nodes, links }
           this.graphMeta = {
-            truncated: !!fullData.truncated,
-            total_edges: links.length,
+            truncated: allLinks.length > links.length, // 用户选择上限导致的截断提示
+            total_edges: allLinks.length,
             returned_edges: links.length
           }
           this.openFullScreen()
@@ -646,7 +689,7 @@ export default {
         }
       }
       if (showConfirm) {
-        this.$modal.confirm('全图将以「力导向图谱 + 关系清单」全屏打开，是否继续？').then(run).catch(() => {})
+        this.$modal.confirm(`全图将以「力导向图谱 + 关系清单」全屏打开（显示上限：${this.fullLimit > 0 ? this.fullLimit + ' 条边' : '全量'}），是否继续？`).then(run).catch(() => {})
       } else {
         run()
       }
@@ -970,5 +1013,8 @@ export default {
 }
 .community-entity-tag {
   cursor: pointer;
+}
+.community-pagination {
+  margin-top: 12px;
 }
 </style>

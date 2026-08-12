@@ -246,6 +246,39 @@ def upsert_community_summaries(communities: list[dict], *, kb: int | None) -> in
     return len(points)
 
 
+def delete_community_summaries_by_ids(community_ids: list[str]) -> int:
+    """按 community_id 列表删除摘要点（孤儿社区清理用，不调 LLM 的轻量路径）。
+
+    payload 里 community_id 是顶层 key（见 upsert_community_summaries），filter 走顶层。
+    """
+    if not community_ids:
+        return 0
+    settings = get_settings()
+    client = get_qdrant_client()
+    flt = models.Filter(
+        must=[
+            models.FieldCondition(
+                key="community_id",
+                match=models.MatchAny(any=community_ids),
+            )
+        ]
+    )
+    try:
+        result = client.delete(
+            collection_name=settings.community_summary_collection,
+            points_selector=models.FilterSelector(filter=flt),
+        )
+    except UnexpectedResponse as exc:
+        # collection 还没建好时直接视为 0
+        if "doesn't exist" in str(exc) or "Not found" in str(exc):
+            return 0
+        raise
+    deleted = getattr(result, "result", None) or {}
+    count = int(deleted.get("points_count", 0)) if isinstance(deleted, dict) else 0
+    logger.info("Qdrant 社区摘要按 id 删除：%s 个 community_ids → %s 条", len(community_ids), count)
+    return count
+
+
 def delete_community_summaries(kb: int | None) -> int:
     """按 kb_id 删社区摘要 collection 中的点；返回删除条数（0 也正常返回）。
 
