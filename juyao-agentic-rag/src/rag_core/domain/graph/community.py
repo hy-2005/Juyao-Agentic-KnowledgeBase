@@ -16,24 +16,16 @@ logger = logging.getLogger(__name__)
 def fetch_entity_graph(kb: int | None = None) -> tuple[list[str], list[tuple[int, int]]]:
     """从 Neo4j 拉实体图：节点名列表 + 边（下标对）。
 
-    kb 非 None 时按边级 kb 过滤（Entity 节点全局共享，边按 kb 隔离）。
+    标签隔离版：按 EntityKb{id} 标签直接圈定该 kb 子图——标签索引定位节点集合，
+    只遍历本 kb 内部边；替代 kb_ids 数组过滤（数组属性走不了索引，全库边线性
+    扫描，kb 越多重建越慢）。kb=None 时按 0 处理（单库默认）。
     """
-    if kb is not None:
-        rows = get_read_graph().query(
-            """
-            MATCH (h:Entity)-[r:RELATED]->(t:Entity)
-            WHERE $kb IN coalesce(r.kb_ids, [])
-            RETURN h.name AS h, t.name AS t
-            """,
-            params={"kb": int(kb)},
-        )
-    else:
-        rows = get_read_graph().query(
-            """
-            MATCH (h:Entity)-[r:RELATED]->(t:Entity)
-            RETURN h.name AS h, t.name AS t
-            """
-        )
+    from rag_core.infrastructure.neo4j import entity_label
+
+    label = entity_label(kb or 0)
+    rows = get_read_graph().query(
+        f"MATCH (h:{label})-[r:RELATED]->(t:{label}) RETURN h.name AS h, t.name AS t"
+    )
     name_to_idx: dict[str, int] = {}
     edges: list[tuple[int, int]] = []
     for row in rows:

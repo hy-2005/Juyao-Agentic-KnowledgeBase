@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS rag_chunk (
 ### 4. 清理(`application/ingest_flow/cleanup.py`)
 - `delete_document_from_indexes` / `delete_chunks_by_ids` / `purge_kb` 追加 MySQL 删除
 
-### 5. 建表脚本 `sql/rag_chunk.sql`(可重复执行)
+### 5. 建表脚本 `sql/rag_all.sql`(可重复执行)
 
 ## 不变项
 

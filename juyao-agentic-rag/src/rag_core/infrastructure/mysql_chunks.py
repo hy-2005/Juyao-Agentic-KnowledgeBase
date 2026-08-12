@@ -1,6 +1,6 @@
 """切片 MySQL 持久化：管理台列表/详情/统计走 MySQL（查询快），ES 仅保留做全文检索。
 
-表：rag_chunk（见 sql/rag_chunk.sql）。入库三写（Qdrant + ES + MySQL），删除三处同步。
+表：rag_chunk（建表见 sql/rag_all.sql 汇总文件）。入库三写（Qdrant + ES + MySQL），删除三处同步。
 行结构与 ES 时代 `_source_to_chunk_row` 对齐，前端/Java 网关契约不变。
 """
 

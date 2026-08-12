@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | [CHUNK_SPLITTING_REVIEW.md](CHUNK_SPLITTING_REVIEW.md) | chunk 拆分评审：预分批/规则主通道/父子分块/OCR 已生效/表格与层级待办 | 🔄 进行中（表格结构/层级解析待办） | 2026-08-07 | 2026-08-07 |
 | [RETRIEVAL_REVIEW.md](RETRIEVAL_REVIEW.md) | 检索评审：相对截断（已回退）/阈值 0.5/HyDE+simple_query 配置化/漏斗扩容/多样性/match_phrase | 🔄 进行中（rerank 截断/缓存遗留） | 2026-08-07 | 2026-08-12 |
-| [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底） | 🔄 进行中（hops 约束/实体合并等 6 项待办） | 2026-08-07 | 2026-08-07 |
+| [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底）+ 2026-08-12 多图谱改造（标签隔离 + MySQL 管理快照） | 🔄 进行中（hops 约束/实体合并等 6 项待办；多图谱改造已实施待实测） | 2026-08-07 | 2026-08-12 |
 | [GRAPH_COMMUNITY_UI_REVIEW.md](GRAPH_COMMUNITY_UI_REVIEW.md) | 图谱社区展示：节点按社区着色 + 社区面板 + 聚类布局/边界气泡（2026-08-12 恢复 + 气泡跟随 roam 重构） | ✅ 已完成（2026-08-08，2026-08-12 增强恢复） | 2026-08-08 | 2026-08-12 |
 | [INGESTION_UPDATE_REVIEW.md](INGESTION_UPDATE_REVIEW.md) | 文档更新/增量评审：先写后删差集/chunk_id 内容寻址方案 | 📌 先写后删已实施，增量 chunk_id 待办 | 2026-08-07 | 2026-08-07 |
 | [CHUNK_MYSQL_PERSISTENCE_REVIEW.md](CHUNK_MYSQL_PERSISTENCE_REVIEW.md) | 切片 MySQL 持久化：管理查询走 MySQL，ES 仅保留全文检索 | ✅ 已完成（2026-08-08） | 2026-08-08 | 2026-08-08 |
@@ -19,7 +19,7 @@
 | [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 已完成 | 2026-08-07 | 2026-08-07 |
 | [PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md) | 父子分块 + 结构化识别方案 | 🔄 进行中（已启用 chunk_parent_enabled=true + child_chunk_size=300；4311 大块根因待查） | 2026-08-07 | 2026-08-12 |
 | [PARENT_CHILD_UI_REVIEW.md](PARENT_CHILD_UI_REVIEW.md) | 父切片展开查看子切片已实施 | ✅ 已完成 | 2026-08-07 | 2026-08-08 |
-| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（23 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） | 2026-08-07 | 2026-08-12 |
+| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（24 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） | 2026-08-07 | 2026-08-12 |
 | [AGENT_FLOW.md](AGENT_FLOW.md) | **整体 Agent 流程图**：HTTP→路由→三分支→检索/图谱子管线→流式生成→SSE；含 §0 白话讲解、§1 概览、§7 入库详细、§8 检索详细（含派系 2 L1/L2/L3） | ✅ 已完成 | 2026-08-11 | 2026-08-12 |
 
 ## 评测（docs/eval/）

@@ -77,7 +77,7 @@ def write_chunks_to_graph(
         workers,
         kb_id,
     )
-    Neo4jTripleStore().ensure_schema()
+    Neo4jTripleStore().ensure_schema(kb_id=kb_id)
 
     if total == 0:
         return 0, 0

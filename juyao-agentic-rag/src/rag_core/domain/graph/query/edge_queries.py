@@ -12,10 +12,10 @@ from __future__ import annotations
 from rag_core.core.config import Settings, get_settings
 from rag_core.infrastructure.neo4j import get_read_graph
 from rag_core.domain.graph.query.cypher import (
-    CY_ENTITY_NAMES,
-    CY_ENTITY_NAMES_SUBSTR,
-    CY_RELATED_BY_CHUNKS,
+    cy_entity_names,
+    cy_entity_names_substr,
     cy_expand_from_seeds,
+    cy_related_by_chunks,
 )
 from rag_core.domain.graph.query.edge_view import GraphEdgeView, rows_to_views
 
@@ -37,13 +37,15 @@ def query_edges_for_chunks(
         return []
     cfg = settings or get_settings()
     rows = get_read_graph().query(
-        CY_RELATED_BY_CHUNKS,
-        params={"chunk_ids": ids, "limit": _clamp_limit(max_edges, cfg), "kb": kb},
+        cy_related_by_chunks(kb),
+        params={"chunk_ids": ids, "limit": _clamp_limit(max_edges, cfg)},
     )
     return rows_to_views(rows)
 
 
-def resolve_entity_names(names: list[str], *, settings: Settings | None = None) -> list[str]:
+def resolve_entity_names(
+    names: list[str], *, settings: Settings | None = None, kb: int | None = None
+) -> list[str]:
     """问句实体 → 图谱实体名解析，三层递进（P0-2 消歧义）：
 
     1. 精确匹配（库内名 IN 问句实体）
@@ -55,7 +57,7 @@ def resolve_entity_names(names: list[str], *, settings: Settings | None = None) 
     ids = [str(x).strip() for x in names if str(x).strip()]
     if not ids:
         return []
-    rows = get_read_graph().query(CY_ENTITY_NAMES, params={"names": ids})
+    rows = get_read_graph().query(cy_entity_names(kb), params={"names": ids})
     matched: set[str] = set()
     for row in rows:
         n = str(row.get("name") or "").strip()
@@ -67,7 +69,7 @@ def resolve_entity_names(names: list[str], *, settings: Settings | None = None) 
 
     if len(matched) < len(ids):
         norm_ids = {normalize_entity_name(i) for i in ids}
-        rows2 = get_read_graph().query(CY_ENTITY_NAMES_SUBSTR, params={"kws": ids})
+        rows2 = get_read_graph().query(cy_entity_names_substr(kb), params={"kws": ids})
         for row in rows2:
             # 第一个就是去掉多余的符号比如熊大（熊二的哥哥）-》熊大
             n = str(row.get("name") or "").strip()
@@ -115,12 +117,11 @@ def query_edges_from_entity_seeds(
     # hints 下沉到 Cypher（P1-1）：路径遍历时按谓词/关系大类过滤，避免先捞回无关边
     cleaned_hints = [str(h).strip() for h in (relation_hints or []) if str(h).strip()]
     rows = get_read_graph().query(
-        cy_expand_from_seeds(hops),
+        cy_expand_from_seeds(hops, kb),
         params={
             "seed_names": seeds,
             "path_cap": path_cap,
             "limit": _clamp_limit(max_edges, cfg),
-            "kb": kb,
             "relation_hints": cleaned_hints,
         },
     )

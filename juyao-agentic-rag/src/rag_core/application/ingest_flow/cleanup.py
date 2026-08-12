@@ -24,27 +24,23 @@ def _prune_orphan_communities(kb_id: int | None) -> None:
     失败仅告警不阻断删除。
     """
     try:
-        from rag_core.infrastructure.neo4j import Neo4jTripleStore
+        from rag_core.infrastructure.neo4j import Neo4jTripleStore, community_label, entity_label
         from rag_core.infrastructure.qdrant import delete_community_summaries_by_ids
 
         store = Neo4jTripleStore()
         # 1. 查孤儿社区（无任何 MEMBER_OF 成员；MEMBER_OF 边在 purge 时已被 DETACH 清掉，这里兜底确认）
-        if kb_id is not None:
-            result = store._driver.execute_query(
-                "MATCH (c:Community) WHERE $kb IN coalesce(c.kb_ids, []) "
-                "AND NOT EXISTS { MATCH (:Entity)-[:MEMBER_OF]->(c) } RETURN c.id AS cid",
-                {"kb": int(kb_id)},
-            )
-        else:
-            result = store._driver.execute_query(
-                "MATCH (c:Community) WHERE NOT EXISTS { MATCH (:Entity)-[:MEMBER_OF]->(c) } "
-                "RETURN c.id AS cid",
-            )
+        # 标签隔离版：直接按 CommunityKb{id} 标签圈定本 kb 社区，无需 kb_ids 过滤
+        clabel = community_label(kb_id or 0)
+        elabel = entity_label(kb_id or 0)
+        result = store._driver.execute_query(
+            f"MATCH (c:{clabel}) WHERE NOT EXISTS {{ MATCH (:{elabel})-[:MEMBER_OF]->(c) }} "
+            "RETURN c.id AS cid"
+        )
         orphan_ids = [str(rec["cid"]) for rec in result.records]
         if not orphan_ids:
             return
         # 2. 删孤儿 Community 节点（DETACH 兜底清掉残留关系）
-        store._run("MATCH (c:Community) WHERE c.id IN $ids DETACH DELETE c", {"ids": orphan_ids})
+        store._run(f"MATCH (c:{clabel}) WHERE c.id IN $ids DETACH DELETE c", {"ids": orphan_ids})
         # 3. 删 Qdrant 摘要向量（避免检索命中已在 Neo4j 消失的社区）
         deleted = delete_community_summaries_by_ids(orphan_ids)
         logger.info(
@@ -249,26 +245,15 @@ def purge_kb(kb_id: int) -> None:
         )
         logger.info("【清空 kb】ES 删除 %s 条", resp.get("deleted", 0))
 
+    # 标签隔离版：按 EntityKb{id}/CommunityKb{id} 标签整片 DETACH DELETE——
+    # 每 kb 的图谱是独立标签集合，清 kb = 删两个标签的全部节点（连带 RELATED/MEMBER_OF），
+    # 不再需要共享边/共享实体的数组过滤与残留清理
     store = Neo4jTripleStore()
+    from rag_core.infrastructure.neo4j import community_label, entity_label
+
     with store._driver.session() as session:
-        session.run(
-            """
-            MATCH ()-[r:RELATED]->()
-            WHERE $kb IN coalesce(r.kb_ids, [])
-            SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c STARTS WITH $prefix],
-                r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d STARTS WITH $prefix],
-                r.kb_ids = [k IN coalesce(r.kb_ids, []) WHERE k <> $kb]
-            """,
-            {"kb": int(kb_id), "prefix": f"{kb_id}:"},
-        )
-        session.run(
-            """
-            MATCH ()-[r:RELATED]->()
-            WHERE size(coalesce(r.kb_ids, [])) = 0 AND size(coalesce(r.chunk_ids, [])) = 0
-            DELETE r
-            """
-        )
-        session.run("MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() DELETE e")
+        session.run(f"MATCH (n:{entity_label(kb_id)}) DETACH DELETE n")
+        session.run(f"MATCH (c:{community_label(kb_id)}) DETACH DELETE c")
     logger.info("【清空 kb】Neo4j 清理完成 kb=%s", kb_id)
 
     from rag_core.infrastructure.mysql_chunks import purge_kb_from_mysql

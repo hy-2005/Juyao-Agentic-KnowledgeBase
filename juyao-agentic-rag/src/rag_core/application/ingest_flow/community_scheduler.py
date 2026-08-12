@@ -92,7 +92,11 @@ class CommunityRebuildScheduler:
             self._rebuild_one(kb)
 
     def _rebuild_one(self, kb: int) -> None:
-        """单 kb 全量重建；失败保留 dirty 标记，下次入库重置窗口再试。"""
+        """单 kb 全量重建 + 图谱快照同步 MySQL；失败保留 dirty 标记，下次入库重置窗口再试。
+
+        顺序关键：先重建社区（Neo4j 内 CommunityKb{id} 归属/摘要更新），
+        再同步 MySQL 快照——否则快照拿到的是旧社区归属（同步是全量重建，秒级）。
+        """
         try:
             from rag_core.application.graph.community_build import build_communities
 
@@ -101,6 +105,16 @@ class CommunityRebuildScheduler:
         except Exception as exc:
             logger.warning("【社区调度】重建失败 kb=%s（下次入库重试）：%s", kb, exc)
             self.mark_dirty(kb)
+            return
+        # 图谱/社区管理快照同步（失败不重试社区——快照独立于社区重建，只影响管理台展示）
+        try:
+            from rag_core.infrastructure.mysql_graph import sync_graph_snapshot_to_mysql
+
+            total = sync_graph_snapshot_to_mysql(kb)
+            if total:
+                logger.info("【图谱快照】kb=%s 同步完成 %s 行", kb, total)
+        except Exception as exc:
+            logger.warning("【图谱快照】kb=%s 同步失败（下次窗口重试）：%s", kb, exc)
 
 
 # 模块级单例：全进程共享一个调度器（FastAPI 单进程部署；多进程时各进程独立调度，可接受）
