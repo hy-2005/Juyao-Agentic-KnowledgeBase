@@ -45,8 +45,26 @@ _HYDE_PROMPT_TEMPLATE = """你是文档检索助手。任务：根据用户问�
 假答案片段："""
 
 
-# HyDE 文本最大字符数（embedding 模型上下文上限保护 + 防止异常输出）
-_HYDE_MAX_LEN = 600
+# HyDE 文本最大字符数（embedding 模型上下文上限保护 + 防止异常输出）—— 改为从 settings 读
+# 保留此常量仅为向后兼容，新代码应使用 settings.hyde_max_chars
+_HYDE_MAX_LEN_DEFAULT = 600
+
+
+def _build_hyde_prompt(query: str, min_chars: int, target_chars: int) -> str:
+    """动态生成 HyDE prompt：字数要求从 settings 注入。"""
+    return (
+        "你是文档检索助手。任务：根据用户问题，生成一段"
+        f"\"假装来自原文档的相关片段\"，用于向量检索增强（HyDE）。\n\n"
+        "严格要求：\n"
+        "1) 用陈述语气，模仿原文档的语言风格（如合同条款、技术报告、规章制度等）；\n"
+        "2) 包含可能在原文中出现的关键词、专有名词、触发条件、数值类约定；\n"
+        f"3) 长度约 {min_chars}~{target_chars} 字，单段；不要分段、不要列表；\n"
+        "4) 即使不确定真实答案，也要\"想象\"一段在该领域中合理的条款/段落（仅用于检索辅助，不作为最终回答）；\n"
+        "5) 不要使用问句、不要给免责声明、不要解释、不要带\"假设\"/\"如果\"等弱化词；\n"
+        "6) 只输出片段本身，不要任何前缀、引号或代码块包装。\n\n"
+        f"用户问题：{query}\n\n"
+        "假答案片段："
+    )
 
 
 def generate_hypothetical_answer(query: str) -> str | None:
@@ -55,7 +73,12 @@ def generate_hypothetical_answer(query: str) -> str | None:
     if not settings.hyde_enabled:
         return None
 
-    prompt = _HYDE_PROMPT_TEMPLATE.format(query=query)
+    prompt = _build_hyde_prompt(
+        query,
+        min_chars=settings.hyde_min_chars,
+        target_chars=settings.hyde_target_chars,
+    )
+    max_chars = settings.hyde_max_chars
 
     try:
         # 与 query_rewrite 一致：streaming=False 一次拿完整文本；timeout 防止主链路阻塞
@@ -66,18 +89,21 @@ def generate_hypothetical_answer(query: str) -> str | None:
         logger.warning("【HyDE】LLM 调用失败，跳过 HyDE 通道：%s", exc)
         return None
 
-    text = _sanitize_hyde_output(raw)
+    text = _sanitize_hyde_output(raw, max_chars=max_chars)
     if not text:
         logger.info("【HyDE】LLM 返回空文本，跳过 HyDE 通道；raw=%s", raw[:120])
         return None
 
-    logger.info("【HyDE】生成假答案片段（%s 字）：%s", len(text), text[:120])
+    logger.info(
+        "【HyDE】生成假答案片段（%s/%s 字，目标 %s~%s）：%s",
+        len(text), max_chars, settings.hyde_min_chars, settings.hyde_target_chars, text[:120]
+    )
     return text
 
 
-def _sanitize_hyde_output(raw: str) -> str:
+def _sanitize_hyde_output(raw: str, max_chars: int = _HYDE_MAX_LEN_DEFAULT) -> str:
     # 清理 LLM 偶发噪声：剥离 think 块（deepseek 等模型默认输出思考过程，
-    # 会污染假答案的向量语义，坑 10 同源）、去掉代码块包装；截断到 _HYDE_MAX_LEN。
+    # 会污染假答案的向量语义，坑 10 同源）、去掉代码块包装；截断到 max_chars。
     text = raw.strip()
     # 剥离 <think>...</think>（含非贪婪跨行）
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
@@ -90,4 +116,4 @@ def _sanitize_hyde_output(raw: str) -> str:
             text = text.lstrip("`")
     if text.endswith("```"):
         text = text[: -3].rstrip()
-    return text[:_HYDE_MAX_LEN]
+    return text[:max_chars]

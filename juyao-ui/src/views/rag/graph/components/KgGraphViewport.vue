@@ -49,6 +49,7 @@
         :graph-data="graphData"
         :graph-mode="graphMode"
         :community-view="communityView"
+        :cluster-by-community="clusterByCommunity"
         height="100%"
         @community-click="$emit('community-click', $event)"
       />
@@ -81,6 +82,7 @@ export default {
     returnedEdges: { type: Number, default: 0 },
     bodyHeight: { type: Number, default: 420 },
     communityView: { type: Boolean, default: false },
+    clusterByCommunity: { type: Boolean, default: false },
     resizable: { type: Boolean, default: true },
     fullscreen: { type: Boolean, default: false },
     showHeader: { type: Boolean, default: true },

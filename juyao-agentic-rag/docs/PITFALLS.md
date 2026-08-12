@@ -2,7 +2,7 @@
 
 > 维护规则（见 CLAUDE.md）：**每个踩坑必须记录到本文件**——现象、根因、修复、教训。
 > 创建：2026-08-07
-> 更新：2026-08-08
+> 更新：2026-08-12
 
 ---
 
@@ -124,6 +124,102 @@
 - **修复**：取字段前先归一化——`if not isinstance(point, dict): point = point.model_dump()`
 - **教训**：调用外部 SDK 前先确认返回对象类型（或先跑一次真实调用），不能凭经验假设返回 dict
 
+## 15. Neo4j `purge_chunk_ids` 用 chunk_ids 当 filter 清 doc_ids —— 跨字段语义错误
+
+- **场景**：`infrastructure/neo4j.py:Neo4jTripleStore.purge_chunk_ids` 先写后删差集清理
+- **现象**：原 Cypher `SET r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d IN $chunk_ids]` 看起来"顺手也清 doc_ids"，但 **chunk_ids 存的是 chunk_id（`source_doc_id:idx:digest`），doc_ids 存的是 source_doc_id（`kb_id:safe_name:digest`），两个字段是不同字符串**——过滤条件不会命中，实际行为是 doc_ids 保持原状（看似无害，但语义错误 + 误导）
+- **根因**：① 字段语义混淆（chunk_id ≠ source_doc_id） ② 想"顺手清理"的思维陷阱（觉得删 chunk_ids 时 doc_ids 也应该跟着）—— 但 doc_ids 是文档级引用，跟 chunk 级删除解耦
+- **修复**：移除 `r.doc_ids = ...` 那行，只清 `r.chunk_ids`；docstring 写明"不动 doc_ids"和跨 kb 共享边的保留逻辑
+- **教训**：**用 A 字段当 filter 去改 B 字段前，必须先验证两个字段的取值空间是否真的相交**——这里是不同字符串，硬套同 filter 是错误语义；代码注释里说"清空引用后删边"就够了，不要"顺手"清无关字段
+
+## 16. Spring Boot `${VAR:default}` 占位符：空字符串 ≠ null，会覆盖默认值
+
+- **场景**：Java 管理端 `application.yml:internal-token: ${RAG_INGEST_INTERNAL_TOKEN:"hejuyao"}` 与 Python RAG `.env:RAG_INGEST_INTERNAL_TOKEN=hejuyao` 都想用 token 鉴权防止 8000 端口直连
+- **现象**：所有 chat/sessions 请求都 403；Python 端诊断日志 `expected_len=7 expected_preview=heju***`，Java 端 `got_len=0 got_preview=<EMPTY>`
+- **根因**：IntelliJ Run Configuration 把 `RAG_INGEST_INTERNAL_TOKEN` 环境变量设成了**空字符串**（某些"清空配置"操作会把变量值清成空但保留键名）；Spring Boot `${VAR:default}` 占位符在变量值为**空字符串**时**不会 fallback 到 default**，而是直接用空字符串 → Java 端 `internalToken=""` → 发出去的 header 是空 → Python 端期望 `hejuyao` 必 403
+- **修复**：① 临时——把 Python `.env` 的 `RAG_INGEST_INTERNAL_TOKEN=` 留空（本地开发模式直接放行） ② 治本——`application.yml` 默认值改成 `${RAG_INGEST_INTERNAL_TOKEN:}`（空字符串默认 = 不校验），生产环境靠环境变量强制注入
+- **教训**：**Spring `${VAR:default}` 占位符的 fallback 语义对空字符串不生效**——空字符串是合法值；想"未设置 = 走默认"必须确认环境变量是 unset 而不是 `=`；配置文件里默认值用空字符串而不是具体字符串，让"未设置 = 不校验 / 设置 = 启用"语义更清晰；Java/Python 跨端鉴权必须在两端启动日志打 token 长度+前缀方便对比（前面诊断日志改动一并落地）
+
+## 17. 意图路由规则硬编码 → 配置化（intent_rules.yaml + intent_rules.py）
+
+- **场景**：`application/chat_flow/steps/route.py:route_question_intent_rules` 之前用 4 个模块级正则（`_VECTOR_LITERAL_RE`/`_GRAPH_COMPLEX_RE`/`_MULTI_ENTITY_AND_RE`/`_DIRECT_GREETING_RE`）做意图快路径判定
+- **现象**：① 加一条规则要改源码 + 重启服务 ② 没有可观测性——不知道某次请求命中哪条规则 ③ 没有置信度——只命中/不命中，无法做"半信半疑" ④ direct 路径**完全靠字符串长度 + 问候词正则**判定（不调 LLM），"价格？"等短查询会被误判为 direct
+- **根因**：规则引擎天生适合数据驱动，硬编码是把"业务策略"塞进"代码逻辑"——策略迭代速度慢于工程能力
+- **修复**：
+  - `config/intent_rules.yaml` 定义规则（name/branch/type/patterns/min_length/max_length/case_insensitive/description）
+  - `src/rag_core/domain/routing/intent_rules.py` 提供 `load_intent_rules` / `match_rule` / `route_by_rules` 三个核心函数
+  - `route.py` 启动时预加载（`load_intent_rules`），优先用 YAML；YAML 不存在/解析失败时回退硬编码默认（保持向后兼容）
+  - 命中时打印 `matched_rule=<name> branch=<branch>`，便于排查 + 收集真实流量命中分布
+- **优先级规则**（冲突解决）：
+  1. direct 命中即返回；strict 模式下退化为 vector_only
+  2. graph_only 之间是 OR（首个命中即生效）
+  3. vector_only 仅在没有任何 graph_only 命中时生效
+  4. 都没命中 → None，进 LLM
+- **教训**：**业务规则（判定策略/特征词表/阈值）应该配置化，不应该硬编码**——硬编码规则迭代速度 = 工程发布节奏；配置化规则迭代速度 = 业务人员改 YAML 节奏；规则本身需要可观测（命中日志/计数）才能基于真实流量打磨；规则引擎通用化不一定要上 LLM，先把规则本身的数据驱动做到位就解决 80% 的可调性问题
+
+## 18. 双写源不同步：代码 Field default 改了但 config/default.toml 还有旧值覆盖
+
+- **场景**：`src/rag_core/core/config.py:min_relevance_score` 从 0.35 调到 0.5，`min_relevance_relative_ratio` 从 0.6 调到 0.0（相对截断关闭）
+- **现象**：改完代码后实跑 `get_settings()` 仍然读到 `min_relevance_score = 0.35`——因为 `config/default.toml:48` 还有 `min_relevance_score = 0.35`，**toml 优先级高于代码 Field default**，代码改了没用
+- **根因**：pydantic-settings 的优先级是 **环境变量 > .env > config/local.toml > config/default.toml > 代码 Field default**——代码里的 default 只是最底层 fallback，**config/default.toml 里显式写了的 key 永远覆盖代码默认值**
+- **修复**：`config/default.toml` 同步改为 `min_relevance_score = 0.5`（并把相对截断比例保持默认 0，见 #19）；以后改配置类默认值必须**两处都改**（代码 + default.toml），改完跑一次 `get_settings()` 验证实际读到的值
+- **教训**：**pydantic-settings 的"默认值"是代码 Field default 与 default.toml 的双写源**——改了代码 Field default 不更新 default.toml = 改动无效；配置验证必须"读实际值"而不是"看代码改了没有"
+
+## 19. 相对截断（min(绝对, 最高分×比例)）的"自动放水"风险 → 改为纯绝对阈值
+
+- **场景**：`retriever._retrieve_for_single_query` 的向量过滤门槛 `threshold = min(min_relevance, max_vec_score * rel_ratio)`（P1 相对截断，默认 ratio=0.6）
+- **现象**：整库最高分低（0.20/0.10）时，相对比例把 threshold 压到 0.12/0.06——**几乎不设防**，弱相关 chunk 大量进 RRF → LLM 拿到低相关证据强行凑答案 → "假 KB 依据"幻觉
+- **根因**：相对截断假设"最高分高=库里有好答案，最高分低=库里没相关"——但"最高分低"恰恰是**"整个库都偏离 query"**的信号，此时应该**更严**而不是放水；相对截断把"最高分低"误当成"可以放宽"
+- **修复**：`min_relevance_relative_ratio` 默认改为 0.0（纯绝对阈值 0.5），所有 query 一律硬门槛；需要小幅放宽时显式覆盖为非 0（如 0.85）
+- **教训**：**"最高分低"是"库里没有相关"的信号，不是"可以放宽"的信号**——相对截断的初衷（漏召回比多检索代价高）搞反了方向；多检索的代价是 LLM 幻觉（用户痛），少检索的代价是"通用知识兜底"（用户可接受）；搜索引擎阈值应该是**全局硬性指标**，不能按单次 query 最高分动态放宽
+
+## 20. 批量入库 N 文档 = N 次全量社区重建（并行踩踏 + 白烧 LLM）→ 静默窗口合并重建
+
+- **场景**：Java 上传批量文档 → Kafka → Java KafkaListener（concurrency=3）→ HTTP 直调 FastAPI → 每个文档 ingest_file 后都 `build_communities(reset=True)`
+- **现象**：① 批量 10 文档 = 10 次全量重建（每次 30 社区 × LLM 摘要 ≈ 60 秒），前 9 次成果被最后一次覆盖（白烧 token）② concurrency=3 时多个重建并行执行，互相清空对方刚写入的社区（PITFALLS #8 跨连接一致性被放大）③ 删除文档也触发全量重建（删 1 个文档 ≈ 60 秒）
+- **根因**：社区重建触发粒度 = 单文档，没有"批量合并"概念；生产链路是 Java KafkaListener → HTTP（Python kafka_consumer 是备选，生产不走），合并逻辑必须做在 HTTP 入口层
+- **修复**（组合拳）：
+  1. `ingest_file(build_communities=False)`：HTTP 入口入库不再立即重建，只标记 kb dirty
+  2. `community_scheduler.py`：后台线程「连续 N 秒无新入库请求」（静默窗口，默认 30s）→ 统一重建一次；lifespan shutdown 时立即重建剩余 dirty kb
+  3. 删除改轻量清理 `_prune_orphan_communities`：只删无成员实体的孤儿 Community 节点 + 对应 Qdrant 摘要，**不调 LLM**（<1 秒）；全量刷新靠下次入库调度
+  4. CLI 直跑保留立即重建（build_communities=True 默认）
+- **验证**：调度器冒烟——单次 mark_dirty 0.5s 后重建 1 次；连续 mark_dirty（批量场景）只在停止后重建 1 次
+- **教训**：**"批量操作"的聚合副作用（重建/刷新/同步）必须在入口层做防抖合并，不能在单条处理路径上重复执行**；识别真实生产链路（Java KafkaListener → HTTP 而非 Python 消费者）再做方案；删 1 个文档全量重建 30 社区是明显的设计失配——副作用触发粒度要与操作粒度匹配
+
+## 21. LLM 供应商切换（MiniMax → DeepSeek）：thinking 字段语义因供应商而异
+
+- **场景**：全 LLM 切换（对话/JSON/切分）从 MiniMax-M3 切到 DeepSeek v4 flash
+- **现象**：`get_chat_llm` 对非 MiniMax base_url 一律发 `enable_thinking=false`——切到 DeepSeek 后这个字段 DeepSeek 不识别（可能 400 或忽略）；`get_json_chat_llm` 同样对非 MiniMax 路径补发 `enable_thinking`
+- **根因**：代码只区分了 MiniMax（`thinking.type`）和"其他"（一律 `enable_thinking`），没有把"第三方不认识任何 thinking 字段"的情况考虑进去——DeepSeek 属于"其他"却被发了百炼风格字段
+- **修复**：三处统一改为按供应商三分支——MiniMax 发 `thinking.type=disabled`；百炼（dashscope/aliyuncs）发 `enable_thinking`；**DeepSeek 等第三方一律不发任何 thinking 字段**（`extra_body={}`）；`get_json_chat_llm` 的 `enable_thinking=True` 显式传入时才补发
+- **教训**：**LLM 供应商的 extra_body 字段不是通用约定，切换供应商必须逐字段核对**——MiniMax 的 thinking.type、百炼的 enable_thinking、DeepSeek 的不认识任何 thinking 字段；"else 分支发百炼字段"是危险默认，未知供应商应该什么都不发（宁可多试一次）
+
+## 22. 全图「全量展示」仍被截断：`limit or 300` 把 0 当 falsy + edges/all 硬编码 LIMIT 500
+
+- **场景**：图谱页前端加「显示上限」下拉后，选「全量展示」（limit=0）全屏打开仍只显示 500 条边
+- **现象**：全屏标题「实体 383 · 关系 500」——期望 1690 条全量；浏览器实测确认
+- **根因**（两层）：
+  1. `full_graph(limit)`: `params={"limit": limit or 300}`——Python 的 `or` 把显式 0 当 falsy，回退 300；且路由层 `eff_limit = None if limit <= 0 else limit` 传 None 也回退 300（**全量请求永远得到 300**）
+  2. `fetch_all_edges()`: Cypher **硬编码 `LIMIT 500`**——前端取"full(300) vs edges/all(500) 更多的一份"→ 显示 500
+- **修复**：
+  - `full_graph` / `fetch_all_edges`：`limit=None` 才用默认（300/500）；`limit=0` → **不加 LIMIT 子句**（注意 Cypher `LIMIT 0` 返回 0 条，全量必须不拼 LIMIT）
+  - 路由 `/edges/all` 加 `limit` 参数（0=全量）；Java 网关转发 limit
+  - 前端 `fetchAllGraphEdges({ limit: this.fullLimit })` 同步传参
+  - **路由层不得做 0→None 转换**（2026-08-12 复发补修）：`eff_limit = None if limit <= 0 else limit` 会把 0 转成 None，而函数层 `None=默认上限`——「全量」请求永远拿到 300/500。必须把 `limit` 原样传给函数，0/正数/None 三种语义只在函数层一处判定
+- **教训**：**Python 的 `x or default` 无法区分「未传」和「显式 falsy 值（0/空）」**——参数有"0 表示特殊语义"时必须用 `if x is None`；**Cypher 的 LIMIT 0 不是"不限"而是"0 条"**，全量必须动态拼接不带 LIMIT 的查询；前端"取更多一份"的兜底逻辑会掩盖单个接口的截断 bug——接口层就该返回正确数据。**「0/None/默认」三态语义的参数跨层传递时，任何一层做 falsy 转换都会静默改变语义——转换只能发生在唯一一处**
+
+---
+
+## 23. ECharts `graphic` 元素不随 series roam 变换——社区聚类虚线框「写死不动」
+
+- **场景**：全图聚类布局的社区边界气泡（虚线椭圆）在缩放/平移/拖拽后留在原地，节点已走远，气泡仍盖在旧位置
+- **现象**：用户反馈「社区聚类的虚线框是写死的，不会动态改变」；拖动全图后气泡与社区成员分离
+- **根因**：气泡用 `graphic` 元素绘制——graphic 挂在 chart 的 viewRoot 下，**不参与 graph series（layout:'none'）的 roam 变换**：series 数据点随缩放平移更新，graphic 元素原地不动；且 rx/ry 写死 `ring+18` 正圆，不随成员分布变化
+- **修复**：气泡改为 graph series 的**虚拟节点**（`symbol:'circle'` + `symbolSize:[rx*2, ry*2]` 拉伸成椭圆——官方 `normalizeSymbolSize`/`graphHelper.getSymbolSize` 均支持数组宽高），坐标随 series 一起 roam；椭圆参数改为按成员实际坐标包围盒动态计算；`silent:true` + `emphasis.disabled:true` 保持纯装饰（不响应事件、不参与 focus/blur 淡化）
+- **教训**：**ECharts 中需要跟随某系列 roam/拖拽的装饰元素，必须是该系列的数据点（或自定义 symbol），不能用 graphic 元素**——graphic 只适合画与坐标无关的固定装饰；「装饰随数据动」优先考虑 series 虚拟节点
+
+---
+
 ## 踩坑模式总结（教训提炼）
 
 1. **"先 X 后 Y"的顺序改动，Y 的删除/清理条件必须精确到原子键**（坑 2）
@@ -137,9 +233,19 @@
 9. **合并分支前先 diff 受影响文件，合并后三端全量验证**（坑 13）
 10. **外部 SDK 返回 pydantic 对象而非 dict，先归一化（model_dump）再取字段**（坑 14）
 11. **框架（uvicorn）启动时会接管 logging 配置——自定义 handler 必须在其配置完成后的生命周期钩子里挂**（坑 15）
+12. **用 chunk_ids 当 filter 去清 doc_ids 是错误语义——两个字段存的是不同字符串（chunk_id vs source_doc_id），过滤条件不匹配**（坑 15）
 12. **"页面是否含图片"不能依赖 get_images()（整页扫描件返回 0）——兜底逻辑宁多勿漏**（坑 16）
 13. **供应商限流错误会伪装成业务拒绝（422 文案误导）——偶发 422 先按供应商并发上限重测，别急着换模型/换供应商**（坑 17）
 14. **大面积 422/400 且看似按内容特征分布时，先查账户状态（欠费/额度），再怀疑业务逻辑**——欠费错误码与审核/限流同形（坑 18）
+15. **Spring `${VAR:default}` 占位符的 fallback 对空字符串不生效——空字符串是合法值**；跨端鉴权必须在两端启动日志打 token 长度+前缀方便对比（坑 16）
+16. **业务规则应该配置化（YAML/TOML），不硬编码在源码里**；规则命中要打日志便于收集真实流量分布（坑 17）
+17. **pydantic-settings 默认值是双写源（代码 Field + default.toml）——改代码默认值必须同步改 default.toml**（坑 18）
+18. **"最高分低"是"库里没相关"的信号，不是"可以放宽"的信号——搜索阈值用全局硬性指标**（坑 19）
+19. **批量操作的聚合副作用（重建/刷新/同步）要在入口层防抖合并，不能在单条路径重复执行；副作用触发粒度要与操作粒度匹配**（坑 20）
+20. **LLM 供应商的 extra_body 字段不是通用约定，切换供应商必须逐字段核对；未知供应商什么都不发**（坑 21）
+22. **「0=特殊语义（全量）」的参数跨层传递时，任何一层做 falsy 转换（0→None）都会静默改变语义——转换只能发生在唯一一处判定**（坑 22）
+23. **ECharts 中跟随系列 roam 的装饰元素必须做成 series 数据点（虚拟节点/自定义 symbol），graphic 元素固定不动**（坑 23）
+21. **Python `x or default` 无法区分「未传」和「显式 falsy（0/空）」——"0 表示特殊语义"的参数必须用 `if x is None`**；Cypher `LIMIT 0` 是 0 条不是不限（坑 22）
 
 ## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler
 

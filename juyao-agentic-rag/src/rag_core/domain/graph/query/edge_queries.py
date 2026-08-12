@@ -63,13 +63,17 @@ def resolve_entity_names(names: list[str], *, settings: Settings | None = None) 
             matched.add(n)
 
     # 未全命中时走归一化 + 子串兜底（避免问句称呼与库内全名对不上导致图谱白跑）
+
+
     if len(matched) < len(ids):
         norm_ids = {normalize_entity_name(i) for i in ids}
         rows2 = get_read_graph().query(CY_ENTITY_NAMES_SUBSTR, params={"kws": ids})
         for row in rows2:
+            # 第一个就是去掉多余的符号比如熊大（熊二的哥哥）-》熊大
             n = str(row.get("name") or "").strip()
             if not n or n in matched:
                 continue
+            # 这里的ids的作用就是 库内名-》熊大（森林之王）|| 问句称呼-》熊大（主角） 这里去重过后都是熊大，做归一化的，这样就是放大范围来查
             if normalize_entity_name(n) in norm_ids or any(n in i or i in n for i in ids):
                 matched.add(n)
     return sorted(matched)

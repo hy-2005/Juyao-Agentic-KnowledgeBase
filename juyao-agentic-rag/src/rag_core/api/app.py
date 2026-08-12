@@ -27,10 +27,16 @@ async def lifespan(app: FastAPI):
     ensure_file_logging()
     settings = get_settings()
     app.state.redis = redis.from_url(settings.redis_url, decode_responses=True)
+    # 社区重建调度器：入库只标记 dirty，静默窗口统一重建；退出时立即重建剩余 dirty kb
+    from rag_core.application.ingest_flow.community_scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+    scheduler.start()
     try:
         yield
     finally:
         await app.state.redis.aclose()
+        scheduler.shutdown()
 
 
 app = FastAPI(title="JuYao RAG API", version="0.1.0", lifespan=lifespan)

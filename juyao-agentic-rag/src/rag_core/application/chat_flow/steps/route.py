@@ -24,9 +24,28 @@ from rag_core.prompts.templates import (
 from rag_core.application.chat_flow.state import RouteBranch
 from rag_core.core.config import get_settings
 from rag_core.application.chat_flow.steps.graph_supplement import should_invoke_graph_by_rules
+from rag_core.domain.routing.intent_rules import (
+    get_intent_rules,
+    load_intent_rules,
+    route_by_rules,
+)
 from rag_core.infrastructure.llm.json_client import get_json_chat_llm
 
 logger = logging.getLogger(__name__)
+
+# 启动时预加载一次规则（若 YAML 不存在，走硬编码 fallback；规则改动需重启）
+try:
+    _BOOT_RULES = load_intent_rules()
+    logger.info("[ROUTE] 启动时预加载意图规则 %d 条", len(_BOOT_RULES))
+except Exception as _exc:  # noqa: BLE001
+    logger.warning("[ROUTE] 启动预加载规则失败，使用硬编码 fallback: %s", _exc)
+    _BOOT_RULES = []
+
+_BRANCH_MAP = {
+    "direct": RouteBranch.DIRECT,
+    "vector_only": RouteBranch.VECTOR_ONLY,
+    "graph_only": RouteBranch.GRAPH_ONLY,
+}
 
 
 
@@ -61,15 +80,38 @@ _DIRECT_GREETING_RE = re.compile(
 
 
 def route_question_intent_rules(question: str) -> RouteBranch | None:
-    """规则快路径：命中明确特征返回对应支线；**无特征命中返回 None（规则不确定）**。
+    """规则快路径：优先用 YAML 配置规则（config/intent_rules.yaml），无配置时回退硬编码默认。
 
-    返回 None 表示"规则看不出意图"——由调用方决定走 LLM（级联路由，
-    规则确定零 LLM 调用，不确定才花钱让大模型判）。
+    命中明确特征返回对应支线；无特征命中返回 None（规则不确定，进 LLM）。
+    命中时打印规则名便于排查 + 收集真实流量命中分布。
     """
     q = (question or "").strip()
     settings = get_settings()
     strict = bool(getattr(settings, "flowchart_strict_mode", False))
 
+    rules = _BOOT_RULES or get_intent_rules()
+    if rules:
+        # YAML 规则路径
+        branch_str, rule_name = route_by_rules(q, rules, strict=strict)
+        if branch_str is not None:
+            branch = _BRANCH_MAP[branch_str]
+            logger.info(
+                "[ROUTE] 规则命中：input=%r rule=%s branch=%s strict=%s",
+                q[:60], rule_name, branch.value, strict,
+            )
+            return branch
+        logger.debug("[ROUTE] YAML 规则无命中：input=%r（将进 LLM）", q[:60])
+        return None
+
+    # 回退：硬编码默认规则（YAML 不存在/解析失败时使用，保持向后兼容）
+    return _route_by_default_rules(q, strict)
+
+
+def _route_by_default_rules(q: str, strict: bool) -> RouteBranch | None:
+    """硬编码默认规则——仅在 YAML 不存在/加载失败时使用。
+
+    与历史实现等价；保留以避免 YAML 误改导致路由失效。
+    """
     if len(q) < 2:
         return RouteBranch.VECTOR_ONLY if strict else RouteBranch.DIRECT
 
@@ -167,13 +209,16 @@ def resolve_intent_route(question: str) -> IntentRouteResult:
         logger.info("intent_route 规则快路径命中：%s", rule_branch.value)
         return IntentRouteResult(rule_branch, "rules")
 
-    # 规则不确定 → LLM 精判
+    # 规则不确定 → LLM 精判（调一次，让 LLM 自己分 direct/graph/vector）
     try:
         return IntentRouteResult(route_question_intent_llm(question), "llm")
     except Exception as exc:
-        logger.warning("intent_route_llm 失败，回退 rules：%s", exc)
-        branch = route_question_intent_rules(question) or RouteBranch.VECTOR_ONLY
-        return IntentRouteResult(branch, "rules_fallback")
+        # LLM 失败兜底：直接走 vector_only（向量检索对几乎所有自然语言都能返回结果，
+        # 比图谱兜底更稳；规则不再二次调用——第一次已经返回 None，重复调没意义）
+        logger.warning(
+            "intent_route_llm 失败，直接兜底 vector_only（不再二次调规则）：%s", exc
+        )
+        return IntentRouteResult(RouteBranch.VECTOR_ONLY, "llm_fallback")
 
 
 def route_question_intent(question: str) -> RouteBranch:

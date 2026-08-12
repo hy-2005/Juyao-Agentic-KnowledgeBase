@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from rag_core.core.config import get_settings
 from rag_core.api.security import require_internal_token
 from rag_core.application.ingest_flow.cleanup import purge_kb
+from rag_core.application.ingest_flow.community_scheduler import get_scheduler
 from rag_core.application.ingest_flow.events import apply_kafka_ingest_payload
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,13 @@ async def internal_rag_ingest_event(request: Request, body: dict[str, Any] = Bod
     doc = str(body.get("docLogicalKey") or "")
     logger.info("[RAG-HTTP] 内部入库开始 action=%s doc=%s", action, doc)
     t0 = time.perf_counter()
-    await asyncio.to_thread(apply_kafka_ingest_payload, body)
-    logger.info("[RAG-HTTP] ingest done doc=%s elapsedMs=%.0f", doc, (time.perf_counter() - t0) * 1000)
+    # 入库不立即重建社区：标记 dirty，由调度器在 30s 静默窗口统一重建（批量上传只重建一次）
+    _, changed = await asyncio.to_thread(apply_kafka_ingest_payload, body, build_communities=False)
+    if changed:
+        scheduler = get_scheduler()
+        scheduler.mark_dirty(int(body.get("kbId") or 0))
+        scheduler.start()
+    logger.info("[RAG-HTTP] ingest done doc=%s changed=%s elapsedMs=%.0f", doc, changed, (time.perf_counter() - t0) * 1000)
     return {"ok": True}
 
 

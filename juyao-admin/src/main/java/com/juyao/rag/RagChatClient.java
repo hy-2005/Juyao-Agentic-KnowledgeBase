@@ -16,6 +16,8 @@ import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +28,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 @Component
 public class RagChatClient{
+    private static final Logger log = LoggerFactory.getLogger(RagChatClient.class);
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .version(HttpClient.Version.HTTP_1_1)
@@ -41,6 +44,12 @@ public class RagChatClient{
 
     public RagChatClient(ObjectMapper objectMapper){
         this.objectMapper = objectMapper;
+        // 启动时打印 token 实际值（仅前缀+长度，不全量打印避免泄露）；诊断 403 token mismatch
+        String safe = (internalToken == null || internalToken.isEmpty())
+            ? "<EMPTY>"
+            : (internalToken.length() <= 4 ? "***" : internalToken.substring(0, 4) + "***");
+        log.info("[RAG-RagChatClient] internal-token resolved: len={}, preview={}",
+            internalToken == null ? 0 : internalToken.length(), safe);
     }
 
     /**

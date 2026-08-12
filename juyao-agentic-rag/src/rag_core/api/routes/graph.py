@@ -40,9 +40,13 @@ def admin_graph_stats(top_n: int = Query(10, alias="topN", ge=1, le=50)):
 
 
 @router.get("/communities")
-def admin_list_communities():
-    """社区列表（id/摘要/实体数/成员实体），社区面板 + 点击聚焦用。"""
-    return {"rows": list_communities()}
+def admin_list_communities(
+    page_num: int = Query(1, alias="pageNum", ge=1),
+    page_size: int = Query(10, alias="pageSize", ge=1, le=100),
+):
+    """社区列表（分页：id/摘要/实体数/成员实体），社区面板 + 点击聚焦用。"""
+    rows, total = list_communities(page_num=page_num, page_size=page_size)
+    return {"rows": rows, "total": total}
 
 
 @router.get("/edges", response_model=GraphListResponse)
@@ -81,23 +85,24 @@ def admin_list_entities(
 def admin_subgraph(
     seed: str = Query(..., min_length=1),
     hops: int = Query(1, ge=1),
-    limit: int = Query(0, ge=0, description="0 表示不截断"),
+    limit: int = Query(0, ge=0, description="路径上限，0 使用默认 200"),
 ):
     seed_names = [s.strip() for s in seed.split(",") if s.strip()]
-    eff_limit = None if limit <= 0 else limit
-    data = subgraph_from_seeds(seed_names=seed_names, hops=hops, limit=eff_limit)
+    data = subgraph_from_seeds(seed_names=seed_names, hops=hops, limit=limit)
     return GraphSubgraphResponse(**data)
 
 
 @router.get("/full", response_model=GraphSubgraphResponse)
 def admin_full_graph(limit: int = Query(0, ge=0, description="0 表示不截断")):
-    eff_limit = None if limit <= 0 else limit
-    return GraphSubgraphResponse(**full_graph(limit=eff_limit))
+    # 禁止把 limit=0 转成 None 再传：full_graph 内 None=默认 300（防卡死兜底）、
+    # 0=全量不加 LIMIT，转换会把「全量」请求静默降级成 300 条（PITFALLS #22 扩展）
+    return GraphSubgraphResponse(**full_graph(limit=limit))
 
 
 @router.get("/edges/all", response_model=GraphListResponse)
-def admin_list_all_edges():
-    rows = fetch_all_edges()
+def admin_list_all_edges(limit: int = Query(0, ge=0, description="0 表示不截断")):
+    # 同上：fetch_all_edges 内 None=默认 500、0=全量，路由层不得做 0→None 转换
+    rows = fetch_all_edges(limit=limit)
     return GraphListResponse(rows=rows, total=len(rows))
 
 

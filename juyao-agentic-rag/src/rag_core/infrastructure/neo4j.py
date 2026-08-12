@@ -313,6 +313,17 @@ class Neo4jTripleStore:
 
         与 purge_document_edges 的区别：后者按前缀 STARTS WITH 清（适合整文档），
         这里是精确 id 列表——清空引用后删边、删孤立节点。
+
+        边界：
+        - 只清 `r.chunk_ids` 中的指定 chunk_id 引用；**不动 r.doc_ids**（doc_ids 里存的是
+          source_doc_id = `kb_id:safe_name:digest`，与 chunk_id 不是同一字符串，用 chunk_ids
+          当过滤条件去打 doc_ids 是错误语义，见 PITFALLS.md #15）
+        - 跨 kb 共享的边：r.kb_ids = [kb_a, kb_b] 同时被两个 kb 引用时，本函数只清
+          r.chunk_ids，不影响 doc_ids 也不影响 kb_ids；删后 r.kb_ids 仍包含其他 kb，
+          size() != 0 不会触发边删除，kb_ids 数组保留（kb 隔离语义）
+        - r.chunk_ids 清空后才考虑删边（size() = 0 时 r.doc_ids 必然也空，因为入库时
+          chunk_ids 和 doc_ids 是同步累加的，差集清理场景下不会出现 chunk_ids 空而
+          doc_ids 非空）
         """
         if not chunk_ids:
             return
@@ -321,8 +332,7 @@ class Neo4jTripleStore:
                 """
                 MATCH ()-[r:RELATED]->()
                 WHERE $kb IN coalesce(r.kb_ids, [])
-                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids],
-                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d IN $chunk_ids]
+                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids]
                 """,
                 {"chunk_ids": chunk_ids, "kb": int(kb_id)},
             )
@@ -330,8 +340,7 @@ class Neo4jTripleStore:
             self._run(
                 """
                 MATCH ()-[r:RELATED]->()
-                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids],
-                    r.doc_ids = [d IN coalesce(r.doc_ids, []) WHERE NOT d IN $chunk_ids]
+                SET r.chunk_ids = [c IN coalesce(r.chunk_ids, []) WHERE NOT c IN $chunk_ids]
                 """,
                 {"chunk_ids": chunk_ids},
             )

@@ -15,6 +15,19 @@
           prefix-icon="el-icon-search"
           style="width: 200px"
         />
+        <el-select
+          :value="fullLimit"
+          size="mini"
+          style="width: 110px"
+          title="全图显示上限（边数），切换后重新加载"
+          @change="$emit('limit-change', $event)"
+        >
+          <el-option label="上限 100" :value="100" />
+          <el-option label="上限 300" :value="300" />
+          <el-option label="上限 500" :value="500" />
+          <el-option label="上限 1000" :value="1000" />
+          <el-option label="全量展示" :value="0" />
+        </el-select>
         <el-radio-group v-model="viewMode" size="mini">
           <el-radio-button label="overview">图谱总览</el-radio-button>
           <el-radio-button label="list">关系清单</el-radio-button>
@@ -22,8 +35,15 @@
         <el-button
           v-if="viewMode === 'overview'"
           size="mini"
+          :type="clusterByCommunity ? 'success' : 'default'"
+          @click="toggleCluster"
+        >{{ clusterByCommunity ? '社区聚类：开' : '社区聚类' }}</el-button>
+        <el-button
+          v-if="viewMode === 'overview'"
+          size="mini"
           :type="communityView ? 'warning' : 'default'"
-          @click="communityView = !communityView"
+          :disabled="clusterByCommunity"
+          @click="toggleCommunityView"
         >{{ communityView ? '社区视图：开' : '社区视图' }}</el-button>
         <el-button v-if="fullscreen" type="text" icon="el-icon-close" size="mini" @click="$emit('exit-fullscreen')">退出全屏</el-button>
       </div>
@@ -42,6 +62,7 @@
           graph-mode="full"
           :highlight-keyword="localKeyword"
           :community-view="communityView"
+          :cluster-by-community="clusterByCommunity"
           height="100%"
           @node-click="onNodeClick"
           @community-click="$emit('community-click', $event)"
@@ -127,7 +148,8 @@ export default {
     truncated: { type: Boolean, default: false },
     totalEdges: { type: Number, default: 0 },
     returnedEdges: { type: Number, default: 0 },
-    fullscreen: { type: Boolean, default: true }
+    fullscreen: { type: Boolean, default: true },
+    fullLimit: { type: Number, default: 0 }
   },
   data() {
     return {
@@ -138,7 +160,8 @@ export default {
       listPageSize: 50,
       nodeDrawerOpen: false,
       selectedNode: '',
-      communityView: false
+      communityView: false,
+      clusterByCommunity: false
     }
   },
   computed: {
@@ -192,6 +215,15 @@ export default {
     onLinkRowClick(row) {
       this.selectedNode = row.source
       this.nodeDrawerOpen = true
+    },
+    toggleCluster() {
+      // 聚类布局与社区聚合视图互斥：开启聚类时强制关闭聚合，反之亦然
+      this.clusterByCommunity = !this.clusterByCommunity
+      if (this.clusterByCommunity) this.communityView = false
+    },
+    toggleCommunityView() {
+      this.communityView = !this.communityView
+      if (this.communityView) this.clusterByCommunity = false
     }
   }
 }

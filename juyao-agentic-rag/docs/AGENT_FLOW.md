@@ -182,149 +182,136 @@
 
 ```mermaid
 flowchart TB
-    %% ====================== 1. HTTP 入口 ======================
-    subgraph HTTP["① HTTP 层 — api/routes/chat.py"]
+    %% 1. HTTP 入口
+    subgraph s_http ["1. HTTP 层 src/rag_core/api/routes/chat.py"]
         direction TB
-        H1["POST /api/v1/chat/stream<br/>body: {user_id, session_id, message, kb_id}"]
-        H2["require_internal_token<br/>内部 token 鉴权（P1-1 防 8000 直连）"]
-        H3["Redis load_messages<br/>按 user_id+session_id 读历史"]
-        H4["构造 event_gen() SSE 生成器<br/>assistant_holder + tool_messages_holder"]
+        H1["POST /api/v1/chat/stream  body: user_id session_id message kb_id"]
+        H2["require_internal_token  内部 token 鉴权 (P1-1 防 8000 直连)"]
+        H3["Redis load_messages  按 user_id + session_id 读历史"]
+        H4["构造 event_gen SSE 生成器  assistant_holder + tool_messages_holder"]
     end
 
-    %% ====================== 2. 对话入口 ======================
-    subgraph ENTRY["② 对话入口 — chat_flow/entry.py"]
+    %% 2. 对话入口
+    subgraph s_entry ["2. 对话入口 chat_flow/entry.py"]
         direction TB
-        E1["astream_chat_events(question, history,<br/>assistant_holder, kb_id)"]
-        E2["require_dashscope_api_key<br/>无 key 直接抛错"]
+        E1["astream_chat_events question history assistant_holder kb_id"]
+        E2["require_dashscope_api_key  无 key 直接抛错"]
     end
 
-    %% ====================== 3. 主流程编排 ======================
-    subgraph FLOW["③ 主流程编排 — chat_flow/flow.py"]
+    %% 3. 主流程编排
+    subgraph s_flow ["3. 主流程编排 chat_flow/flow.py"]
         direction TB
-        F0["routed_astream_chat_events<br/>构造 FlowState(question, history, kb_id, ...)"]
-
-        %% 节点 B 意图路由
-        F1["Step 1 · 节点 B 意图路由<br/>steps/route.py: run_route_step"]
-
-        %% 路由级联
-        F1A["规则快路径（零 LLM）<br/>route_question_intent_rules(q)"]
-        F1A1{"规则能确定？"}
-        F1B["LLM JSON 判定<br/>route_question_intent_llm<br/>backend = 'llm'"]
-        F1B1{"LLM 成功？"}
-        F1C["规则兜底<br/>backend = 'rules_fallback'"]
-        F1D["配置 mode=rules<br/>backend = 'rules'（纯规则）"]
-
-        %% 路由结果
-        FBR{"RouteBranch = ?"}
-
-        %% 三条分支
-        FD["分支 · direct<br/>stop_reason = route_direct_no_tools<br/>observation 追加系统提示"]
-        FG["分支 · graph_only<br/>graph_query_enabled ?"]
-        FV["分支 · vector_only（默认）<br/>D → E → F|G"]
-
-        %% graph_only 子分支
-        FG_ON["graph_query_enabled=True"]
-        FG_ON_C["节点 C · run_graph_query_step<br/>build_graph_observation_question_driven<br/>问句实体 → Neo4j 多跳"]
-        FG_ON_0{"had_graph_edges ?"}
-        FG_ON_DG["0 边：降级 run_retrieve_step<br/>stop_reason = graph_only_fallback_vector<br/>（P1-2 修复，原直接判无证据）"]
-        FG_OFF["graph_query_enabled=False<br/>降级 run_retrieve_step<br/>stop_reason = graph_disabled_fallback_vector"]
-
-        %% vector_only 管线
-        FV_D["节点 D · run_retrieve_step<br/>search_context(question, kb_id)<br/>写入 merged_docs / max_score / observation"]
-        FV_E["节点 E · run_sufficiency_step<br/>decide_vector_path_needs_graph_supplement"]
-        FV_E_pre{"max_score &lt; min_relevance_score ?"}
-        FV_E_pre_T["need_g=True · backend=heuristic_low_score_precheck"]
+        F0["routed_astream_chat_events  构造 FlowState question history kb_id"]
+        F1["Step 1 节点 B 意图路由  steps/route.py run_route_step"]
+        F1A["规则快路径 零 LLM  route_question_intent_rules"]
+        F1A1{"规则能确定"}
+        F1B["LLM JSON 判定  route_question_intent_llm  backend = llm"]
+        F1B1{"LLM 成功"}
+        F1C["规则兜底  backend = rules_fallback"]
+        F1D["配置 mode = rules  backend = rules 纯规则"]
+        FBR{"RouteBranch"}
+        FD["分支 direct  stop_reason = route_direct_no_tools  observation 追加系统提示"]
+        FG["分支 graph_only  graph_query_enabled"]
+        FV["分支 vector_only 默认  D -> E -> F 或 G"]
+        FG_ON["graph_query_enabled = True"]
+        FG_ON_C["节点 C run_graph_query_step  调 run_graph_search L1/L2/L3 级联"]
+        FG_ON_0{"had_graph_edges"}
+        FG_ON_DG["0 边 降级 run_retrieve_step  stop_reason = graph_only_fallback_vector  P1-2 修复"]
+        FG_OFF["graph_query_enabled = False  降级 run_retrieve_step  stop_reason = graph_disabled_fallback_vector"]
+        FV_D["节点 D run_retrieve_step  search_context question kb_id  写入 merged_docs max_score observation"]
+        FV_E["节点 E run_sufficiency_step  decide_vector_path_needs_graph_supplement"]
+        FV_E_pre{"max_score 小于 min_relevance_score"}
+        FV_E_pre_T["need_g = True  backend = heuristic_low_score_precheck"]
         FV_E_mode{"rag_sufficiency_mode"}
-        FV_E_HE["heuristic 模式<br/>空结果 / 低分 = 不足<br/>backend = heuristic_*"]
-        FV_E_LLM["LLM 模式（默认）<br/>读 question + Observation → JSON<br/>_rag_sufficiency_llm"]
-        FV_E_FALL{"LLM 失败？"}
-        FV_E_LLMOK["backend = 'llm'"]
-        FV_E_LLMFB["回退启发式<br/>backend = llm_fallback_heuristic"]
-        FV_E_G{"need_g = ?"}
-        FV_F["节点 F · run_graph_supplement_step<br/>build_graph_observation_text(chunk_ids)<br/>chunk 锚定 → 0 边则问句实体兜底"]
-        FV_G["走 G（仅向量证据）<br/>stop_reason = route_vector_only"]
+        FV_E_HE["heuristic 模式  空结果 或 低分 = 不足  backend = heuristic_*"]
+        FV_E_LLM["LLM 模式 默认  读 question + Observation 走 JSON  _rag_sufficiency_llm"]
+        FV_E_FALL{"LLM 失败"}
+        FV_E_LLMOK["backend = llm"]
+        FV_E_LLMFB["回退启发式  backend = llm_fallback_heuristic"]
+        FV_E_G{"need_g"}
+        FV_F["节点 F run_graph_supplement_step  调 run_graph_search 与 graph_only 共用入口"]
+        FV_G["走 G 仅向量证据  stop_reason = route_vector_only"]
         FV_HV["stop_reason = vector_then_graph_supplement"]
-
-        %% meta + finalize
-        FHAD["had_evidence = (merged_docs ∨ had_graph_edges)"]
+        FHAD["had_evidence = merged_docs 或 had_graph_edges"]
         FLOG["_log_graph_snapshots 排查日志"]
-        FMETA["yield ('meta', _build_meta)<br/>citations / score / route_branch / executed_steps / graph_snapshot_meta"]
-        FFINAL["Step · 节点 H stream_final_answer<br/>finalize.py"]
+        FMETA["yield meta _build_meta  citations score route_branch executed_steps graph_snapshot_meta"]
+        FFINAL["Step 节点 H stream_final_answer  finalize.py"]
     end
 
-    %% ====================== 4. 检索子管线 ======================
-    subgraph RET["④ 检索子管线 — domain/retrieval/retriever.py"]
+    %% 4. 检索子管线
+    subgraph s_ret ["4. 检索子管线 domain/retrieval/retriever.py"]
         direction TB
-        R1["search_context(query, kb_id)<br/>1. 收集所有 query specs"]
-        R_SIMPLE{"_is_simple_query<br/>≤12 字 + 无推理动词？"}
-        R_SIMPLE_T["简单事实型：单 query<br/>跳过 LLM 改写/HyDE（省时延）"]
-        R_QR["rewrite_query<br/>LLM 拆 sub-queries<br/>失败静默返回 []"]
-        R_HYDE["generate_hypothetical_answer<br/>HyDE 假答案片段（条款风格 80~200 字）"]
-        R_HYDE_FLAG["vector_only=True<br/>（HyDE 仅走向量，不污染 BM25）"]
-        R2["2. _parallel_retrieve(specs)<br/>每条 query 并行：向量 + ES（HyDE 跳过 ES）"]
-        R_VEC["Qdrant 向量召回 top_k<br/>kb_id 强制过滤（防串库）"]
+        R1["search_context query kb_id  1. 收集所有 query specs"]
+        R_SIMPLE{"_is_simple_query  12 字内 无推理动词"}
+        R_SIMPLE_T["简单事实型 单 query  跳过 LLM 改写/HyDE 省时延"]
+        R_QR["rewrite_query  LLM 拆 sub-queries  失败静默返回空"]
+        R_HYDE["generate_hypothetical_answer  HyDE 假答案 条款风格 80 至 200 字"]
+        R_HYDE_FLAG["vector_only = True  HyDE 仅走向量 不污染 BM25"]
+        R2["2. _parallel_retrieve specs  每条 query 并行 向量 + ES  HyDE 跳过 ES"]
+        R_VEC["Qdrant 向量召回 top_k  kb_id 强制过滤 防串库"]
         R_ES["Elasticsearch BM25 召回 top_k"]
-        R_THR["阈值过滤<br/>threshold = min(绝对阈值, 最高分×相对比例)<br/>（P1 相对截断）"]
-        R_RRF1["单 query 内 RRF<br/>fuse_two_rankings(vec, es, rrf_k)"]
-        R_RRF2["3. 跨 query 二次 RRF<br/>fuse_query_rankings(per_query, rrf_k)<br/>多 query 都命中的 chunk 自然加分"]
+        R_THR["阈值过滤  threshold = min 绝对阈值 最高分 乘 相对比例  P1 相对截断"]
+        R_RRF1["单 query 内 RRF  fuse_two_rankings vec es rrf_k"]
+        R_RRF2["3. 跨 query 二次 RRF  fuse_query_rankings per_query rrf_k  多 query 都命中的 chunk 自然加分"]
         R_TRUNC["截断到 rrf_top_n 进入 rerank"]
-        R_RERANK["4. rerank_documents_multi<br/>每条 query 并行 Cross-Encoder / Ollama rerank<br/>失败路不贡献（其他路继续）；全失败→回退 RRF 顺序"]
-        R_RERRRF["跨 query rerank RRF 聚合<br/>复用 fuse_query_rankings"]
-        R_DIV["_diversify_by_source<br/>按 source_name 同源多样性采样<br/>per_source=2，不足时回填"]
-        R_MAXS["max_score = 各 query 向量原始相似度最大值<br/>（仅展示用，不参与排序）"]
-        R_PARENT["父子块：子块命中 → 映射父块<br/>_fetch_parents_by_ids 按 chunk_id 取父块"]
-        R_RET["返回 RetrievedContext(documents, max_score)"]
+        R_RERANK["4. rerank_documents_multi  每条 query 并行 Cross-Encoder / Ollama rerank  失败路不贡献 全失败回退 RRF 顺序"]
+        R_RERRRF["跨 query rerank RRF 聚合  复用 fuse_query_rankings"]
+        R_DIV["_diversify_by_source  按 source_name 同源多样性采样  per_source = 2 不足时回填"]
+        R_MAXS["max_score 各 query 向量原始相似度最大值  仅展示用 不参与排序"]
+        R_PARENT["父子块 子块命中映射父块  _fetch_parents_by_ids 按 chunk_id 取父块"]
+        R_RET["返回 RetrievedContext documents max_score"]
     end
 
-    %% ====================== 5. 图谱子管线 ======================
-    subgraph KG["⑤ 图谱子管线 — domain/graph/query/observation.py"]
+    %% 5. 图谱子管线 (派系 2 统一入口 L1/L2/L3)
+    subgraph s_kg ["5. 图谱子管线 domain/graph/query/graph_search.py"]
         direction TB
-        K1["节点 C · 问句驱动<br/>build_graph_observation_question_driven"]
-        K1A["QuestionGraphSeedExtractor.extract(q)<br/>LLM 抽实体 + relation_hints"]
-        K1B{"命中实体？"}
-        K1C["resolve_entity_names<br/>实体规范化匹配 Neo4j 节点"]
-        K1D{"matched 非空？"}
-        K1E["query_edges_from_entity_seeds<br/>多跳展开（最多 max_hops 层）"]
-        K1F["edges=0 ?"]
-        K1G["global 兜底：_community_summaries_for_question<br/>2/3-gram 重叠度取 top 2 社区摘要"]
-        K1H["Observation: '图谱查询暂时不可用 / 0 边' 等"]
-
-        K2["节点 F · 补图<br/>build_graph_observation_text(chunk_ids)"]
-        K2A["query_edges_for_chunks(chunk_ids)<br/>chunk 锚定优先（确定性信号，P0-1 修复死代码）"]
-        K2B{"edges=0 ?"}
-        K2C["0 边兜底：build_graph_observation_question_driven<br/>source = 'question_entities_supplement'"]
-        K2D["format_edges_for_prompt<br/>chunk / 头尾类型 / 关系大类 / time+location hints / evidence"]
-
-        K3["_append_graph_step 落盘<br/>observation_lines + graph_snapshots + executed_steps<br/>(tool = query_knowledge_graph)"]
+        G1["run_graph_search  L1 社区优先 -> L2 全图降级 -> L3 真没有"]
+        G_L1["L1 派系 2 社区优先"]
+        G_L1S["community_search question kb_id  问题 vs community_summaries embedding  top-K + min_similarity"]
+        G_L1S_OK{"top-1 大于等于阈值"}
+        G_L1_ABC["A + B + C pipeline  asyncio.gather + to_thread"]
+        G_L1_A["A rewrite_question_for_graph LLM 改写"]
+        G_L1_B["B decompose_question_for_graph LLM 拆解"]
+        G_L1_C["C QuestionGraphSeedExtractor.extract  基于改写后问句 + 候选实体 n-gram + embedding 双路"]
+        G_L1_FILT["实体过滤到 K 社区子图范围  _filter_entities_to_scope"]
+        G_L1_Q["query_edges_from_entity_seeds  hops = 4 max_edges = 40 timeout = 10s"]
+        G_L1_HIT{"n_edges 大于 0"}
+        G_L1_END["GraphSearchResult level = L1  source = graph_search_L1"]
+        G_L2["L2 全图降级  hops = 2 max_edges = 20 timeout = 5s"]
+        G_L2_ABC["A + B + C pipeline 无子图约束"]
+        G_L2_Q["query_edges_from_entity_seeds 全图"]
+        G_L2_HIT{"n_edges 大于 0"}
+        G_L2_END["GraphSearchResult level = L2  source = graph_search_L2"]
+        G_L3["L3 真没有 终态放弃  GraphSearchResult level = EMPTY"]
     end
 
-    %% ====================== 6. finalize + SSE ======================
-    subgraph FIN["⑥ 流式生成 + SSE 输出"]
+    %% 6. finalize + SSE
+    subgraph s_fin ["6. 流式生成 + SSE 输出"]
         direction TB
         L1["finalize.stream_final_answer"]
-        L2{"had_evidence ?"}
-        L3A["True → SYSTEM_PROMPT（有 KB/图谱）<br/>prefix = KB_ANSWER_PREFIX"]
-        L3B["False → SYSTEM_PROMPT_NO_KB_EVIDENCE<br/>prefix = NO_KB_STREAM_PREFIX"]
-        L4["yield ('token', {content: prefix})"]
-        L5["get_chat_llm(streaming=True).astream<br/>构造 messages = [System, *history, Human(execute_user_prompt)]<br/>execute_user_prompt = question + observation_lines"]
-        L6["async for chunk in astream<br/>yield ('token', {content})"]
-        L7["graph_snapshots 非空 → format_graph_snapshots_footer<br/>追加 '—— 图谱补充: 共 N 条关系' 页脚"]
+        L2{"had_evidence"}
+        L3A["True -> SYSTEM_PROMPT 有 KB/图谱  prefix = KB_ANSWER_PREFIX"]
+        L3B["False -> SYSTEM_PROMPT_NO_KB_EVIDENCE  prefix = NO_KB_STREAM_PREFIX"]
+        L4["yield token prefix"]
+        L5["get_chat_llm streaming = True .astream  构造 messages = System + history + Human"]
+        L6["async for chunk in astream  yield token"]
+        L7["graph_snapshots 非空 -> format_graph_snapshots_footer  追加 图谱补充 共 N 条关系 页脚"]
         L8["追加 DISCLAIMER / DISCLAIMER_NO_KB_REFERENCES"]
-        L9["assistant_holder.clear() + append(完整回复)<br/>供 Redis append_turn 持久化"]
-        LSSE["SSE 输出：meta → token* → done / error<br/>text/event-stream, no-cache"]
+        L9["assistant_holder.clear() + append 完整回复  供 Redis append_turn 持久化"]
+        LSSE["SSE 输出 meta -> token -> done 或 error  text/event-stream no-cache"]
     end
 
-    %% ====================== 7. 落库 ======================
-    subgraph PERSIST["⑦ 会话持久化"]
-        P1["Redis append_turn<br/>(user_msg, assistant_msg, tool_messages)<br/>按 chat_max_rounds + chat_history_ttl_seconds 滚动"]
+    %% 7. 落库
+    subgraph s_persist ["7. 会话持久化"]
+        P1["Redis append_turn  user_msg assistant_msg tool_messages  按 chat_max_rounds + chat_history_ttl_seconds 滚动"]
     end
 
-    %% ====================== 连线 ======================
+    %% 连线
     U(["用户消息"]) --> H1 --> H2 --> H3 --> H4 --> E1 --> E2 --> F0 --> F1
     F1 --> F1A --> F1A1
-    F1A1 -- "命中（问候/图谱特征/向量字面）" --> FBR
-    F1A1 -- "None（规则不确定）" --> F1B
-    F1A1 -. "mode=rules 时：纯规则路径" .-> F1D
+    F1A1 -- "命中 问候 图谱特征 向量字面" --> FBR
+    F1A1 -- "None 规则不确定" --> F1B
+    F1A1 -. "mode=rules 纯规则路径" .-> F1D
     F1B --> F1B1
     F1B1 -- "成功" --> FBR
     F1B1 -- "失败" --> F1C --> FBR
@@ -333,8 +320,8 @@ flowchart TB
     FBR -- "direct" --> FD --> FHAD
     FBR -- "graph_only" --> FG --> FG_ON
     FG_ON -- "True" --> FG_ON_C --> FG_ON_0
-    FG_ON_0 -- "True（图谱有边）" --> FHAD
-    FG_ON_0 -- "False（0 边）" --> FG_ON_DG --> FHAD
+    FG_ON_0 -- "True 图谱有边" --> FHAD
+    FG_ON_0 -- "False 0 边" --> FG_ON_DG --> FHAD
     FG_ON -- "False" --> FG_OFF --> FHAD
     FBR -- "vector_only" --> FV --> FV_D
 
@@ -343,11 +330,11 @@ flowchart TB
     R_SIMPLE -- "是" --> R_SIMPLE_T --> R2
     R_SIMPLE -- "否" --> R_QR --> R_HYDE
     R_HYDE -- "非空" --> R_HYDE_FLAG --> R2
-    R_HYDE -- "空/失败" --> R2
+    R_HYDE -- "空或失败" --> R2
     R2 --> R_VEC --> R_THR
     R_VEC --> R_PARENT
     R_THR --> R_ES --> R_RRF1
-    R_THR -- "HyDE 通道：跳过 ES" --> R_RRF1
+    R_THR -- "HyDE 通道 跳过 ES" --> R_RRF1
     R_RRF1 --> R_RRF2 --> R_TRUNC --> R_RERANK --> R_RERRRF --> R_DIV --> R_MAXS --> R_RET --> FV_E
 
     %% 充分性判断
@@ -355,28 +342,26 @@ flowchart TB
     FV_E_pre -- "是" --> FV_E_pre_T --> FV_E_G
     FV_E_pre -- "否" --> FV_E_mode
     FV_E_mode -- "heuristic" --> FV_E_HE --> FV_E_G
-    FV_E_mode -- "llm（默认）" --> FV_E_LLM --> FV_E_FALL
+    FV_E_mode -- "llm 默认" --> FV_E_LLM --> FV_E_FALL
     FV_E_FALL -- "成功" --> FV_E_LLMOK --> FV_E_G
     FV_E_FALL -- "失败" --> FV_E_LLMFB --> FV_E_G
     FV_E_G -- "True" --> FV_F --> FV_HV --> FHAD
     FV_E_G -- "False" --> FV_G --> FHAD
 
-    %% 图谱子管线细节
-    FG_ON_C -. "→" .-> K1
-    FV_F -. "→" .-> K2
-    K1 --> K1A --> K1B
-    K1B -- "失败" --> K1H
-    K1B -- "无实体" --> K1H
-    K1B -- "有实体" --> K1C --> K1D
-    K1D -- "未命中" --> K1G --> K1H
-    K1D -- "命中" --> K1E --> K1F
-    K1F -- "0 边" --> K1G --> K1H
-    K1F -- "有边" --> K2D --> K3
-
-    K2 --> K2A --> K2B
-    K2B -- "有边" --> K2D --> K3
-    K2B -- "0 边" --> K2C -. "复用 K1 路径" .-> K1A
-    K3 --> FHAD
+    %% 图谱子管线细节 (派系 2 统一入口)
+    FG_ON_C -. "进入" .-> G_L1
+    FV_F -. "进入" .-> G_L1
+    G_L1 --> G_L1S --> G_L1S_OK
+    G_L1S_OK -- "否 0 命中 或 top-1 小于阈值" --> G_L2
+    G_L1S_OK -- "是" --> G_L1_ABC
+    G_L1_ABC --> G_L1_A --> G_L1_C
+    G_L1_ABC --> G_L1_B --> G_L1_C
+    G_L1_C --> G_L1_FILT --> G_L1_Q --> G_L1_HIT
+    G_L1_HIT -- "是" --> G_L1_END --> FHAD
+    G_L1_HIT -- "否" --> G_L2
+    G_L2 --> G_L2_ABC --> G_L2_Q --> G_L2_HIT
+    G_L2_HIT -- "是" --> G_L2_END --> FHAD
+    G_L2_HIT -- "否" --> G_L3 --> FHAD
 
     FHAD --> FLOG --> FMETA --> FFINAL --> L1 --> L2
     L2 -- "True" --> L3A --> L4
@@ -394,10 +379,10 @@ flowchart TB
     classDef persist fill:#f5f5f5,stroke:#616161,color:#212121
 
     class H1,H2,H3,H4,E1,E2 entry
-    class FBR,FG_ON_0,FV_E_pre,FV_E_mode,FV_E_FALL,FV_E_G,R_SIMPLE,F1A1,F1B1,K1B,K1D,K1F,K2B,L2 decision
+    class FBR,FG_ON_0,FV_E_pre,FV_E_mode,FV_E_FALL,FV_E_G,R_SIMPLE,F1A1,F1B1,G_L1S_OK,G_L1_HIT,G_L2_HIT,L2 decision
     class F1,F1A,F1B,F1C,F1D,FD,FG,FV route
     class R1,R_QR,R_HYDE,R2,R_VEC,R_ES,R_THR,R_RRF1,R_RRF2,R_RERANK,R_RERRRF,R_DIV,R_PARENT,R_RET retrieve
-    class K1,K1A,K1C,K1E,K2,K2A,K2C,K2D,K3 kg
+    class G1,G_L1,G_L1S,G_L1_ABC,G_L1_A,G_L1_B,G_L1_C,G_L1_FILT,G_L1_Q,G_L1_END,G_L2,G_L2_ABC,G_L2_Q,G_L2_END,G_L3 kg
     class FFINAL,L1,L3A,L3B,L5,L6,L7,L8,L9,LSSE final
     class P1 persist
 ```
@@ -634,69 +619,57 @@ event: done\ndata: {}
 
 ```mermaid
 flowchart TB
-    %% ===== 入库入口 =====
-    subgraph ENTRY["① 入库入口"]
+    %% 1. 入库入口
+    subgraph s_ingest_entry ["1. 入库入口"]
         direction TB
-        I0["Java 上传（HTTP / Kafka）"]
-        I1["Kafka topic（异步，可选）<br/>cli/kafka_consumer.py"]
-        I2["CLI 直跑 · rag_core/cli/ingest.py"]
+        I0["Java 上传 (HTTP 或 Kafka)"]
+        I1["Kafka topic 异步可选  cli/kafka_consumer.py"]
+        I2["CLI 直跑  rag_core/cli/ingest.py"]
     end
 
-    %% ===== 主流程 =====
-    subgraph MAIN["② Python 主流程 · ingest_file()"]
+    %% 2. Python 主流程
+    subgraph s_main ["2. Python 主流程 ingest_file()"]
         direction TB
-        M1["load_document() 读取原文<br/>(PDF/DOCX/MD/HTML/CSV/...)"]
-        M2{"chunk_parent_enabled<br/>父子分块开关？"}
-        M3["split_into_parent_child_chunks<br/>结构感知主通道（标题/表格/代码/段落，零 LLM）<br/>→ 父块 + 子块"]
-        M4["split_into_chunks<br/>普通切分（规则主通道 + 必要时 LLM 语义切分）"]
-
-        %% 向量
-        M5["ensure_collection_exists()<br/>get_vector_store()"]
-        M6["add_documents(chunks + child_chunks)<br/>point id = uuid5(chunk_id)，幂等覆盖<br/>payload 含 metadata.kb_id 等"]
-
-        %% ES
-        M7["sync_chunks_to_elasticsearch<br/>_id = chunk_id，幂等"]
-
-        %% MySQL
-        M8["sync_chunks_to_mysql<br/>管理查询专用（按 source_name + kb_id）"]
-
-        %% 图谱
-        M9{"enable_graph?"}
-        M10["write_chunks_to_graph()<br/>并行 ingest_graph_workers<br/>LLM 抽三元组 (kg_triple_extraction_system.md)<br/>normalize_entity_name → parse_triples<br/>Neo4jTripleStore.upsert_triples (MERGE 累加)"]
-
-        %% 社区
-        M11["build_communities(kb=kb_id, reset=True)"]
-        M11A["detect_communities (Leiden)<br/>→ 实体分组"]
-        M11B["每社区 LLM 摘要 (community summary)<br/>_store_community → Neo4j Community 节点 + MEMBER_OF 边"]
-        M11C["upsert_community_summaries<br/>→ community_summaries Qdrant collection<br/>(与 chunks 物理隔离)"]
-
-        %% 先写后删
-        M12{"purge_before_write?"}
-        M13["差集清理：stale = old_chunk_ids − new_chunk_ids<br/>delete_chunks_by_ids(stale, include_graph=True)<br/>├─ Qdrant/ES/MySQL 按 chunk_id 删<br/>└─ Neo4j purge + _rebuild_communities_after_delete"]
-        M14["返回 (chunks_count, triples_count)"]
+        M1["load_document() 读取原文 (PDF/DOCX/MD/HTML/CSV/...)"]
+        M2{"chunk_parent_enabled 父子分块开关"}
+        M3["split_into_parent_child_chunks  结构感知主通道 零 LLM  父块 + 子块"]
+        M4["split_into_chunks  普通切分 规则主通道 + 必要时 LLM 语义切分"]
+        M5["ensure_collection_exists()  get_vector_store()"]
+        M6["add_documents chunks + child_chunks  point id = uuid5 chunk_id 幂等覆盖  payload 含 metadata.kb_id 等"]
+        M7["sync_chunks_to_elasticsearch  _id = chunk_id 幂等"]
+        M8["sync_chunks_to_mysql  管理查询专用 (按 source_name + kb_id)"]
+        M9{"enable_graph"}
+        M10["write_chunks_to_graph()  并行 ingest_graph_workers  LLM 抽三元组  normalize_entity_name -> parse_triples  Neo4jTripleStore.upsert_triples MERGE 累加"]
+        M11["build_communities kb = kb_id reset = True"]
+        M11A["detect_communities Leiden  实体分组"]
+        M11B["每社区 LLM 摘要  _store_community -> Neo4j Community 节点 + MEMBER_OF 边"]
+        M11C["upsert_community_summaries  community_summaries Qdrant collection (与 chunks 物理隔离)"]
+        M12{"purge_before_write"}
+        M13["差集清理  stale = old_chunk_ids - new_chunk_ids  delete_chunks_by_ids stale include_graph = True  Qdrant/ES/MySQL 按 chunk_id 删  Neo4j purge + _rebuild_communities_after_delete"]
+        M14["返回 chunks_count triples_count"]
     end
 
-    %% ===== 外部存储 =====
-    subgraph STORES["③ 外部存储"]
+    %% 3. 外部存储
+    subgraph s_stores ["3. 外部存储"]
         direction TB
-        S1[("Qdrant<br/>juyao_knowledge_chunks<br/>chunk 向量")]
-        S2[("Elasticsearch<br/>elasticsearch_index<br/>chunk 全文索引")]
-        S3[("MySQL<br/>rag_chunk_registry<br/>管理查询元数据")]
-        S4[("Neo4j<br/>Entity / RELATED / Community<br/>图谱 + 社区")]
-        S5[("Qdrant<br/>community_summaries<br/>社区摘要向量 (派系 2 新增)")]
+        S1[("Qdrant  juyao_knowledge_chunks  chunk 向量")]
+        S2[("Elasticsearch  elasticsearch_index  chunk 全文索引")]
+        S3[("MySQL  rag_chunk_registry  管理查询元数据")]
+        S4[("Neo4j  Entity / RELATED / Community  图谱 + 社区")]
+        S5[("Qdrant  community_summaries  社区摘要向量 (派系 2 新增)")]
     end
 
-    %% ===== 清理路径 =====
-    subgraph CLEAN["④ 清理路径"]
+    %% 4. 清理路径
+    subgraph s_clean ["4. 清理路径"]
         direction TB
-        C0["delete (Java / CLI)"]
-        C1["delete_document_from_indexes(source_name, kb_id)<br/>delete_chunks_by_ids(chunk_ids)<br/>purge_kb(kb_id)"]
-        C2["Qdrant/ES/MySQL 删除<br/>(按 source_name / kb_id 隔离)"]
-        C3["Neo4j purge_document_edges / purge_chunk_ids<br/>(边级 kb_ids 过滤)"]
-        C4["_rebuild_communities_after_delete(kb)<br/>→ build_communities(reset=True)<br/>├─ Leiden 重检测<br/>├─ 摘要重生成<br/>├─ Community 节点重建<br/>└─ community_summaries 按 kb 清空 + 重写"]
+        C0["delete (Java 或 CLI)"]
+        C1["delete_document_from_indexes source_name kb_id  delete_chunks_by_ids chunk_ids  purge_kb kb_id"]
+        C2["Qdrant/ES/MySQL 删除 (按 source_name / kb_id 隔离)"]
+        C3["Neo4j purge_document_edges / purge_chunk_ids (边级 kb_ids 过滤)"]
+        C4["_rebuild_communities_after_delete kb  build_communities reset = True  Leiden 重检测  摘要重生成  Community 节点重建  community_summaries 按 kb 清空 + 重写"]
     end
 
-    %% ===== 连线 =====
+    %% 连线
     I0 --> I1 --> M1
     I0 --> I2 --> M1
     M1 --> M2
@@ -721,7 +694,7 @@ flowchart TB
 
     %% 清理
     C0 --> C1 --> C2
-    C1 -- "include_graph=True" --> C3 --> C4
+    C1 -- "include_graph = True" --> C3 --> C4
     C4 --> S4
     C4 --> S5
 
@@ -771,134 +744,128 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    %% ===== HTTP 入口 =====
-    subgraph HTTP["① HTTP 入口 · api/routes/chat.py"]
+    %% 1. HTTP 入口
+    subgraph s_http ["1. HTTP 入口 src/rag_core/api/routes/chat.py"]
         direction TB
-        H1["POST /api/v1/chat/stream<br/>body: {user_id, session_id, message, kb_id}"]
-        H2["require_internal_token<br/>(P1-1 防 8000 直连)"]
-        H3["Redis load_messages<br/>按 user_id+session_id 读历史"]
-        H4["构造 event_gen SSE 生成器<br/>assistant_holder + tool_messages_holder"]
+        H1["POST /api/v1/chat/stream  body user_id session_id message kb_id"]
+        H2["require_internal_token  (P1-1 防 8000 直连)"]
+        H3["Redis load_messages  按 user_id + session_id 读历史"]
+        H4["构造 event_gen SSE 生成器  assistant_holder + tool_messages_holder"]
     end
 
-    %% ===== 聊天入口 =====
-    subgraph ENTRY["② 聊天入口 · chat_flow/entry.py"]
+    %% 2. 聊天入口
+    subgraph s_entry ["2. 聊天入口 chat_flow/entry.py"]
         direction TB
-        E1["astream_chat_events(question, history, kb_id)"]
-        E2["require_dashscope_api_key<br/>无 key 直接抛错"]
+        E1["astream_chat_events question history kb_id"]
+        E2["require_dashscope_api_key  无 key 直接抛错"]
     end
 
-    %% ===== 主流程编排 =====
-    subgraph FLOW["③ 主流程编排 · chat_flow/flow.py: run_chat_flow"]
+    %% 3. 主流程编排
+    subgraph s_flow ["3. 主流程编排 chat_flow/flow.py run_chat_flow"]
         direction TB
-        F1["Step 1 · 节点 B 意图路由<br/>run_route_step → resolve_intent_route"]
-        F1A["规则快路径<br/>route_question_intent_rules<br/>(问候/图谱特征/向量字面)"]
-        F1B{"规则能确定？"}
-        F1C["LLM JSON 判定<br/>route_question_intent_llm"]
-        F1D{"LLM 成功？"}
-        F1E["规则兜底<br/>backend='rules_fallback'"]
-        F1F["配置 mode=rules<br/>backend='rules'（纯规则）"]
-        FBR{"RouteBranch = ?"}
-
-        %% 分支
-        FD["A · DIRECT<br/>append 系统提示，stop_reason=route_direct_no_tools"]
-        FG["B · GRAPH_ONLY<br/>graph_query_enabled?"]
-        FG_ON["graph_query_enabled=True"]
-        FG_OFF["graph_query_enabled=False<br/>→ 降级 run_retrieve_step"]
-
-        FV["C · VECTOR_ONLY（默认主路径）"]
-        FV_D["① D: await run_retrieve_step<br/>search_context(question, kb_id)"]
-        FV_E["② E: run_sufficiency_step"]
-        FV_E_pre{"max_score &lt; min_relevance_score ?"}
-        FV_E_pre_T["need_g=True<br/>backend=heuristic_low_score_precheck"]
+        F1["Step 1 节点 B 意图路由  run_route_step -> resolve_intent_route"]
+        F1A["规则快路径  route_question_intent_rules  问候 图谱特征 向量字面"]
+        F1B{"规则能确定"}
+        F1C["LLM JSON 判定  route_question_intent_llm"]
+        F1D{"LLM 成功"}
+        F1E["规则兜底  backend = rules_fallback"]
+        F1F["配置 mode = rules  backend = rules 纯规则"]
+        FBR{"RouteBranch"}
+        FD["A DIRECT  append 系统提示  stop_reason = route_direct_no_tools"]
+        FG["B GRAPH_ONLY  graph_query_enabled"]
+        FG_ON["graph_query_enabled = True"]
+        FG_OFF["graph_query_enabled = False  -> 降级 run_retrieve_step"]
+        FV["C VECTOR_ONLY 默认主路径"]
+        FV_D["1. D await run_retrieve_step  search_context question kb_id"]
+        FV_E["2. E run_sufficiency_step"]
+        FV_E_pre{"max_score 小于 min_relevance_score"}
+        FV_E_pre_T["need_g = True  backend = heuristic_low_score_precheck"]
         FV_E_mode{"rag_sufficiency_mode"}
-        FV_E_HE["heuristic<br/>backend=heuristic_*"]
-        FV_E_LLM["LLM 精判（默认）<br/>_rag_sufficiency_llm(question, observation)"]
-        FV_E_FALL{"LLM 失败？"}
-        FV_E_LLMOK["backend='llm'"]
-        FV_E_LLMFB["回退启发式<br/>backend=llm_fallback_heuristic"]
-        FV_E_G{"need_g = ?"}
-        FV_F["③ F: await run_graph_supplement_step<br/>(派系 2 入口，与 graph_only 共用)"]
-        FV_GV["走 G (仅向量证据)<br/>stop_reason=route_vector_only"]
-        FV_HV["stop_reason=vector_then_graph_supplement"]
-
-        FHAD["had_evidence = merged_docs ∨ had_graph_edges"]
-        FMETA["yield ('meta', _build_meta)<br/>citations / score / route_branch / executed_steps"]
-        FFINAL["H · stream_final_answer"]
+        FV_E_HE["heuristic  backend = heuristic_*"]
+        FV_E_LLM["LLM 精判 默认  _rag_sufficiency_llm question observation"]
+        FV_E_FALL{"LLM 失败"}
+        FV_E_LLMOK["backend = llm"]
+        FV_E_LLMFB["回退启发式  backend = llm_fallback_heuristic"]
+        FV_E_G{"need_g"}
+        FV_F["3. F await run_graph_supplement_step  (派系 2 入口 与 graph_only 共用)"]
+        FV_GV["走 G 仅向量证据  stop_reason = route_vector_only"]
+        FV_HV["stop_reason = vector_then_graph_supplement"]
+        FHAD["had_evidence = merged_docs 或 had_graph_edges"]
+        FMETA["yield meta _build_meta  citations score route_branch executed_steps"]
+        FFINAL["H stream_final_answer"]
     end
 
-    %% ===== 检索子管线 =====
-    subgraph RET["④ 检索子管线 · domain/retrieval/retriever.py: search_context"]
+    %% 4. 检索子管线
+    subgraph s_ret ["4. 检索子管线 domain/retrieval/retriever.py search_context"]
         direction TB
-        R1["1. _build_query_specs(query)"]
-        R_SIMPLE{"_is_simple_query<br/>≤12 字 + 无推理动词？"}
-        R_SIMPLE_T["简单事实型 → 单 query<br/>跳过 LLM 改写/HyDE"]
-        R_QR["rewrite_query<br/>LLM 拆 sub-queries"]
-        R_HYDE["generate_hypothetical_answer<br/>HyDE 假答案 (vector_only=True)"]
-        R_HYDE_FLAG["HyDE 标记 vector_only<br/>跳过 ES 召回"]
-        R2["2. _parallel_retrieve(specs)<br/>每条 query 并行：向量 + ES"]
-        R_VEC["Qdrant 向量 top_k<br/>kb_id 强制 filter"]
-        R_PARENT["父子模式：子块 → 映射父块<br/>_fetch_parents_by_ids"]
-        R_ES["Elasticsearch BM25 top_k<br/>(HyDE 跳过)"]
-        R_THR["阈值过滤<br/>threshold = min(绝对, 最高×比例)<br/>(P1 相对截断)"]
-        R_RRF1["单 query 内 RRF<br/>fuse_two_rankings(vec, es, rrf_k)"]
-        R_RRF2["3. 跨 query RRF<br/>fuse_query_rankings(per_query, rrf_k)"]
+        R1["1. _build_query_specs query"]
+        R_SIMPLE{"_is_simple_query  12 字内 无推理动词"}
+        R_SIMPLE_T["简单事实型 -> 单 query  跳过 LLM 改写/HyDE"]
+        R_QR["rewrite_query  LLM 拆 sub-queries"]
+        R_HYDE["generate_hypothetical_answer  HyDE 假答案 vector_only = True"]
+        R_HYDE_FLAG["HyDE 标记 vector_only  跳过 ES 召回"]
+        R2["2. _parallel_retrieve specs  每条 query 并行 向量 + ES"]
+        R_VEC["Qdrant 向量 top_k  kb_id 强制 filter"]
+        R_PARENT["父子模式 子块 -> 映射父块  _fetch_parents_by_ids"]
+        R_ES["Elasticsearch BM25 top_k (HyDE 跳过)"]
+        R_THR["阈值过滤  threshold = min 绝对 最高 乘 比例 (P1 相对截断)"]
+        R_RRF1["单 query 内 RRF  fuse_two_rankings vec es rrf_k"]
+        R_RRF2["3. 跨 query RRF  fuse_query_rankings per_query rrf_k"]
         R_TRUNC["截断到 rrf_top_n"]
-        R_RERANK["4. rerank_documents_multi<br/>每条 query 并行 Cross-Encoder rerank"]
+        R_RERANK["4. rerank_documents_multi  每条 query 并行 Cross-Encoder rerank"]
         R_RERRRF["跨 query rerank RRF 聚合"]
-        R_DIV["_diversify_by_source<br/>每 source 最多 2 条，不足回填"]
-        R_MAXS["max_score = 各 query 向量原始相似度最大值"]
-        R_RET["返回 RetrievedContext(documents, max_score)"]
+        R_DIV["_diversify_by_source  每 source 最多 2 条 不足回填"]
+        R_MAXS["max_score 各 query 向量原始相似度最大值"]
+        R_RET["返回 RetrievedContext documents max_score"]
     end
 
-    %% ===== 图谱主路径（派系 2）=====
-    subgraph GRAPH["⑤ 图谱主路径 · run_graph_search (派系 2 入口)"]
+    %% 5. 图谱主路径 (派系 2)
+    subgraph s_graph ["5. 图谱主路径 run_graph_search 派系 2 入口"]
         direction TB
-        G_L1["L1 · 派系 2 社区优先"]
-        G_L1S["community_search(question, kb_id)<br/>问题 vs community_summaries embedding 检索<br/>top-K (default 2) + min_similarity (default 0.5)"]
-        G_L1S_OK{"top-1 ≥ 阈值?"}
-        G_L1_ABC["A+B+C pipeline (asyncio.gather + to_thread)"]
-        G_L1_A["A: rewrite_question_for_graph (LLM 改写)"]
-        G_L1_B["B: decompose_question_for_graph (LLM 拆解)"]
-        G_L1_C["C: QuestionGraphSeedExtractor.extract<br/>基于改写后问句 + 候选实体 (n-gram + embedding 双路)"]
-        G_L1_FILT["实体过滤到 K 社区子图范围<br/>_filter_entities_to_scope"]
-        G_L1_Q["query_edges_from_entity_seeds<br/>(hops=4, max_edges=40, timeout=10s)"]
-        G_L1_HIT{"n_edges > 0?"}
-        G_L1_END["GraphSearchResult(level='L1')<br/>source='graph_search_L1'"]
-
-        G_L2["L2 · 全图降级（hops=2, max_edges=20, timeout=5s）"]
-        G_L2_ABC["A+B+C pipeline（无子图约束）"]
-        G_L2_Q["query_edges_from_entity_seeds (全图)"]
-        G_L2_HIT{"n_edges > 0?"}
-        G_L2_END["GraphSearchResult(level='L2')<br/>source='graph_search_L2'"]
-
-        G_L3["L3 · 真没有（终态放弃）<br/>GraphSearchResult(level='EMPTY')"]
+        G_L1["L1 派系 2 社区优先"]
+        G_L1S["community_search question kb_id  问题 vs community_summaries embedding 检索  top-K (default 2) + min_similarity (default 0.5)"]
+        G_L1S_OK{"top-1 大于等于阈值"}
+        G_L1_ABC["A + B + C pipeline (asyncio.gather + to_thread)"]
+        G_L1_A["A rewrite_question_for_graph (LLM 改写)"]
+        G_L1_B["B decompose_question_for_graph (LLM 拆解)"]
+        G_L1_C["C QuestionGraphSeedExtractor.extract  基于改写后问句 + 候选实体 (n-gram + embedding 双路)"]
+        G_L1_FILT["实体过滤到 K 社区子图范围  _filter_entities_to_scope"]
+        G_L1_Q["query_edges_from_entity_seeds  hops = 4 max_edges = 40 timeout = 10s"]
+        G_L1_HIT{"n_edges 大于 0"}
+        G_L1_END["GraphSearchResult level = L1  source = graph_search_L1"]
+        G_L2["L2 全图降级 (hops = 2 max_edges = 20 timeout = 5s)"]
+        G_L2_ABC["A + B + C pipeline 无子图约束"]
+        G_L2_Q["query_edges_from_entity_seeds 全图"]
+        G_L2_HIT{"n_edges 大于 0"}
+        G_L2_END["GraphSearchResult level = L2  source = graph_search_L2"]
+        G_L3["L3 真没有 (终态放弃)  GraphSearchResult level = EMPTY"]
     end
 
-    %% ===== 流式生成 =====
-    subgraph FIN["⑥ 流式生成与 SSE"]
+    %% 6. 流式生成
+    subgraph s_fin ["6. 流式生成与 SSE"]
         direction TB
-        L1H["had_evidence?"]
-        L_T["True → SYSTEM_PROMPT<br/>prefix=KB_ANSWER_PREFIX"]
-        L_F["False → SYSTEM_PROMPT_NO_KB_EVIDENCE<br/>prefix=NO_KB_STREAM_PREFIX"]
-        L_MSGS["messages = [System, *history, Human(execute_user_prompt)]"]
-        L_STREAM["async for chunk in get_chat_llm(streaming=True).astream"]
-        L_FOOTER["graph_snapshots 非空 → format_graph_snapshots_footer"]
+        L1H{"had_evidence"}
+        L_T["True -> SYSTEM_PROMPT  prefix = KB_ANSWER_PREFIX"]
+        L_F["False -> SYSTEM_PROMPT_NO_KB_EVIDENCE  prefix = NO_KB_STREAM_PREFIX"]
+        L_MSGS["messages = System + history + Human execute_user_prompt"]
+        L_STREAM["async for chunk in get_chat_llm streaming = True .astream"]
+        L_FOOTER["graph_snapshots 非空 -> format_graph_snapshots_footer"]
         L_DISC["追加 DISCLAIMER / DISCLAIMER_NO_KB_REFERENCES"]
-        L_HOLD["assistant_holder.append(完整回复)"]
-        L_SSE["SSE 输出：<br/>event: meta → token* → done / error"]
+        L_HOLD["assistant_holder.append 完整回复"]
+        L_SSE["SSE 输出  event meta -> token -> done 或 error"]
     end
 
-    %% ===== 持久化 =====
-    subgraph PERSIST["⑦ 会话持久化"]
-        P1["Redis append_turn<br/>(user_msg, assistant_msg, tool_messages)<br/>按 chat_max_rounds + chat_history_ttl_seconds 滚动"]
+    %% 7. 持久化
+    subgraph s_persist ["7. 会话持久化"]
+        P1["Redis append_turn  user_msg assistant_msg tool_messages  按 chat_max_rounds + chat_history_ttl_seconds 滚动"]
     end
 
-    %% ===== 连线 =====
+    %% 连线
     H1 --> H2 --> H3 --> H4 --> E1 --> E2 --> F1
     F1 --> F1A --> F1B
-    F1A -. "mode=rules 旁路" .-> F1F
+    F1A -. "mode = rules 旁路" .-> F1F
     F1B -- "命中" --> FBR
-    F1B -- "None（规则不确定）" --> F1C --> F1D
+    F1B -- "None 规则不确定" --> F1C --> F1D
     F1D -- "成功" --> FBR
     F1D -- "失败" --> F1E --> FBR
     F1F --> FBR
@@ -914,11 +881,11 @@ flowchart TB
     R_SIMPLE -- "是" --> R_SIMPLE_T --> R2
     R_SIMPLE -- "否" --> R_QR --> R_HYDE
     R_HYDE -- "非空" --> R_HYDE_FLAG --> R2
-    R_HYDE -- "空/失败" --> R2
+    R_HYDE -- "空或失败" --> R2
     R2 --> R_VEC --> R_THR
     R_VEC --> R_PARENT
     R_THR --> R_ES --> R_RRF1
-    R_THR -- "HyDE 通道：跳过 ES" --> R_RRF1
+    R_THR -- "HyDE 通道 跳过 ES" --> R_RRF1
     R_RRF1 --> R_RRF2 --> R_TRUNC --> R_RERANK --> R_RERRRF --> R_DIV --> R_MAXS --> R_RET --> FV_E
 
     %% 充分性判断
@@ -926,16 +893,16 @@ flowchart TB
     FV_E_pre -- "是" --> FV_E_pre_T --> FV_E_G
     FV_E_pre -- "否" --> FV_E_mode
     FV_E_mode -- "heuristic" --> FV_E_HE --> FV_E_G
-    FV_E_mode -- "llm（默认）" --> FV_E_LLM --> FV_E_FALL
+    FV_E_mode -- "llm 默认" --> FV_E_LLM --> FV_E_FALL
     FV_E_FALL -- "成功" --> FV_E_LLMOK --> FV_E_G
     FV_E_FALL -- "失败" --> FV_E_LLMFB --> FV_E_G
     FV_E_G -- "True" --> FV_F --> FV_HV --> FHAD
     FV_E_G -- "False" --> FV_GV --> FHAD
 
     %% 派系 2 主路径
-    FV_F -. "→" .-> G_L1
+    FV_F -. "进入" .-> G_L1
     G_L1 --> G_L1S --> G_L1S_OK
-    G_L1S_OK -- "否（0 命中 / top-1 < 阈值）" --> G_L2
+    G_L1S_OK -- "否 0 命中 或 top-1 小于阈值" --> G_L2
     G_L1S_OK -- "是" --> G_L1_ABC
     G_L1_ABC --> G_L1_A --> G_L1_C
     G_L1_ABC --> G_L1_B --> G_L1_C
@@ -957,7 +924,7 @@ flowchart TB
     classDef flow fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
     classDef decision fill:#fff3e0,stroke:#ef6c00,color:#e65100
     classDef retrieve fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-    classDef graph fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef kgcls fill:#fce4ec,stroke:#ad1457,color:#880e4f
     classDef fin fill:#ede7f6,stroke:#4527a0,color:#311b92
     classDef persist fill:#f5f5f5,stroke:#616161,color:#212121
 
@@ -965,7 +932,7 @@ flowchart TB
     class F1,F1A,F1C,F1E,F1F,FD,FG,FG_OFF,FV,FV_D,FV_E,FV_F,FV_GV,FV_HV,FHAD,FMETA,FFINAL flow
     class F1B,F1D,FBR,FG_ON,FV_E_pre,FV_E_mode,FV_E_FALL,FV_E_G,R_SIMPLE,G_L1S_OK,G_L1_HIT,G_L2_HIT,L1H decision
     class R1,R_QR,R_HYDE,R_HYDE_FLAG,R2,R_VEC,R_PARENT,R_ES,R_THR,R_RRF1,R_RRF2,R_RERANK,R_RERRRF,R_DIV,R_MAXS,R_RET retrieve
-    class G_L1,G_L1S,G_L1_ABC,G_L1_A,G_L1_B,G_L1_C,G_L1_FILT,G_L1_Q,G_L1_END,G_L2,G_L2_ABC,G_L2_Q,G_L2_END,G_L3 graph
+    class G_L1,G_L1S,G_L1_ABC,G_L1_A,G_L1_B,G_L1_C,G_L1_FILT,G_L1_Q,G_L1_END,G_L2,G_L2_ABC,G_L2_Q,G_L2_END,G_L3 kgcls
     class L_T,L_F,L_MSGS,L_STREAM,L_FOOTER,L_DISC,L_HOLD,L_SSE fin
     class P1 persist
     class R_SIMPLE_T retrieve
