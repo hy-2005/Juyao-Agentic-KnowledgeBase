@@ -47,6 +47,31 @@ async def internal_rag_ingest_event(request: Request, body: dict[str, Any] = Bod
 
 
 
+@router.get("/api/v1/internal/rag/community/status")
+async def internal_community_status(request: Request):
+    """社区重建调度状态（管理台批量模式开关展示）：自动重建开关 + 待重建/重建中的 kb。"""
+    _require_ingest_internal_token(request)
+    return get_scheduler().status()
+
+
+@router.post("/api/v1/internal/rag/community/auto-rebuild")
+async def internal_community_auto_rebuild(request: Request, body: dict[str, Any] = Body(...)):
+    """批量入库模式开关：enabled=false 暂停自动重建（dirty 只积累），true 恢复。"""
+    _require_ingest_internal_token(request)
+    enabled = bool(body.get("enabled", True))
+    get_scheduler().set_paused(not enabled)
+    return {"ok": True, "autoRebuildEnabled": enabled}
+
+
+@router.post("/api/v1/internal/rag/community/rebuild")
+async def internal_community_rebuild(request: Request, body: dict[str, Any] = Body(...)):
+    """手动立即重建：kbId 为空 = 全部 dirty kb；后台线程执行，立即返回。"""
+    _require_ingest_internal_token(request)
+    kb_id = body.get("kbId")
+    get_scheduler().trigger_rebuild_now(int(kb_id) if kb_id is not None else None)
+    return {"ok": True}
+
+
 @router.delete("/api/v1/internal/rag/kb/{kb_id}")
 async def internal_rag_purge_kb(kb_id: int, request: Request):
     """删除知识库的级联清理（TENANT_PERMISSION P2）：清空该 kb 的三库数据。"""

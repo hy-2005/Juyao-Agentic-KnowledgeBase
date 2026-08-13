@@ -1,14 +1,17 @@
 <template>
   <div class="app-container">
     <el-form v-show="showSearch" ref="queryForm" :model="queryParams" size="small" :inline="true">
-      <el-form-item label="知识库ID" prop="kbIdStr">
-        <el-input
-          v-model="queryParams.kbIdStr"
-          placeholder="留空查全部"
+      <el-form-item label="知识库">
+        <el-select
+          v-model="queryParams.kbId"
+          placeholder="全部知识库"
           clearable
-          style="width: 140px"
-          @keyup.enter.native="handleQuery"
-        />
+          size="mini"
+          style="width: 170px"
+          @change="handleQuery"
+        >
+          <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+        </el-select>
       </el-form-item>
       <el-form-item label="逻辑文件名" prop="docLogicalKey">
         <el-input
@@ -61,6 +64,29 @@
       </el-col>
       <el-col :span="1.5">
         <el-button type="warning" plain icon="el-icon-download" size="mini" @click="handleExport">导出</el-button>
+      </el-col>
+      <el-col :span="3.5">
+        <el-tooltip content="批量上传期间建议关闭：暂停后文档只积累、不触发重建；传完再打开或点「立即重建」" placement="top">
+          <span style="font-size:12px;color:#606266;vertical-align:middle">
+            社区自动重建
+            <el-switch
+              v-model="communityAuto"
+              size="mini"
+              style="margin-left:4px"
+              @change="handleAutoRebuildChange"
+            />
+          </span>
+        </el-tooltip>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
+          type="success"
+          plain
+          icon="el-icon-refresh"
+          size="mini"
+          :title="communityPending.length ? `待重建库：${communityPending.join(', ')}` : '手动触发社区重建'"
+          @click="handleRebuildNow"
+        >立即重建{{ communityPending.length ? `(${communityPending.length})` : '' }}</el-button>
       </el-col>
       <right-toolbar :show-search.sync="showSearch" @queryTable="getList" />
     </el-row>
@@ -118,7 +144,7 @@
             :limit="0"
             :on-change="onUploadFileChange"
             :on-remove="onUploadFileRemove"
-            accept=".txt,.text,.md,.markdown,.pdf,.docx,.csv,.json,.log,.xml,.html,.htm"
+            :accept="uploadAccept"
           >
             <i class="el-icon-upload" />
             <div class="el-upload__text">将文件拖到此处，或<em>点击选择</em>（支持多选）</div>
@@ -135,7 +161,16 @@
 </template>
 
 <script>
-import { listRagDocuments, uploadRagDocument, deleteRagDocument , listKbs, createKb } from '@/api/rag'
+import {
+  listRagDocuments,
+  uploadRagDocument,
+  deleteRagDocument,
+  listKbs,
+  createKb,
+  getCommunityStatus,
+  setCommunityAutoRebuild,
+  rebuildCommunity
+} from '@/api/rag'
 
 export default {
   name: 'RagDocIngest',
@@ -153,7 +188,7 @@ export default {
       queryParams: {
         pageNum: 1,
         pageSize: 10,
-        kbIdStr: '',
+        kbId: null, // 下拉选库名过滤；null=查全部知识库
         docLogicalKey: undefined,
         fileExt: undefined
       },
@@ -166,13 +201,76 @@ export default {
         kbId: 0,
         logicalKey: ''
       },
-      uploadFiles: []
+      uploadFiles: [],
+      // 支持扩展名（与 Java ALLOWED_EXT 保持一致）；统一小写，校验时两侧都 toLowerCase
+      uploadExts: ['.txt', '.text', '.md', '.markdown', '.pdf', '.docx', '.csv', '.json', '.log', '.xml', '.html', '.htm'],
+      // 社区重建调度（批量入库模式）：开关状态 + 待重建库列表
+      communityAuto: true,
+      communityPending: []
+    }
+  },
+  computed: {
+    uploadAccept() {
+      // el-upload 拖拽过滤是大小写敏感的（extension === acceptedType 直接比较），
+      // 只写小写会静默丢弃 .MD/.PDF 等大写扩展名文件且无任何提示——补上大写变体
+      return [...this.uploadExts, ...this.uploadExts.map((e) => e.toUpperCase())].join(',')
     }
   },
   created() {
+    this.loadKbs()
     this.getList()
+    this.loadCommunityStatus()
+  },
+  activated() {
+    // RuoYi keep-alive 缓存页面：从知识库管理页新建库后切回本页，created 不再触发，需手动刷新下拉
+    this.loadKbs()
+    this.loadCommunityStatus()
   },
   methods: {
+    loadKbs() {
+      // 知识库下拉数据源（上传选库 + 列表过滤共用）
+      listKbs().then((res) => {
+        this.kbList = (res && res.data) || []
+        // 默认库（kb=0）不落 rag_kb 表，前端补一行
+        if (!this.kbList.some((k) => k.id === 0)) {
+          this.kbList.unshift({ id: 0, name: '默认知识库' })
+        }
+      }).catch(() => {
+        this.kbList = [{ id: 0, name: '默认知识库' }]
+      })
+    },
+    loadCommunityStatus() {
+      // 社区重建调度状态：自动重建开关 + 待重建库（批量入库模式）
+      getCommunityStatus().then((res) => {
+        const s = (res && res.data) || {}
+        this.communityAuto = s.autoRebuildEnabled !== false
+        this.communityPending = s.pendingKbs || []
+      }).catch(() => {})
+    },
+    handleAutoRebuildChange(v) {
+      setCommunityAutoRebuild(v).then(() => {
+        this.$modal.msgSuccess(v ? '已恢复社区自动重建（30s 静默窗口）' : '已暂停社区自动重建，批量上传期间只积累不重建')
+      }).catch((e) => {
+        // 失败回滚开关状态
+        this.communityAuto = !v
+        this.$modal.msgError('切换失败：' + ((e && e.message) || e))
+      })
+    },
+    handleRebuildNow() {
+      // 手动立即重建：当前过滤库（选中时）或全部待重建库；后台线程执行，不阻塞页面
+      const kbId = this.queryParams.kbId !== null && this.queryParams.kbId !== undefined
+        ? this.queryParams.kbId
+        : null
+      const target = kbId != null ? `「${this.kbName(kbId)}」` : '全部待重建知识库'
+      this.$modal.confirm(`确认立即重建 ${target} 的社区？全量重建可能耗时较长，期间该库社区检索暂时为空。`).then(() => {
+        return rebuildCommunity(kbId)
+      }).then(() => {
+        this.$modal.msgSuccess('已触发重建，后台执行中（大库可能较久）')
+        this.loadCommunityStatus()
+      }).catch((e) => {
+        if (e && e.message) this.$modal.msgError('触发失败：' + e.message)
+      })
+    },
     formatSize(bytes) {
       if (bytes == null || bytes === '') return '-'
       const n = Number(bytes)
@@ -190,10 +288,9 @@ export default {
         docLogicalKey: this.queryParams.docLogicalKey,
         fileExt: ext || undefined
       }
-      const kbStr = (this.queryParams.kbIdStr || '').trim()
-      if (kbStr !== '') {
-        const k = parseInt(kbStr, 10)
-        if (!Number.isNaN(k)) q.kbId = k
+      // 下拉选库名过滤；null（未选）不传 kbId = 查全部
+      if (this.queryParams.kbId !== null && this.queryParams.kbId !== undefined) {
+        q.kbId = this.queryParams.kbId
       }
       listRagDocuments(this.addDateRange(q, this.dateRange)).then((response) => {
         this.docList = response.rows || []
@@ -210,7 +307,7 @@ export default {
     resetQuery() {
       this.dateRange = []
       this.resetForm('queryForm')
-      this.queryParams.kbIdStr = ''
+      this.queryParams.kbId = null
       this.queryParams.docLogicalKey = undefined
       this.queryParams.fileExt = undefined
       this.handleQuery()
@@ -223,7 +320,15 @@ export default {
     },
     handleUpload() {
       this.resetUploadForm()
+      // 列表已按某库过滤时，上传弹窗默认选中同一个库——用户容易误以为过滤条件会带入上传
+      if (this.queryParams.kbId !== null && this.queryParams.kbId !== undefined) {
+        this.uploadForm.kbId = this.queryParams.kbId
+      }
       this.uploadOpen = true
+    },
+    kbName(id) {
+      const kb = this.kbList.find((k) => k.id === id)
+      return kb ? kb.name : `知识库 ${id}`
     },
     resetUploadForm() {
       this.uploadForm = { kbId: 0, logicalKey: '' }
@@ -237,6 +342,8 @@ export default {
     onUploadFileChange(file, fileList) {
       // 多选：收集全部文件的 raw 对象（逻辑文件名仅对单文件有意义，多文件时忽略）
       this.uploadFiles = fileList.map((f) => f.raw || f).filter(Boolean)
+      // 格式校验不在这里提示：后端 ALLOWED_EXT 是唯一事实源，前端仅做 accept 过滤
+      // （踩坑：前端自判扩展名会误报——文件名带尾随空格等边缘情况导致「报错但上传成功」）
     },
     onUploadFileRemove() {
       this.uploadFiles = (this.$refs.uploadRef && this.$refs.uploadRef.uploadFiles || [])
@@ -258,6 +365,8 @@ export default {
         fd.append('kbId', kbId)
         if (lk && this.uploadFiles.length === 1) fd.append('logicalKey', lk)
         return uploadRagDocument(fd).then((body) => {
+          // uploadRagDocument 内部已解包：成功 resolve {code,msg,data}，业务失败 reject(后端 msg)。
+          // 不要再读 resp.data（那是内层 data，没有 code 字段）——踩坑：成功也报「上传失败」
           const data = (body && body.data) || {}
           return data.skipped ? 'skipped' : 'ok'
         })
@@ -266,14 +375,16 @@ export default {
         .then((results) => {
           const ok = results.filter((r) => r.status === 'fulfilled' && r.value === 'ok').length
           const skipped = results.filter((r) => r.status === 'fulfilled' && r.value === 'skipped').length
-          const failed = results.filter((r) => r.status === 'rejected').length
-          if (failed) {
-            this.$modal.msgError(`提交完成：成功 ${ok}，跳过 ${skipped}，失败 ${failed}`)
+          const failed = results.filter((r) => r.status === 'rejected')
+          if (failed.length) {
+            // 失败时展示后端真实原因，且不关弹窗（用户可改库/改文件后重试）
+            const reasons = failed.map((r) => (r.reason && r.reason.message) || '上传失败').join('；')
+            this.$modal.msgError(`上传失败：${reasons}`)
           } else {
-            this.$modal.msgSuccess(`已提交 ${ok} 个文件，Kafka 将异步入库${skipped ? `（${skipped} 个内容未变化已跳过）` : ''}`)
+            this.$modal.msgSuccess(`已提交 ${ok} 个文件到「${this.kbName(this.uploadForm.kbId)}」，Kafka 将异步入库${skipped ? `（${skipped} 个内容未变化已跳过）` : ''}`)
+            this.uploadOpen = false
+            this.getList()
           }
-          this.uploadOpen = false
-          this.getList()
         })
         .finally(() => {
           this.uploading = false

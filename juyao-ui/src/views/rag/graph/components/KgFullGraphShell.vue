@@ -16,6 +16,15 @@
           style="width: 200px"
         />
         <el-select
+          :value="kbId"
+          size="mini"
+          style="width: 150px"
+          title="切换知识库（全图按新库重载）"
+          @change="$emit('kb-change', $event)"
+        >
+          <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+        </el-select>
+        <el-select
           :value="fullLimit"
           size="mini"
           style="width: 110px"
@@ -149,7 +158,9 @@ export default {
     totalEdges: { type: Number, default: 0 },
     returnedEdges: { type: Number, default: 0 },
     fullscreen: { type: Boolean, default: true },
-    fullLimit: { type: Number, default: 0 }
+    fullLimit: { type: Number, default: 0 },
+    kbId: { type: Number, default: 0 },
+    kbList: { type: Array, default: () => [] }
   },
   data() {
     return {
@@ -239,7 +250,9 @@ export default {
 .kg-full-shell.is-fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  /* 1500：盖住页面主体（导航/侧栏 ~1000），但低于 Element 弹层（el-select 下拉/
+     message-box 默认 2000+）——z-index 3000 会盖住下拉面板导致选项选不中（实测坑） */
+  z-index: 1500;
   padding: 12px 16px 16px;
 }
 .kg-full-toolbar {

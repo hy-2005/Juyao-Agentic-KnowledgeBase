@@ -8,19 +8,23 @@
 #
 # 密钥、Token 请放在 .env，不要写进 TOML。
 
-# --- Ollama：Embedding 等本地服务 ---
+# --- 本地模型服务器（Ollama / llama-swap OpenAI 兼容）---
 ollama_base_url = "http://localhost:11434"
 chunk_ai_split_enabled = true
-embed_provider = "ollama"  # ollama | dashscope
+embed_provider = "ollama"  # ollama | dashscope | openai（llama-swap /v1/embeddings）
+# 本地模型全局最高并发（embedding 与 rerank 共享闸；<=0 不限流，策略见 llm/concurrency.py）
+local_model_max_concurrency = 10
+# 各线程池阻塞任务队列长度（满则阻塞背压）
+local_model_task_queue_size = 5000
 embed_model = "mxbai-embed-large:latest"
 embed_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-rerank_model = "bona/bge-reranker-v2-m3:latest"
-rerank_provider = "dashscope"  # dashscope | ollama
+rerank_model = "bge-reranker-v2-m3-Q8_0"
+rerank_provider = "ollama"  # dashscope | ollama（llama-swap 走 /v1/rerank）
 
 dashscope_rerank_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 dashscope_rerank_model = "gte-rerank-v2"
 dashscope_compatible_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-gen_model = "qwen3.6-35b-a3b"
+gen_model = "local_Qwen3-30B-A3B"  # 本地 208:11435（.env 可覆盖）
 dashscope_enable_thinking = false
 
 openai_base_url = "https://api.openai.com/v1"
@@ -49,7 +53,9 @@ min_relevance_score = 0.5
 rrf_k = 60
 
 # --- 社区重建调度（批量入库合并重建的静默窗口）---
-community_rebuild_debounce_s = 30.0
+community_rebuild_debounce_s = 180.0
+# 社区摘要生成并发（LLM 线程池，本地模型可高并发）
+community_summary_max_workers = 10
 
 # --- Query 改写 ---
 query_rewrite_enabled = true

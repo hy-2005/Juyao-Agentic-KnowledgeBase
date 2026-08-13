@@ -133,9 +133,22 @@ export default {
     this.abortStream()
   },
   async created() {
+    this.loadKbs()
     await this.initSessions({ autoSelectFirst: true })
   },
   methods: {
+    loadKbs() {
+      // 知识库下拉数据源（会话提问选库用）
+      listKbs().then((res) => {
+        this.kbList = (res && res.data) || []
+        // 默认库（kb=0）不落 rag_kb 表，前端补一行
+        if (!this.kbList.some((k) => k.id === 0)) {
+          this.kbList.unshift({ id: 0, name: '默认知识库' })
+        }
+      }).catch(() => {
+        this.kbList = [{ id: 0, name: '默认知识库' }]
+      })
+    },
     renderAssistant(text, meta) {
       return renderChatMarkdown(text, meta)
     },

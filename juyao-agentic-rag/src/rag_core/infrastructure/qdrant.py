@@ -1,4 +1,8 @@
-# 向量存储封装：Ollama Embedding + Qdrant，供入库与检索共用同一套配置。
+# 向量存储封装：Qdrant，供入库与检索共用同一套配置。
+#
+# 多知识库物理隔离：每 kb 一个 collection（chunk_collection(kb) 命名，kb=0 沿用原名
+# 兼容存量数据）——不再共享单 collection 用 metadata.kb_id 过滤（PITFALLS #24 同根：
+# 过滤方案随数据量线性变慢且有串库风险）。
 
 import logging
 from uuid import NAMESPACE_URL, uuid5
@@ -8,7 +12,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from rag_core.core.config import get_settings
+from rag_core.core.config import chunk_collection, community_collection, get_settings
 from rag_core.infrastructure.llm.factory import get_embeddings
 
 logger = logging.getLogger(__name__)
@@ -20,32 +24,43 @@ def get_qdrant_client() -> QdrantClient:
     return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
-def ensure_collection_exists() -> None:
-    # 确保目标 collection 存在；不存在则按当前 embedding 维度自动创建。
-    settings = get_settings()
+def _ensure_collection(name: str) -> None:
+    # 确保指定 collection 存在；不存在则按当前 embedding 维度自动创建（探针取维度避免手写不一致）。
     client = get_qdrant_client()
     try:
-        client.get_collection(collection_name=settings.qdrant_collection)
+        client.get_collection(collection_name=name)
         return
     except UnexpectedResponse as exc:
         # 仅处理集合不存在；其它网络/鉴权错误继续抛出
         if "doesn't exist" not in str(exc) and "Not found" not in str(exc):
             raise
 
-    # 用一条探针文本取回 embedding 维度，避免手写维度与模型不一致。
     dim = len(get_embeddings().embed_query("dimension probe"))
-    client.create_collection(
-        collection_name=settings.qdrant_collection,
-        vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
-    )
+    try:
+        client.create_collection(
+            collection_name=name,
+            vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+        )
+    except UnexpectedResponse as exc:
+        # 「查了不存在 → 再创建」不是原子的：并发入库/消息重试时集合可能已被
+        # 另一线程创建（409 Conflict）——幂等容忍，直接复用（踩坑见 PITFALLS #28）
+        if "already exists" in str(exc):
+            logger.info("Qdrant collection 已存在（并发创建容忍，直接复用）：%s", name)
+            return
+        raise
+    logger.info("Qdrant collection 已创建：%s dim=%s", name, dim)
 
 
-def get_vector_store() -> QdrantVectorStore:
-    # LangChain 向量库门面：similarity_search_*、add_documents 等。
-    settings = get_settings()
+def ensure_collection_exists(kb_id: int = 0) -> None:
+    # 确保切片 collection 存在（按 kb 命名，kb=0 沿用原名兼容存量数据）。
+    _ensure_collection(chunk_collection(kb_id))
+
+
+def get_vector_store(kb_id: int = 0) -> QdrantVectorStore:
+    # LangChain 向量库门面：similarity_search_*、add_documents 等（按 kb 选 collection）。
     return QdrantVectorStore(
         client=get_qdrant_client(),
-        collection_name=settings.qdrant_collection,
+        collection_name=chunk_collection(kb_id),
         embedding=get_embeddings(),
     )
 
@@ -72,12 +87,12 @@ def _qdrant_point_to_row(point: dict) -> dict:
     return {k: v for k, v in row.items() if v is not None}
 
 
-def list_child_chunks_by_parent(parent_chunk_id: str) -> list[dict]:
+def list_child_chunks_by_parent(parent_chunk_id: str, kb_id: int = 0) -> list[dict]:
     """按 parent_chunk_id 查 Qdrant 返回子块行列表(按 chunk_index 升序)。
 
     filter 用顶层 key 匹配不到 Qdrant 嵌套 payload,必须走 metadata.parent_chunk_id。
+    kb 物理隔离：只查该 kb 的 collection（kb=0 兼容存量）。
     """
-    settings = get_settings()
     client = get_qdrant_client()
     scroll_filter = models.Filter(
         must=[
@@ -93,7 +108,7 @@ def list_child_chunks_by_parent(parent_chunk_id: str) -> list[dict]:
     try:
         while True:
             resp = client.scroll(
-                collection_name=settings.qdrant_collection,
+                collection_name=chunk_collection(kb_id),
                 scroll_filter=scroll_filter,
                 limit=100,
                 offset=offset,
@@ -115,9 +130,8 @@ def list_child_chunks_by_parent(parent_chunk_id: str) -> list[dict]:
     return rows
 
 
-def get_chunk_by_id_from_qdrant(chunk_id: str) -> dict | None:
+def get_chunk_by_id_from_qdrant(chunk_id: str, kb_id: int = 0) -> dict | None:
     """按 chunk_id 查 Qdrant(payload metadata.chunk_id 精确匹配),返回完整行。"""
-    settings = get_settings()
     client = get_qdrant_client()
     scroll_filter = models.Filter(
         must=[
@@ -129,7 +143,7 @@ def get_chunk_by_id_from_qdrant(chunk_id: str) -> dict | None:
     )
     try:
         resp = client.scroll(
-            collection_name=settings.qdrant_collection,
+            collection_name=chunk_collection(kb_id),
             scroll_filter=scroll_filter,
             limit=1,
             with_payload=True,
@@ -167,15 +181,15 @@ def _get_community_summary_embeddings():
     return get_embeddings()
 
 
-def ensure_community_collection_exists() -> None:
-    """确保社区摘要 collection 存在；维度用探针取，避免手写与 embedding 模型不一致。
+def ensure_community_collection_exists(kb_id: int = 0) -> None:
+    """确保社区摘要 collection 存在（每 kb 独立 collection；kb=0 沿用原名兼容存量）。
 
-    复用 get_embeddings() 的同源模型，保证 collection 维度与实际写入向量严格匹配。
+    维度用探针取，复用 get_embeddings() 同源模型，保证与实际写入向量严格匹配。
     """
-    settings = get_settings()
+    name = community_collection(kb_id)
     client = get_qdrant_client()
     try:
-        client.get_collection(collection_name=settings.community_summary_collection)
+        client.get_collection(collection_name=name)
         return
     except UnexpectedResponse as exc:
         if "doesn't exist" not in str(exc) and "Not found" not in str(exc):
@@ -183,19 +197,22 @@ def ensure_community_collection_exists() -> None:
 
     # 探针文本取 embedding 维度（与 chunk collection 走同一套 embedding 模型）
     dim = len(_get_community_summary_embeddings().embed_query("dimension probe"))
-    client.create_collection(
-        collection_name=settings.community_summary_collection,
-        vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
-    )
-    logger.info(
-        "Qdrant 社区摘要 collection 已创建：%s dim=%s",
-        settings.community_summary_collection,
-        dim,
-    )
+    try:
+        client.create_collection(
+            collection_name=name,
+            vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+        )
+    except UnexpectedResponse as exc:
+        # 与 _ensure_collection 同款并发竞态：重建与手动触发可能同时创建（409）——幂等容忍
+        if "already exists" in str(exc):
+            logger.info("Qdrant 社区摘要 collection 已存在（并发创建容忍）：%s", name)
+            return
+        raise
+    logger.info("Qdrant 社区摘要 collection 已创建：%s dim=%s", name, dim)
 
 
 def upsert_community_summaries(communities: list[dict], *, kb: int | None) -> int:
-    """把社区摘要批量写入 Qdrant 独立 collection；返回写入条数。
+    """把社区摘要批量写入该 kb 的独立 collection；返回写入条数。
 
     输入项 fields：
       - community_id: str（必填，Neo4j Community.id 同源，如 "kb0:community:1"）
@@ -204,9 +221,8 @@ def upsert_community_summaries(communities: list[dict], *, kb: int | None) -> in
       - entities: list[str]（实体名列表，写入 payload 便于检索结果直接展示）
 
     payload 顶层字段：community_id / summary / entity_count / entities / kb_id
-    （保持扁平结构避免嵌套路径，Qdrant filter 走顶层 key 即可）。
+    （保持扁平结构避免嵌套路径；kb_id 冗余保留供对账，隔离由 collection 承担）。
     """
-    settings = get_settings()
     if not communities:
         return 0
 
@@ -229,31 +245,25 @@ def upsert_community_summaries(communities: list[dict], *, kb: int | None) -> in
                     "summary": community.get("summary", ""),
                     "entity_count": int(community.get("entity_count") or 0),
                     "entities": list(community.get("entities") or []),
-                    "kb_id": int(kb) if kb is not None else None,
+                    "kb_id": int(kb) if kb is not None else 0,
                 },
             )
         )
 
-    client.upsert(
-        collection_name=settings.community_summary_collection,
-        points=points,
-    )
-    logger.info(
-        "Qdrant 社区摘要写入：%s 条 → %s",
-        len(points),
-        settings.community_summary_collection,
-    )
+    name = community_collection(kb)
+    client.upsert(collection_name=name, points=points)
+    logger.info("Qdrant 社区摘要写入：%s 条 → %s", len(points), name)
     return len(points)
 
 
-def delete_community_summaries_by_ids(community_ids: list[str]) -> int:
+def delete_community_summaries_by_ids(community_ids: list[str], kb_id: int = 0) -> int:
     """按 community_id 列表删除摘要点（孤儿社区清理用，不调 LLM 的轻量路径）。
 
     payload 里 community_id 是顶层 key（见 upsert_community_summaries），filter 走顶层。
+    每 kb 独立 collection，删除只碰本 kb 容器。
     """
     if not community_ids:
         return 0
-    settings = get_settings()
     client = get_qdrant_client()
     flt = models.Filter(
         must=[
@@ -265,7 +275,7 @@ def delete_community_summaries_by_ids(community_ids: list[str]) -> int:
     )
     try:
         result = client.delete(
-            collection_name=settings.community_summary_collection,
+            collection_name=community_collection(kb_id),
             points_selector=models.FilterSelector(filter=flt),
         )
     except UnexpectedResponse as exc:
@@ -280,26 +290,20 @@ def delete_community_summaries_by_ids(community_ids: list[str]) -> int:
 
 
 def delete_community_summaries(kb: int | None) -> int:
-    """按 kb_id 删社区摘要 collection 中的点；返回删除条数（0 也正常返回）。
+    """删除社区摘要 collection 中该 kb 的全部点；返回删除条数（0 也正常返回）。
 
-    kb_id 顶层 payload 字段（见 upsert_community_summaries）；None 时不限 kb，
-    但通常只在 reset=True + 已知 kb 的场景下调用，避免误删。
+    每 kb 独立 collection：reset 重建前清空本 kb 容器（kb=0 沿用原名）。
+    kb=None 时删默认 collection 全部（兼容旧调用，通常不会走到）。
     """
-    settings = get_settings()
     client = get_qdrant_client()
-    must: list = []
-    if kb is not None:
-        must.append(
-            models.FieldCondition(
-                key="kb_id",
-                match=models.MatchValue(value=int(kb)),
-            )
-        )
-    flt = models.Filter(must=must) if must else None
+    name = community_collection(kb)
     try:
+        # FilterSelector 的 filter 是必填字段（qdrant-client pydantic 模型，无默认值）——
+        # 空 Filter() 序列化为 {}，Qdrant 语义 = 匹配全部点，即删全 collection
+        # （踩坑：裸 FilterSelector() 会抛 validation error 导致摘要永远写不进向量库）
         result = client.delete(
-            collection_name=settings.community_summary_collection,
-            points_selector=models.FilterSelector(filter=flt) if flt else models.FilterSelector(),
+            collection_name=name,
+            points_selector=models.FilterSelector(filter=models.Filter()),
         )
     except UnexpectedResponse as exc:
         # collection 还没建好时直接视为 0
@@ -307,9 +311,6 @@ def delete_community_summaries(kb: int | None) -> int:
             return 0
         raise
     deleted = getattr(result, "result", None) or {}
-    # collection_status / points_count 之类的字段；统一只取数字
     count = int(deleted.get("points_count", 0)) if isinstance(deleted, dict) else 0
-    logger.info(
-        "Qdrant 社区摘要删除：kb=%s count=%s", kb, count,
-    )
+    logger.info("Qdrant 社区摘要删除：kb=%s collection=%s count=%s", kb, name, count)
     return count

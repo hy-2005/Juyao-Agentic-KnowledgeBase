@@ -25,10 +25,20 @@
    - 调度器 `_rebuild_one` 社区重建后自动同步快照（30s debounce 合并）
    - 管理查询切 MySQL（entities/edges/stats/communities/full/edges-all 按 kb_id 过滤）；
      **subgraph 保留 Neo4j**（图遍历语义）
-3. **接口契约**：管理接口/Java 网关新增 `kbId` 参数（缺省 0 单库，前端现有行为不变）
-4. **存量迁移**：`scripts/migrate_neo4j_labels.py` 按 kb_ids 展开旧数据到标签结构（先建约束再迁移）
+3. **Qdrant/ES 物理隔离**（2026-08-13 追加）：每 kb 独立 collection/index——
+   `config.py` 提供 `chunk_collection(kb)` / `community_collection(kb)` / `es_index(kb)` 命名函数
+   （**kb=0 沿用原名 = 存量数据零迁移**；kb>0 加 `_kb{id}` 后缀）：
+   - 切片向量/社区摘要向量：写入/检索/删除全部按 kb 选 collection，**去掉 metadata.kb_id filter**
+   - ES 全文：写入/检索/删除按 kb 选 index，**去掉 kb_id term 过滤**
+   - `purge_kb` 升级为直接删容器（`delete_collection` / `indices.delete`），
+     不再 scroll 逐批按 kb filter 删——清 kb = 删容器，秒级且无残留
+4. **接口契约**：管理接口/Java 网关新增 `kbId` 参数（缺省 0 单库，前端现有行为不变）
+5. **存量迁移**：`scripts/migrate_neo4j_labels.py` 按 kb_ids 展开旧数据到标签结构（先建约束再迁移）
 
-**待实测**：迁移后重启服务 → 社区重建 + 快照同步 → 图谱页数据正常；多 kb 建库后各 kb 图谱隔离验证。
+**实测记录（2026-08-13）**：迁移补齐 EntityKb0（1287 节点 / 2041 边）；快照同步实测成功
+（实体 1287 + 边 2041 + 社区 75 + 成员 1620 落 MySQL）；`_iter_pages` params 缺失 bug 修复；
+管理写操作后 `mark_dirty` 触发快照刷新；快照失败 3 次重试 + 挂起重试。
+**待实测**：重启服务后多 kb 建库 → 各 kb 独立容器/标签/快照的隔离验证。
 
 ---
 

@@ -10,6 +10,11 @@
     />
 
     <el-form v-show="showSearch" ref="queryForm" :model="queryParams" size="small" :inline="true">
+      <el-form-item label="知识库">
+        <el-select v-model="queryParams.kbId" size="mini" style="width: 150px" @change="handleQuery">
+          <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="文档名" prop="sourceName">
         <el-select
           v-model="queryParams.sourceName"
@@ -75,6 +80,11 @@
       </el-table-column>
       <el-table-column label="序号" prop="chunk_index" width="80" align="center" />
       <el-table-column label="切片 ID" prop="chunk_id" min-width="200" :show-overflow-tooltip="true" />
+      <el-table-column label="知识库" prop="kb_id" width="90" align="center">
+        <template slot-scope="scope">
+          <span>{{ scope.row.kb_id === 0 ? '默认库' : 'kb ' + scope.row.kb_id }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="文档名" prop="source_name" min-width="160" :show-overflow-tooltip="true" />
       <el-table-column label="字符区间" width="140" align="center">
         <template slot-scope="scope">
@@ -144,7 +154,7 @@
 </template>
 
 <script>
-import { listRagChunks, getRagChunk, getRagChunkStats, listRagDocuments, listChunkChildren } from '@/api/rag'
+import { listRagChunks, getRagChunk, getRagChunkStats, listRagDocuments, listChunkChildren, listKbs } from '@/api/rag'
 
 export default {
   name: 'RagChunks',
@@ -156,9 +166,11 @@ export default {
       chunkList: [],
       docOptions: [],
       stats: { total: null },
+      kbList: [],
       queryParams: {
         pageNum: 1,
         pageSize: 10,
+        kbId: 0, // 当前知识库（0=默认库）
         sourceName: undefined,
         keyword: undefined
       },
@@ -222,18 +234,30 @@ export default {
     if (q) {
       this.queryParams.sourceName = q
     }
+    this.loadKbs()
     this.loadDocOptions()
     this.loadStats()
     this.getList()
   },
   methods: {
+    loadKbs() {
+      listKbs().then((res) => {
+        this.kbList = (res && res.data) || []
+        // 默认库（kb=0）不落 rag_kb 表，前端补一行
+        if (!this.kbList.some((k) => k.id === 0)) {
+          this.kbList.unshift({ id: 0, name: '默认知识库' })
+        }
+      }).catch(() => {
+        this.kbList = [{ id: 0, name: '默认知识库' }]
+      })
+    },
     loadDocOptions() {
-      listRagDocuments({ pageNum: 1, pageSize: 500 }).then((res) => {
+      listRagDocuments({ pageNum: 1, pageSize: 500, kbId: this.queryParams.kbId }).then((res) => {
         this.docOptions = res.rows || []
       }).catch(() => {})
     },
     loadStats() {
-      const params = {}
+      const params = { kbId: this.queryParams.kbId }
       if (this.queryParams.sourceName) {
         params.sourceName = this.queryParams.sourceName
       }
@@ -248,6 +272,7 @@ export default {
       listRagChunks({
         pageNum: this.queryParams.pageNum,
         pageSize: this.queryParams.pageSize,
+        kbId: this.queryParams.kbId,
         sourceName: this.queryParams.sourceName || undefined,
         keyword: this.queryParams.keyword || undefined
       }).then((response) => {
@@ -260,6 +285,8 @@ export default {
     },
     handleQuery() {
       this.queryParams.pageNum = 1
+      // 切换知识库时文档名选项也按 kb 刷新
+      this.loadDocOptions()
       this.loadStats()
       this.getList()
     },

@@ -54,31 +54,31 @@ def _prune_orphan_communities(kb_id: int | None) -> None:
 
 
 def delete_from_qdrant_by_source_name(source_name: str, kb_id: int | None = None) -> int:
-    settings = get_settings()
+    # 物理隔离：只删该 kb 的 collection（kb=0 沿用原名兼容存量），无需 kb filter
+    from rag_core.core.config import chunk_collection
+
+    name = chunk_collection(kb_id)
     client = get_qdrant_client()
     try:
-        client.get_collection(collection_name=settings.qdrant_collection)
+        client.get_collection(collection_name=name)
     except UnexpectedResponse as exc:
         if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
             logger.info(
                 "Qdrant 集合 %s 尚不存在，跳过按 source_name 删除（首次入库前常见）",
-                settings.qdrant_collection,
+                name,
             )
             return 0
         raise
     total = 0
     for key in ("metadata.source_name", "source_name"):
-        conditions = [models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
-        if kb_id is not None:
-            conditions.append(
-                models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))
-            )
-        flt = models.Filter(must=conditions)
+        flt = models.Filter(
+            must=[models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
+        )
         offset = None
         batch = 0
         while True:
             records, offset = client.scroll(
-                collection_name=settings.qdrant_collection,
+                collection_name=name,
                 scroll_filter=flt,
                 limit=256,
                 offset=offset,
@@ -89,7 +89,7 @@ def delete_from_qdrant_by_source_name(source_name: str, kb_id: int | None = None
                 break
             ids = [r.id for r in records]
             client.delete(
-                collection_name=settings.qdrant_collection,
+                collection_name=name,
                 points_selector=models.PointIdsList(points=ids),
             )
             batch += len(ids)
@@ -104,24 +104,15 @@ def delete_from_qdrant_by_source_name(source_name: str, kb_id: int | None = None
 
 
 def delete_from_elasticsearch_by_source_name(source_name: str, kb_id: int | None = None) -> int:
-    settings = get_settings()
+    # 物理隔离：只删该 kb 的 index（kb=0 沿用原名兼容存量），无需 kb term 过滤
+    from rag_core.core.config import es_index
+
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
-    if not client.indices.exists(index=settings.elasticsearch_index):
+    if not client.indices.exists(index=name):
         return 0
-    if kb_id is not None:
-        body = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"source_name": source_name}},
-                        {"term": {"kb_id": int(kb_id)}},
-                    ]
-                }
-            }
-        }
-    else:
-        body = {"query": {"term": {"source_name": source_name}}}
-    resp = client.delete_by_query(index=settings.elasticsearch_index, body=body, refresh=True)
+    body = {"query": {"term": {"source_name": source_name}}}
+    resp = client.delete_by_query(index=name, body=body, refresh=True)
     deleted = int(resp.get("deleted", 0) or 0)
     if deleted:
         logger.info("Elasticsearch 已按 source_name=%s kb=%s 删除 %s 条", source_name, kb_id, deleted)
@@ -161,25 +152,26 @@ def delete_chunks_by_ids(chunk_ids: list[str], *, include_graph: bool = True, kb
 
     if not chunk_ids:
         return
-    settings = get_settings()
+    from rag_core.core.config import chunk_collection, es_index
+
     client = get_qdrant_client()
-    # Qdrant：point id = uuid5(chunk_id)，按 id 列表删
+    # Qdrant：point id = uuid5(chunk_id)，按 id 列表删（该 kb 的 collection）
     try:
-        client.get_collection(collection_name=settings.qdrant_collection)
+        client.get_collection(collection_name=chunk_collection(kb_id))
     except UnexpectedResponse as exc:
         if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
             return
         raise
     point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, cid)) for cid in chunk_ids]
     client.delete(
-        collection_name=settings.qdrant_collection,
+        collection_name=chunk_collection(kb_id),
         points_selector=models.PointIdsList(points=point_ids),
     )
-    # ES：按 _id 列表删（ES _id = chunk_id）
+    # ES：按 _id 列表删（ES _id = chunk_id；该 kb 的 index）
     es = get_elasticsearch_client()
-    if es.indices.exists(index=settings.elasticsearch_index):
+    if es.indices.exists(index=es_index(kb_id)):
         es.delete_by_query(
-            index=settings.elasticsearch_index,
+            index=es_index(kb_id),
             body={"query": {"terms": {"_id": chunk_ids}}},
             refresh=True,
         )
@@ -199,51 +191,26 @@ def purge_kb(kb_id: int) -> None:
 
     Qdrant 按 kb_id 删全部点；ES delete_by_query；Neo4j 清该 kb 的边 + 孤立节点。
     """
+    from rag_core.core.config import chunk_collection, community_collection, es_index
     from rag_core.infrastructure.neo4j import Neo4jTripleStore
 
-    settings = get_settings()
+    # 物理隔离：Qdrant/ES 直接删该 kb 的容器（collection/index），
+    # 不再 scroll 逐批按 kb filter 删——清 kb = 删容器，秒级完成且无残留风险
     client = get_qdrant_client()
-    try:
-        client.get_collection(collection_name=settings.qdrant_collection)
-        flt = models.Filter(
-            must=[models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))]
-        )
-        cnt = 0
-        offset = None
-        while True:
-            records, offset = client.scroll(
-                collection_name=settings.qdrant_collection,
-                scroll_filter=flt,
-                limit=256,
-                offset=offset,
-                with_payload=False,
-                with_vectors=False,
-            )
-            if not records:
-                break
-            ids = [r.id for r in records]
-            client.delete(
-                collection_name=settings.qdrant_collection,
-                points_selector=models.PointIdsList(points=ids),
-            )
-            cnt += len(ids)
-            if offset is None:
-                break
-        logger.info("【清空 kb】Qdrant 删除 %s 个点", cnt)
-    except UnexpectedResponse as exc:
-        if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
-            pass
-        else:
-            raise
+    for collection in (chunk_collection(kb_id), community_collection(kb_id)):
+        try:
+            client.delete_collection(collection_name=collection)
+            logger.info("【清空 kb】Qdrant collection %s 已删除", collection)
+        except UnexpectedResponse as exc:
+            if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
+                pass
+            else:
+                raise
 
     es = get_elasticsearch_client()
-    if es.indices.exists(index=settings.elasticsearch_index):
-        resp = es.delete_by_query(
-            index=settings.elasticsearch_index,
-            body={"query": {"term": {"kb_id": int(kb_id)}}},
-            refresh=True,
-        )
-        logger.info("【清空 kb】ES 删除 %s 条", resp.get("deleted", 0))
+    if es.indices.exists(index=es_index(kb_id)):
+        es.indices.delete(index=es_index(kb_id))
+        logger.info("【清空 kb】ES index %s 已删除", es_index(kb_id))
 
     # 标签隔离版：按 EntityKb{id}/CommunityKb{id} 标签整片 DETACH DELETE——
     # 每 kb 的图谱是独立标签集合，清 kb = 删两个标签的全部节点（连带 RELATED/MEMBER_OF），
@@ -259,7 +226,12 @@ def purge_kb(kb_id: int) -> None:
     from rag_core.infrastructure.mysql_chunks import purge_kb_from_mysql
 
     mysql_deleted = purge_kb_from_mysql(kb_id)
-    logger.info("【清空 kb】MySQL 删除 %s 条", mysql_deleted)
+    logger.info("【清空 kb】MySQL 切片删除 %s 条", mysql_deleted)
+
+    # 图谱快照四表也是 MySQL 持久化数据，删 kb 必须一并清掉，否则管理台留孤儿行
+    from rag_core.infrastructure.mysql_graph import purge_kb_graph_snapshot
+
+    purge_kb_graph_snapshot(kb_id)
 
     # 社区同步维护：kb 清空后图谱为空 → 所有社区变孤儿，轻量清理即可删光（等价全量重建的空结果）
     _prune_orphan_communities(kb_id)

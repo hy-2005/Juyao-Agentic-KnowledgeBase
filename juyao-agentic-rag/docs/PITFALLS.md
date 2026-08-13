@@ -2,7 +2,7 @@
 
 > 维护规则（见 CLAUDE.md）：**每个踩坑必须记录到本文件**——现象、根因、修复、教训。
 > 创建：2026-08-07
-> 更新：2026-08-12
+> 更新：2026-08-13
 
 ---
 
@@ -232,9 +232,65 @@
   - 全链路 20+ 处 Cypher 按标签查询，**零 WHERE kb_ids 过滤**；`ensure_schema(kb_id)` 按 kb 建唯一约束（自带索引）
   - `purge_kb` 简化为按标签 DETACH DELETE 整片删；同名实体跨 kb 独立（Dify 语义）
   - 管理台展示数据落 MySQL 快照表（`rag_graph_*`，社区重建后 30s debounce 分批同步），管理查询按 `kb_id` 过滤
+  - **Qdrant/ES 同样物理隔离**（2026-08-13 追加）：每 kb 独立 collection/index
+    （`chunk_collection(kb)` 等命名函数，**kb=0 沿用原名 = 存量零迁移**）；写入/检索/删除
+    全部按 kb 选容器，去掉 payload/term 级 kb filter；purge_kb 升级为直接删容器
   - 存量迁移：`scripts/migrate_neo4j_labels.py`
 - **教训**：**「元数据过滤」不等于「标签过滤」——Neo4j 对 label 与属性是两套机制：label 有索引定位（数据分类），属性数组过滤只能全表扫描**。多租户/多实例隔离优先考虑结构隔离（标签/分表/多库），不要用查询时过滤；过滤方案在数据量增长后是不可逆的性能债
 - **备选**：Neo4j 企业版多数据库（`CREATE DATABASE`）是物理隔离的更强方案；Desktop 免费带企业版开发者许可可先测，生产需授权（≤50 人公司可申请 Startup License）
+
+---
+
+## 25. 上传文档「选了新知识库但数据没绑定」：弹窗 kb 默认 0 + 裸 axios 把业务失败当成功
+
+- **场景**：多知识库上线后，用户新建知识库「测试」(kb=2) 并在文档管理页上传文件，随后用库名过滤「测试」，列表空空如也
+- **现象**：排查一圈发现数据全在默认库——上传目录只生成 `rag/0/`（无 `rag/2/`）、`rag_document_hash` 中 `kb_id>0` 行数为 0、Qdrant 只有 kb=0 的 collection；且前端提示「已提交 1 个文件」，用户完全无感知
+- **根因**（两层）：
+  1. **UX 层**：列表过滤的下拉（`queryParams.kbId`）与上传弹窗的下拉（`uploadForm.kbId`）是两套状态，弹窗默认「默认知识库」——用户以为过滤条件会带入上传，实际 FormData 里 `kbId=0`
+  2. **错误吞噬层**：`uploadRagDocument` 用裸 axios（绕过 RuoYi 拦截器），RuoYi 后端业务失败也是 HTTP 200 + `body.code=500`，axios 正常 resolve → 前端 `data.skipped ? 'skipped' : 'ok'` 把失败响应计成成功——即使后端拒绝（如 checkKbAdmin 无权限）也提示「已提交」
+- **修复**：`handleUpload` 默认继承列表过滤的 kb；`submitUpload` 显示后端真实错误且不关弹窗；新增 `activated()` 钩子刷新 kb 下拉（keep-alive 缓存页从知识库管理页新建库后 created 不再触发）
+- **二次踩坑（2026-08-13）**：修 submitUpload 时按「axios 原始响应」再解了一次包——`const body = resp.data` 取到的是内层 data（无 code 字段），`body.code !== 200` 恒成立，**上传成功也弹「上传失败」**。实际 `uploadRagDocument` 内部已经 `.then(res => res.data)` 解包且失败时 reject（后端 msg 在 rejection 里）。修复：直接用解包后的 body，读 `body.data.skipped`
+- **教训**：**凡绕过统一拦截器（裸 axios/fetch）的请求，必须自己补业务码判断——拦截器承担的「code!=200 即报错」责任不会自动存在**；同时**调用自封装 API 前先确认它的返回契约（已解包 body / 原始 AxiosResponse / rejection 内容），不要按惯例猜**——同一次修复里先漏判断、后双重解包，两个方向都错了一遍；「选库 A 上传 → 库 B 展示」这类跨控件状态不一致，优先做「状态继承」而不是让用户重复选择
+
+---
+
+## 26. qdrant-client `FilterSelector()` 无参构造直接抛 validation error——社区摘要永远写不进向量库
+
+- **场景**：多知识库物理隔离后，首次对 kb=2 做社区重建，摘要要写进 `community_summaries_kb2`
+- **现象**：日志「Qdrant 社区摘要 collection 已创建：community_summaries_kb2」之后紧跟「【社区构建】摘要向量写入失败（不阻断）：1 validation error for FilterSelector / filter Field required [type=missing, input_value={}]」——collection 建了，摘要一个都没写进去；用户看到的现象是「社区摘要没进新库的向量库」
+- **根因**：`delete_community_summaries` 用 `models.FilterSelector()`（不带参）想表达「删全部点」，但 qdrant-client 的 pydantic 模型里 `FilterSelector.filter` 是**必填字段**（无默认值），无参构造直接抛 validation error；外层「不阻断」包装把异常吞成 warning，导致后续 upsert 也没执行。代码注释里「FilterSelector() 不带 filter = 删全 collection」的假设从未被验证过（此路径此前没跑过 kb>0 的重建）
+- **修复**：`models.FilterSelector(filter=models.Filter())`——空 Filter 序列化为 `{}`，Qdrant 语义 = 匹配全部点（删全 collection）；修正注释并记录本坑
+- **教训**：**外部 SDK 的模型构造器带不带默认值，只有跑一遍才知道——「看起来可以省略的字段」被 pydantic 定义为 required 时，运行时第一行就炸**；best-effort（不阻断）的 try 包装必须把异常打全（异常类型或 traceback），否则真实根因被吞成一行 warning，排查时只能从现象反推
+
+---
+
+## 27. llama-swap 长得像 Ollama 但只支持 OpenAI 兼容协议：/api/embed、/api/rerank 全是 404
+
+- **场景**：内网模型服务器 192.168.15.208:11435（llama-swap）提供 bge-m3-Q8_0 / bge-reranker-v2-m3-Q8_0；同机 11434 才是原生 Ollama（只有 qwen）。配置切换时想当然按「Ollama 服务器」处理
+- **现象**：`/api/embed`、`/api/rerank` 请求 404（空响应）；`/v1/models`、`/v1/embeddings`、`/v1/rerank` 正常——服务是 OpenAI 兼容协议
+- **根因**：llama-swap 是 OpenAI 兼容网关，不实现 Ollama 原生 `/api/*` 接口；「端口挨着 + 模型名像 Ollama」造成误判（实际用 `/v1/models` 一探便知，模型 owned_by 字段写的就是 llama-swap）
+- **修复**：embedding 走 `OpenAIEmbeddings(base_url=host:port/v1)`（新增 `embed_provider=openai` 分支）；rerank URL 改 `/v1/rerank`（响应格式与 Ollama 同构：results[{index, relevance_score}]，bge 输出为原始 logits 负值，仅排序有意义——下游 RRF 只用名次不用分值，无需归一化）
+- **教训**：**内网自建模型服务先探协议再写代码**——`/v1/models` + `/v1/embeddings` 探一次就知道是不是 OpenAI 兼容，别被「11434/11435 相邻端口 + Ollama 风格模型名」带偏；Windows bash 里 curl 中文 body 是 GBK 编码，会被服务端判成 ill-formed UTF-8（看着像服务端 500，实为本地编码问题），验证一律用 Python UTF-8 发请求
+
+---
+
+## 28. Qdrant/ES「查了不存在再创建」不是原子的：并发入库/重试触发 409/400 打爆整条 ingest
+
+- **场景**：Kafka 消息重试 + 并发上传同一 kb，`ensure_collection_exists` 的 get→create 两步之间另一线程已建好 collection
+- **现象**：ASGI 异常 `UnexpectedResponse: 409 (Conflict) Collection juyao_knowledge_chunks_kb7 already exists`，整条 ingest event 失败；Kafka 手动 commit 下消息重试再次 409，形成失败循环
+- **根因**：`_ensure_collection` 与 `ensure_es_index_exists` 都是「exists 检查 → create」两步非原子操作；Qdrant 409 / ES 400（resource_already_exists_exception）未做幂等容忍，异常一路抛穿 API 层
+- **修复**：两处 create 都 catch「已存在」类错误（Qdrant 匹配 "already exists"，ES 匹配 "resource_already_exists_exception"），幂等复用已建容器并打 info 日志；ES 顺带修正了 create 调用块的缩进
+- **教训**：**「确保存在」类操作必须按幂等接口写——并发场景下 exists-check 和 create 之间的窗口永远存在，容忍「已存在」错误比加锁更简单可靠**；多知识库物理隔离后同一 kb 的并发 create 概率显著上升（重试、多文件并发上传都走同一入口）
+
+---
+
+## 29. qdrant-client 1.10+ 移除 `client.search`——L1 社区检索静默全灭，悄悄降级 L2
+
+- **场景**：qdrant-client 升级到 1.18.0 后，图谱 L1（社区摘要检索）一直静默异常
+- **现象**：每次提问日志 `community_search: Qdrant search 失败：'QdrantClient' object has no attribute 'search'` → 返回 [] → L1 恒降级 L2 全图检索——**功能上「还活着」（有 L2 兜底），质量上 L1 已死**，无任何报错表面
+- **根因**：`client.search()` 是旧 API，qdrant-client ≥1.10 改名 `query_points`；调用被 try/except 吞成 warning + 返回 []（best-effort 设计把「API 不存在」和「没检索到」混为一谈）
+- **修复**：改 `client.query_points(collection_name=..., query=q_vec, limit=..., with_payload=True).points`（query 直接传原始向量）；同轮顺带修了另一个 L1 死因：**切换 bge 后存量摘要还是百炼向量空间**，余弦分数 0.03~0.06 全部低于阈值——kb0 社区重建后（bge 重嵌入）分数恢复正常
+- **教训**：**best-effort 的 except 分支必须区分「外部系统故障/API 变更」与「正常空结果」——前者至少打 error 级日志（或告警），否则功能死掉无人知晓**；依赖升级（qdrant-client 这种频繁破坏性改名的库）后要跑一遍真实检索冒烟测试，不能只看 import/编译通过
 
 ---
 
@@ -263,8 +319,11 @@
 20. **LLM 供应商的 extra_body 字段不是通用约定，切换供应商必须逐字段核对；未知供应商什么都不发**（坑 21）
 22. **「0=特殊语义（全量）」的参数跨层传递时，任何一层做 falsy 转换（0→None）都会静默改变语义——转换只能发生在唯一一处判定**（坑 22）
 23. **ECharts 中跟随系列 roam 的装饰元素必须做成 series 数据点（虚拟节点/自定义 symbol），graphic 元素固定不动**（坑 23）
-24. **「元数据过滤」≠「标签过滤」——Neo4j 的 label 有索引定位（数据分类），属性数组过滤只能全表扫描**；多租户隔离优先结构隔离，过滤方案是数据量增长后的不可逆性能债（坑 24）
+24. **「元数据过滤」≠「标签过滤」——Neo4j 的 label 有索引定位（数据分类），属性数组过滤只能全表扫描**；多租户隔离优先结构隔离（标签/独立容器），过滤方案是数据量增长后的不可逆性能债（坑 24）
 21. **Python `x or default` 无法区分「未传」和「显式 falsy（0/空）」——"0 表示特殊语义"的参数必须用 `if x is None`**；Cypher `LIMIT 0` 是 0 条不是不限（坑 22）
+25. **绕过统一拦截器的请求（裸 axios）必须自己补业务码判断，否则后端错误被当成成功**；多控件共享同一业务状态时做「状态继承」，不让用户重复选择（坑 25）
+26. **调用自封装 API 前先确认返回契约（已解包 body / AxiosResponse）**——一次修复里「漏判断」和「双重解包」两个方向各错一遍（坑 25 续）
+27. **外部 SDK pydantic 模型字段是否必填，实测为准**——`FilterSelector()` 无参构造直接抛 validation error；best-effort try 必须打全异常，别吞成一行 warning（坑 26）
 
 ## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler
 

@@ -10,7 +10,7 @@ from typing import Literal
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from rag_core.core.config import get_settings
+from rag_core.core.config import chunk_collection, get_settings
 from rag_core.infrastructure.qdrant import get_qdrant_client
 
 logger = logging.getLogger(__name__)
@@ -41,11 +41,13 @@ def _payload_meta(record_payload: dict) -> dict:
 
 
 def get_indexed_content_sha256(source_name: str, kb_id: int | None = None) -> str | None:
-    """从 Qdrant 取该文档已索引的全文 SHA-256（任取一个 chunk 的 metadata）。"""
-    settings = get_settings()
+    """从 Qdrant 取该文档已索引的全文 SHA-256（任取一个 chunk 的 metadata）。
+
+    物理隔离：只查该 kb 的 collection（kb=0 沿用原名兼容存量），无需 kb filter。
+    """
     client = get_qdrant_client()
     try:
-        client.get_collection(collection_name=settings.qdrant_collection)
+        client.get_collection(collection_name=chunk_collection(kb_id))
     except UnexpectedResponse as exc:
         if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
             return None
@@ -53,13 +55,9 @@ def get_indexed_content_sha256(source_name: str, kb_id: int | None = None) -> st
 
     for key in ("metadata.source_name", "source_name"):
         conditions = [models.FieldCondition(key=key, match=models.MatchValue(value=source_name))]
-        if kb_id is not None:
-            conditions.append(
-                models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))
-            )
         flt = models.Filter(must=conditions)
         records, _ = client.scroll(
-            collection_name=settings.qdrant_collection,
+            collection_name=chunk_collection(kb_id),
             scroll_filter=flt,
             limit=1,
             with_payload=True,

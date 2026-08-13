@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/v1/admin/chunks", tags=["admin-chunks"])
 
 @router.get("", response_model=ChunkListResponse)
 def admin_list_chunks(
+    kb_id: int = Query(0, alias="kbId"),
     source_name: str | None = Query(None, alias="sourceName"),
     keyword: str | None = Query(None),
     page_num: int = Query(1, alias="pageNum", ge=1),
@@ -24,6 +25,7 @@ def admin_list_chunks(
     rows, total = list_chunks_mysql(
         source_name=source_name or None,
         keyword=keyword or None,
+        kb_id=kb_id,
         page_num=page_num,
         page_size=page_size,
     )
@@ -31,8 +33,11 @@ def admin_list_chunks(
 
 
 @router.get("/stats", response_model=ChunkStatsResponse)
-def admin_chunk_stats(source_name: str | None = Query(None, alias="sourceName")):
-    data = chunk_stats_by_source_mysql(source_name=source_name or None)
+def admin_chunk_stats(
+    kb_id: int = Query(0, alias="kbId"),
+    source_name: str | None = Query(None, alias="sourceName"),
+):
+    data = chunk_stats_by_source_mysql(source_name=source_name or None, kb_id=kb_id)
     return ChunkStatsResponse(**data)
 
 

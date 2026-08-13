@@ -195,6 +195,15 @@
             <span>KG 可视化面板</span>
             <div class="graph-controls">
               <el-select
+                v-model="kbId"
+                size="mini"
+                style="width: 150px"
+                title="切换知识库（每库独立图谱/社区/实体）"
+                @change="handleKbChange"
+              >
+                <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+              </el-select>
+              <el-select
                 v-model="fullLimit"
                 size="mini"
                 style="width: 110px"
@@ -244,9 +253,12 @@
       :returned-edges="graphMeta.returned_edges"
       :fullscreen="true"
       :full-limit="fullLimit"
+      :kb-id="kbId"
+      :kb-list="kbList"
       @exit-fullscreen="closeFullScreen"
       @drill-subgraph="drillFromFullGraph"
       @limit-change="handleFullLimitChange"
+      @kb-change="handleFullKbChange"
     />
 
     <!-- 关系详情 -->
@@ -316,6 +328,7 @@ import {
   getRagGraphFull,
   listAllRagGraphEdges,
   listCommunities,
+  listKbs,
   createRagGraphEntity,
   renameRagGraphEntity,
   deleteRagGraphEntity,
@@ -339,6 +352,8 @@ export default {
       edgeList: [],
       entityList: [],
       stats: {},
+      kbId: 0, // 当前知识库（0=默认库；多 kb 物理隔离）
+      kbList: [],
       communities: [],
       communityTotal: 0,
       communityPageNum: 1,
@@ -405,11 +420,47 @@ export default {
     document.body.style.overflow = ''
   },
   created() {
+    this.loadKbs()
     this.loadStats()
     this.getList()
     this.loadCommunities()
   },
   methods: {
+    loadKbs() {
+      listKbs().then((res) => {
+        this.kbList = (res && res.data) || []
+        // 默认库（kb=0）不落 rag_kb 表，前端补一行
+        if (!this.kbList.some((k) => k.id === 0)) {
+          this.kbList.unshift({ id: 0, name: '默认知识库' })
+        }
+      }).catch(() => {
+        this.kbList = [{ id: 0, name: '默认知识库' }]
+      })
+    },
+    handleKbChange() {
+      // 主面板切换知识库：全部数据按新 kb 重新加载（每库独立图谱/社区/实体）
+      this.expandedCommunity = null
+      this.fullScreenOpen = false
+      this.graphMode = 'subgraph'
+      this.currentSeed = ''
+      this.graphData = { nodes: [], links: [] }
+      this.queryParams.pageNum = 1
+      this.communityPageNum = 1
+      this.loadStats()
+      this.getList()
+      this.loadCommunities()
+    },
+    handleFullKbChange(kbId) {
+      // 全屏内切换知识库：保持全屏，列表/统计刷新 + 全图按新 kb 重载
+      this.kbId = kbId
+      this.expandedCommunity = null
+      this.queryParams.pageNum = 1
+      this.communityPageNum = 1
+      this.loadStats()
+      this.getList()
+      this.loadCommunities()
+      this.loadFullGraph(false)
+    },
     // 社区色板（与 KgGraphPanel 一致）：community_id hash → 12 色恒定映射
     communityColor(communityId) {
       const palette = [
@@ -424,7 +475,8 @@ export default {
     loadCommunities() {
       listCommunities({
         pageNum: this.communityPageNum,
-        pageSize: this.communityPageSize
+        pageSize: this.communityPageSize,
+        kbId: this.kbId
       }).then((res) => {
         // RuoYi 拦截器返回 res.data(AjaxResult.data),社区列表在 data.rows
         this.communities = (res && res.data && res.data.rows) || []
@@ -535,7 +587,7 @@ export default {
       }
     },
     loadStats() {
-      getRagGraphStats({ topN: 10 }).then((res) => {
+      getRagGraphStats({ topN: 10, kbId: this.kbId }).then((res) => {
         this.stats = (res && res.data) || {}
       }).catch(() => {
         this.stats = {}
@@ -549,7 +601,8 @@ export default {
           pageSize: this.queryParams.pageSize,
           sourceName: this.queryParams.sourceName || undefined,
           entity: this.queryParams.entity || undefined,
-          relation: this.queryParams.relation || undefined
+          relation: this.queryParams.relation || undefined,
+          kbId: this.kbId
         }).then((res) => {
           this.edgeList = res.rows || []
           this.total = res.total || 0
@@ -561,7 +614,8 @@ export default {
         listRagGraphEntities({
           pageNum: this.queryParams.pageNum,
           pageSize: this.queryParams.pageSize,
-          keyword: this.queryParams.keyword || undefined
+          keyword: this.queryParams.keyword || undefined,
+          kbId: this.kbId
         }).then((res) => {
           this.entityList = res.rows || []
           this.total = res.total || 0
@@ -606,7 +660,7 @@ export default {
       }
     },
     async fetchAllGraphEdges() {
-      const res = await listAllRagGraphEdges({ limit: this.fullLimit })
+      const res = await listAllRagGraphEdges({ limit: this.fullLimit, kbId: this.kbId })
       if (res.code && res.code !== 200) {
         throw new Error(res.msg || '查询关系失败')
       }
@@ -624,7 +678,8 @@ export default {
       getRagGraphSubgraph({
         seed: this.currentSeed,
         hops: this.subgraphHops,
-        limit: 0
+        limit: 0,
+        kbId: this.kbId
       }).then((res) => {
         this.applyGraphData((res && res.data) || {})
       }).catch(() => {
@@ -647,7 +702,7 @@ export default {
         try {
           const cap = this.fullLimit > 0 ? this.fullLimit : Infinity
           const [fullRes, edgeRows] = await Promise.all([
-            getRagGraphFull({ limit: this.fullLimit }),
+            getRagGraphFull({ limit: this.fullLimit, kbId: this.kbId }),
             this.fetchAllGraphEdges()
           ])
           const fullData = (fullRes && fullRes.data) || {}
@@ -748,8 +803,8 @@ export default {
             new_relation_predicate: payload.relation_predicate,
             new_tail_name: payload.tail_name,
             evidence: payload.evidence
-          })
-          : createRagGraphEdge(payload)
+          }, this.kbId)
+          : createRagGraphEdge(payload, this.kbId)
         req.then(() => {
           this.$modal.msgSuccess(this.edgeEditing ? '修改成功' : '新增成功')
           this.edgeDialogOpen = false
@@ -767,7 +822,7 @@ export default {
           headName: row.head_name,
           relationPredicate: row.relation_predicate,
           tailName: row.tail_name
-        })
+        }, this.kbId)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
         this.refreshAll()
@@ -788,8 +843,8 @@ export default {
         this.entitySubmitting = true
         const name = this.entityForm.name.trim()
         const req = this.entityEditing
-          ? renameRagGraphEntity({ old_name: this.entityForm.old_name, new_name: name })
-          : createRagGraphEntity({ name })
+          ? renameRagGraphEntity({ old_name: this.entityForm.old_name, new_name: name }, this.kbId)
+          : createRagGraphEntity({ name }, this.kbId)
         req.then(() => {
           this.$modal.msgSuccess(this.entityEditing ? '修改成功' : '新增成功')
           this.entityDialogOpen = false
@@ -803,7 +858,7 @@ export default {
     },
     handleDeleteEntity(row) {
       this.$modal.confirm(`确认删除实体「${row.name}」及其全部关联关系？`).then(() => {
-        return deleteRagGraphEntity(row.name)
+        return deleteRagGraphEntity(row.name, this.kbId)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
         this.refreshAll()

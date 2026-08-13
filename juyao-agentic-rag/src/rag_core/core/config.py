@@ -30,8 +30,16 @@ class Settings(BaseSettings):
     embed_model: str = Field(default="mxbai-embed-large:latest")
     embed_base_url: str = Field(default="https://dashscope.aliyuncs.com/compatible-mode/v1")
     embed_batch_size: int = Field(default=10)  # 百炼 text-embedding 单次最多 10 条
+    # 向量维度截断上限：>0 时取前 N 维（MRL 模型如 qwen3-embedding 支持低维截断，质量有保障）；
+    # 0 = 不截断（用模型原生维度）。改动后需重建 Qdrant collection 并重灌存量向量
+    embed_dim_limit: int = Field(default=0)
     rerank_model: str = Field(default="bona/bge-reranker-v2-m3:latest")
     rerank_provider: str = Field(default="dashscope")
+    # 本地模型服务（llama-swap/llama.cpp 槽位有限）并发上限：embedding 与 rerank
+    # 各建各的线程池，各自最多 N 并发、互不占用（策略模式，见 llm/concurrency.py）；<=0 表示不限流
+    local_model_max_concurrency: int = Field(default=10)
+    # 各线程池的阻塞任务队列长度（有界队列，满则 put 阻塞背压，防无限堆积）
+    local_model_task_queue_size: int = Field(default=5000)
 
     dashscope_api_key: str = Field(default="")
     llm_api_key: str = Field(default="")  # 对话/切分 LLM 专用 Key；空则回退 dashscope_api_key
@@ -78,6 +86,10 @@ class Settings(BaseSettings):
     community_summary_embedding_model: str | None = Field(default=None)
     community_summary_top_k: int = Field(default=2)
     community_summary_min_similarity: float = Field(default=0.5)
+    # 社区摘要生成并发：build_communities 用线程池并行调 LLM（本地模型可跑高并发提速）
+    community_summary_max_workers: int = Field(default=10)
+    # 单条社区摘要 LLM 超时（秒）：服务器过载时避免整批摘要失败为空串
+    community_summary_timeout_s: float = Field(default=180.0)
 
     # --- Elasticsearch ---
     elasticsearch_url: str = Field(default="http://localhost:9201")
@@ -140,7 +152,7 @@ class Settings(BaseSettings):
     # 入库不再立即全量重建社区，改为标记 dirty + 静默窗口 debounce：
     # 连续 N 秒无新入库请求才统一重建（批量上传只重建一次，避免 N 文档 N 次重建 + 并行踩踏）。
     # 内部人员手动上传必然有停顿，30 秒静默窗口足以覆盖批量操作间隙。
-    community_rebuild_debounce_s: float = Field(default=30.0)
+    community_rebuild_debounce_s: float = Field(default=180.0)
 
     # --- Agentic RAG ---
     vector_then_graph_supplement: bool = Field(default=True)
@@ -205,6 +217,35 @@ class Settings(BaseSettings):
         if DEFAULT_CONFIG_TOML.is_file():
             sources.append(TomlConfigSettingsSource(settings_cls, DEFAULT_CONFIG_TOML))
         return tuple(sources)
+
+
+# ---------------------------------------------------------------------------
+# 多知识库存储命名：每 kb 一个物理容器（collection/index），而非共享容器 + 字段过滤
+# ---------------------------------------------------------------------------
+# kb=0 沿用原名（存量数据零迁移，单库用户无感）；kb>0 加 _kb{id} 后缀。
+# 物理隔离收益：串库风险归零、单实例检索范围小、purge_kb 直接删容器。
+# （Neo4j 侧已标签隔离 EntityKb{id}；MySQL 侧关系表按 kb_id 列过滤即隔离）
+
+
+def chunk_collection(kb_id: int | None = None) -> str:
+    """切片向量 collection 名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。"""
+    base = get_settings().qdrant_collection
+    kb = int(kb_id or 0)
+    return base if kb == 0 else f"{base}_kb{kb}"
+
+
+def community_collection(kb_id: int | None = None) -> str:
+    """社区摘要 collection 名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。"""
+    base = get_settings().community_summary_collection
+    kb = int(kb_id or 0)
+    return base if kb == 0 else f"{base}_kb{kb}"
+
+
+def es_index(kb_id: int | None = None) -> str:
+    """ES 全文索引名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。"""
+    base = get_settings().elasticsearch_index
+    kb = int(kb_id or 0)
+    return base if kb == 0 else f"{base}_kb{kb}"
 
 
 @lru_cache(maxsize=1)

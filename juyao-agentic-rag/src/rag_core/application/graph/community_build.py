@@ -30,7 +30,8 @@ def _community_summary(entities: list[str]) -> str:
     """LLM 生成社区主题摘要；失败返回空串（不阻断构建）。"""
     settings = get_settings()
     try:
-        llm = get_chat_llm(streaming=False, timeout=60.0)
+        # 超时可配置（默认 180s）：本地模型过载时 60s 极易超时导致整批摘要为空串
+        llm = get_chat_llm(streaming=False, timeout=float(settings.community_summary_timeout_s))
         resp = llm.invoke(_SUMMARY_PROMPT.format(entities="、".join(entities[:40])))
         text = (getattr(resp, "content", "") or "").strip()
         return _THINK_BLOCK_RE.sub("", text).strip()
@@ -112,6 +113,19 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
     from rag_core.infrastructure.neo4j import community_label
 
     clabel = community_label(kb or 0)
+
+    # 摘要并行生成（2026-08-13）：LLM 调用是最慢环节，线程池并发提速
+    # （上限 settings.community_summary_max_workers，默认 10；本地模型槽位有限时排队等待）
+    settings = get_settings()
+    workers = max(1, min(int(settings.community_summary_max_workers), max(1, len(communities))))
+    if len(communities) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="community-summary") as pool:
+            summaries: list[str] = list(pool.map(_community_summary, communities))
+    else:
+        summaries = [_community_summary(c) for c in communities]
+
     # 单一 session 串行 reset + ensure + 全部写入（坑 8 终极修复）：
     # 跨会话/跨连接的 DELETE 与 MERGE 存在因果不一致，必须同会话内完成
     with store._driver.session() as session:
@@ -122,7 +136,7 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
         ensure_community_schema(store, kb=kb)
         for idx, entities in enumerate(communities, start=1):
             community_id = f"kb{kb or 0}:community:{idx}"
-            summary = _community_summary(entities)
+            summary = summaries[idx - 1]  # pool.map 保序，community_id 稳定
             _store_community(store, community_id, summary, entities, kb=kb, session=session)
             # 同步收集摘要 payload（写 Neo4j 成功后立刻装入，循环结束统一 upsert Qdrant）
             summaries_for_vector.append(
@@ -145,7 +159,7 @@ def build_communities(kb: int | None = None, *, reset: bool = True) -> int:
             ensure_community_collection_exists,
             upsert_community_summaries,
         )
-        ensure_community_collection_exists()
+        ensure_community_collection_exists(kb or 0)
         if reset and kb is not None:
             # reset 模式按 kb 清空（避免删全库；多 kb 共享 collection 的关键）
             delete_community_summaries(kb)

@@ -17,6 +17,7 @@ import com.juyao.common.core.controller.BaseController;
 import com.juyao.common.core.domain.AjaxResult;
 import com.juyao.rag.RagChatClient;
 import com.juyao.system.domain.RagKb;
+import com.juyao.system.service.IRagDocumentHashService;
 import com.juyao.system.service.IRagKbService;
 
 /**
@@ -31,6 +32,9 @@ public class RagKbController extends BaseController{
 
     @Autowired
     private RagChatClient ragChatClient;
+
+    @Autowired
+    private IRagDocumentHashService ragDocumentHashService;
 
     @GetMapping
     public AjaxResult list(){
@@ -61,11 +65,13 @@ public class RagKbController extends BaseController{
     @DeleteMapping("/{kbId}")
     public AjaxResult delete(@PathVariable Long kbId){
         try{
-            // 先清 Python 侧数据（Qdrant/ES/Neo4j），失败不阻塞库记录删除（数据残留可重灌）
+            // 先清 Python 侧数据（Qdrant/ES/Neo4j/MySQL 切片+图谱快照），失败不阻塞库记录删除（数据残留可重灌）
             ragChatClient.purgeKb(kbId);
         } catch (Exception e){
             logger.warn("清空知识库数据失败（继续删除库记录）: {}", e.getMessage());
         }
+        // 文档登记表由 Java 侧维护（监听器幂等登记），删 kb 时一并清掉，否则管理台文档列表留孤儿行
+        ragDocumentHashService.deleteByKb(kbId);
         ragKbService.deleteKb(kbId, getUserId());
         return success();
     }

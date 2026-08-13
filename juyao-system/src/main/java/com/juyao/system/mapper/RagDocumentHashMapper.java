@@ -16,4 +16,7 @@ public interface RagDocumentHashMapper{
     int mergeRagDocumentHash(RagDocumentHash row);
 
     int deleteByKbAndKey(@Param("kbId") Long kbId, @Param("docLogicalKey") String docLogicalKey);
+
+    /** 删除某知识库的全部文档登记（删知识库的级联清理）。 */
+    int deleteByKb(@Param("kbId") Long kbId);
 }

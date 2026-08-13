@@ -181,7 +181,9 @@ def _build_request(
             "top_n": top_n,
         }
     ).encode("utf-8")
-    rerank_url = f"{settings.ollama_base_url.rstrip('/')}/api/rerank"
+    # 本地模型服务（llama-swap 等）为 OpenAI 兼容协议：/v1/rerank（Ollama 原生的 /api/rerank 在
+    # llama-swap 上是 404——实测踩坑；老 Ollama 服务器仍可改回 /api/rerank）
+    rerank_url = f"{settings.ollama_base_url.rstrip('/')}/v1/rerank"
     return urllib.request.Request(
         rerank_url,
         data=body,
@@ -191,10 +193,15 @@ def _build_request(
 
 
 def _call_rerank(req: urllib.request.Request, *, label: str) -> dict | None:
-    try:
+    from rag_core.infrastructure.llm.concurrency import get_rerank_concurrency_policy
+
+    def _do_call():
         with urllib.request.urlopen(req, timeout=15) as response:
-            body = response.read().decode("utf-8")
-        return loads(body)
+            return loads(response.read().decode("utf-8"))
+
+    try:
+        # rerank 专属线程池（与 embedding 的池分开，各 10 并发互不占用）；云端直连
+        return get_rerank_concurrency_policy().submit(_do_call)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         logger.warning("【rerank · %s】调用失败，跳过该路。err=%s", label, exc)
         return None

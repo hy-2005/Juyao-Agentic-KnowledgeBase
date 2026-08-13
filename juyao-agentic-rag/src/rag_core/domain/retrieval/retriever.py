@@ -211,7 +211,9 @@ def _fetch_parents_by_ids(parent_ids: set[str], kb_id: int) -> dict[str, Documen
     """按 chunk_id 从 Qdrant 取父块完整 Document（子块命中映射用）。
 
     父块与子块都写在同 collection（ingest 步骤 1）；按 chunk_id 精确 scroll。
+    物理隔离：只查该 kb 的 collection（kb=0 沿用原名兼容存量），无需 kb filter。
     """
+    from rag_core.core.config import chunk_collection
     from rag_core.infrastructure.qdrant import get_qdrant_client
 
     if not parent_ids:
@@ -219,7 +221,6 @@ def _fetch_parents_by_ids(parent_ids: set[str], kb_id: int) -> dict[str, Documen
     client = get_qdrant_client()
     flt = models.Filter(
         must=[
-            models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id))),
             models.FieldCondition(
                 key="metadata.chunk_id",
                 match=models.MatchAny(any=list(parent_ids)),
@@ -230,7 +231,7 @@ def _fetch_parents_by_ids(parent_ids: set[str], kb_id: int) -> dict[str, Documen
     offset = None
     while True:
         records, offset = client.scroll(
-            collection_name=get_settings().qdrant_collection,
+            collection_name=chunk_collection(kb_id),
             scroll_filter=flt,
             limit=100,
             offset=offset,
@@ -254,15 +255,12 @@ def _fetch_parents_by_ids(parent_ids: set[str], kb_id: int) -> dict[str, Documen
 def _vector_topk(query: str, k: int, kb_id: int = 0) -> list[tuple[Document, float]]:
     # 向量召回；float 为相似度 relevance（如 cosine），仅用于阈值过滤与 max_score 展示，
     # 不参与与 ES 分数的直接相加（RRF 只看名次）。索引尚未建好时返回空列表。
-    # kb_id 始终过滤（含 0）——否则 kb=0 会串到 kb>0 的数据；旧数据无 kb_id 字段，
-    # 在重灌后消失，过渡期 kb=0 检索不到旧数据属预期。
+    # 物理隔离：按 kb 选独立 collection（kb=0 沿用原名兼容存量数据），
+    # collection 内不再需要 metadata.kb_id filter（PITFALLS #24：过滤方案废弃）。
     # 父子模式：检索子块（精度），命中后按 parent_chunk_id 映射聚合到父块（去重）。
     try:
-        vector_store = get_vector_store()
-        flt = models.Filter(
-            must=[models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id)))]
-        )
-        raw = vector_store.similarity_search_with_relevance_scores(query, k=k, filter=flt)
+        vector_store = get_vector_store(kb_id)
+        raw = vector_store.similarity_search_with_relevance_scores(query, k=k)
     except UnexpectedResponse as exc:
         if "doesn't exist" in str(exc) or "Not found" in str(exc):
             return []

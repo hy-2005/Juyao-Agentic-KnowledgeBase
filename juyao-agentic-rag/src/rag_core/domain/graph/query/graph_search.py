@@ -165,8 +165,19 @@ async def run_graph_search(
     cfg = settings or get_settings()
 
     # === L1 · 派系 2 社区优先 ===
+    # 顺序调整（2026-08-13）：先 A+B+C（A 改写）再社区检索——社区检索复用 A 的规范化句，
+    # 比口语原句与摘要的向量匹配更准；A 本就必需，零新增 LLM 调用；
+    # prep 同时给 L2 复用（省掉 L2 重复的 A+B+C）
     try:
-        matches = await asyncio.to_thread(community_search, q, kb_id=kb_id)
+        prep = await prepare_graph_query(q, kb=kb_id)
+    except Exception as exc:
+        logger.warning("L1 A+B+C pipeline 异常，社区检索回退原句：%s", exc)
+        prep = None
+
+    # A 失败时 rewritten_question 已回退原句（question_pipeline 兜底），此处再兜一层
+    search_q = (prep.rewritten_question or q).strip() if prep else q
+    try:
+        matches = await asyncio.to_thread(community_search, search_q, kb_id=kb_id)
     except Exception as exc:
         logger.warning("L1 community_search 异常，进入 L2：%s", exc)
         matches = []
@@ -177,12 +188,6 @@ async def run_graph_search(
             len(matches),
             matches[0].similarity,
         )
-        # A+B+C pipeline（一次 LLM 调用 A+B 并行 + 一次 C）
-        try:
-            prep = await prepare_graph_query(q, kb=kb_id)
-        except Exception as exc:
-            logger.warning("A+B+C pipeline 异常，进入 L2：%s", exc)
-            prep = None
 
         if prep and prep.entities:
             # 子图约束：实体必须落在 K 社区范围内
@@ -222,17 +227,19 @@ async def run_graph_search(
         logger.info("L1 community_search 未命中（top-1 < 阈值），直接进入 L2")
 
     # === L2 · 全图降级（严格参数：hops=2, max_edges=20, timeout=5s）===
-    try:
-        prep2 = await prepare_graph_query(q, kb=kb_id)
-    except Exception as exc:
-        logger.warning("L2 A+B+C pipeline 异常：%s", exc)
-        prep2 = None
+    if prep is None:
+        # L1 阶段 A+B+C 就失败过：L2 再试一次（其余情况直接复用 L1 的 prep，省一次 LLM）
+        try:
+            prep = await prepare_graph_query(q, kb=kb_id)
+        except Exception as exc:
+            logger.warning("L2 A+B+C pipeline 异常：%s", exc)
+            prep = None
 
-    if prep2 and prep2.entities:
+    if prep and prep.entities:
         try:
             obs, n_edges, matched = await _do_query_edges(
-                entities=prep2.entities,
-                hints=prep2.relation_hints,
+                entities=prep.entities,
+                hints=prep.relation_hints,
                 kb_id=kb_id,
                 round_idx=round_idx,
             )

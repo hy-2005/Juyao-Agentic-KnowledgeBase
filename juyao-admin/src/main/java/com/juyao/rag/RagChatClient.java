@@ -199,6 +199,72 @@ public class RagChatClient{
         }
     }
 
+    /**
+     * 社区重建调度状态：自动重建开关 + 待重建/重建中的 kb（管理台批量模式开关展示）。
+     */
+    public Map<String, Object> communityStatus() throws IOException, InterruptedException{
+        String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/api/v1/internal/rag/community/status"))
+                .header("X-Internal-Token", internalToken)
+                .timeout(Duration.ofSeconds(30))
+                .GET()
+                .build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() != 200){
+            throw new IllegalStateException("RAG API community status HTTP " + resp.statusCode());
+        }
+        Map<String, Object> data = objectMapper.readValue(resp.body(), new TypeReference<Map<String, Object>>(){
+        });
+        return data == null ? Collections.emptyMap() : data;
+    }
+
+    /**
+     * 批量入库模式开关：enabled=false 暂停社区自动重建（大批量上传期间只积累 dirty，
+     * 避免反复全量重建白烧 LLM）；true 恢复 30s 静默窗口自动重建。
+     */
+    public void setCommunityAutoRebuild(boolean enabled) throws IOException, InterruptedException{
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("enabled", enabled);
+        String json = objectMapper.writeValueAsString(body);
+        String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/api/v1/internal/rag/community/auto-rebuild"))
+                .header("X-Internal-Token", internalToken)
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                .build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() != 200){
+            throw new IllegalStateException("RAG API community auto-rebuild HTTP " + resp.statusCode());
+        }
+    }
+
+    /**
+     * 手动立即重建社区：kbId 为空 = 全部 dirty kb；Python 侧后台线程执行（大库可能几十分钟），
+     * 本方法立即返回。
+     */
+    public void rebuildCommunity(Long kbId) throws IOException, InterruptedException{
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (kbId != null){
+            body.put("kbId", kbId);
+        }
+        String json = objectMapper.writeValueAsString(body);
+        String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/api/v1/internal/rag/community/rebuild"))
+                .header("X-Internal-Token", internalToken)
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                .build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() != 200){
+            throw new IllegalStateException("RAG API community rebuild HTTP " + resp.statusCode());
+        }
+    }
+
     public void updateSessionTitle(String userId, String sessionId, String title)
             throws IOException, InterruptedException{
         Map<String, String> body = new LinkedHashMap<>();

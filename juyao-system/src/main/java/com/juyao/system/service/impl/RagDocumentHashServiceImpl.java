@@ -38,4 +38,9 @@ public class    RagDocumentHashServiceImpl implements IRagDocumentHashService{
     public int deleteByKbAndKey(Long kbId, String docLogicalKey){
         return ragDocumentHashMapper.deleteByKbAndKey(kbId, docLogicalKey);
     }
+
+    @Override
+    public int deleteByKb(Long kbId){
+        return ragDocumentHashMapper.deleteByKb(kbId);
+    }
 }

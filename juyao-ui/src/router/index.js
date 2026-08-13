@@ -102,6 +102,12 @@ export const constantRoutes = [
     meta: { title: '智能知识库', icon: 'education' },
     children: [
       {
+        path: 'kb',
+        component: () => import('@/views/rag/kb/index'),
+        name: 'RagKb',
+        meta: { title: '知识库管理', icon: 'database' }
+      },
+      {
         path: 'chat',
         component: () => import('@/views/rag/chat/index'),
         name: 'RagChat',

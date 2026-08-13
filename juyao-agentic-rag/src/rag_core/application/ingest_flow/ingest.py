@@ -25,16 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 def _collect_existing_chunk_ids(source_name: str, kb_id: int) -> list[str]:
-    """按 (source_name, kb_id) 从 Qdrant 收集已存在的 chunk_id 列表。
+    """按 source_name 从该 kb 的 Qdrant collection 收集已存在的 chunk_id 列表。
 
     供先写后删的差集清理使用——不能按 source_name 整体删，
     否则新写入的同 key 数据会被一起删光（历史 bug）。
+    物理隔离：只查本 kb 的 collection（kb=0 沿用原名兼容存量），无需 kb filter。
     """
     from qdrant_client.http import models
 
+    from rag_core.core.config import chunk_collection
+
     client = get_qdrant_client()
     try:
-        client.get_collection(collection_name=get_settings().qdrant_collection)
+        client.get_collection(collection_name=chunk_collection(kb_id))
     except UnexpectedResponse as exc:
         if "404" in str(exc) or "Not found" in str(exc) or "doesn't exist" in str(exc):
             return []
@@ -42,14 +45,13 @@ def _collect_existing_chunk_ids(source_name: str, kb_id: int) -> list[str]:
     flt = models.Filter(
         must=[
             models.FieldCondition(key="metadata.source_name", match=models.MatchValue(value=source_name)),
-            models.FieldCondition(key="metadata.kb_id", match=models.MatchValue(value=int(kb_id))),
         ]
     )
     ids: list[str] = []
     offset = None
     while True:
         records, offset = client.scroll(
-            collection_name=get_settings().qdrant_collection,
+            collection_name=chunk_collection(kb_id),
             scroll_filter=flt,
             limit=256,
             offset=offset,
@@ -124,17 +126,18 @@ def ingest_file(
 
     # 步骤 1：向量（Qdrant point id 用 chunk_id 的 UUID5，同 id 幂等覆盖）
     # 父子模式：子块与父块都写 Qdrant（子块带 chunk_type=child 供检索映射）
-    logger.info("【入库】开始写入向量库 Qdrant")
-    ensure_collection_exists()
-    vector_store = get_vector_store()
+    # 物理隔离：按 kb 写独立 collection（kb=0 沿用原名兼容存量数据）
+    logger.info("【入库】开始写入向量库 Qdrant（kb=%s）", kb_id)
+    ensure_collection_exists(kb_id)
+    vector_store = get_vector_store(kb_id)
     all_chunks = chunks + child_chunks
     ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, chunk.metadata["chunk_id"])) for chunk in all_chunks]
     vector_store.add_documents(documents=tqdm(all_chunks, desc="写入向量库"), ids=ids)
     logger.info("【入库】Qdrant 写入完成：%s 条（父 %s + 子 %s）", len(all_chunks), len(chunks), len(child_chunks))
 
-    # 步骤 2：全文（ES _id=chunk_id，幂等覆盖）+ 切片持久化（MySQL，管理查询用）
-    logger.info("【入库】开始同步 Elasticsearch")
-    sync_chunks_to_elasticsearch(chunks)
+    # 步骤 2：全文（ES _id=chunk_id，幂等覆盖；按 kb 写独立 index）+ 切片持久化（MySQL，管理查询用）
+    logger.info("【入库】开始同步 Elasticsearch（kb=%s）", kb_id)
+    sync_chunks_to_elasticsearch(chunks, kb_id=kb_id)
     logger.info("【入库】Elasticsearch 同步完成：%s 条", len(chunks))
     from rag_core.infrastructure.mysql_chunks import sync_chunks_to_mysql
 

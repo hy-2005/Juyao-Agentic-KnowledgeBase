@@ -66,28 +66,28 @@ CREATE TABLE IF NOT EXISTS `rag_document_hash` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG文档内容Hash与元数据（幂等比对）';
 
 -- ---------------------------------------------------------------------------
--- 3. 切片（管理查询走 MySQL；ES 仅保留做全文检索）
+-- 3. 切片（管理查询走 MySQL；ES 仅保留做全文检索；多 kb 按 kb_id 隔离）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rag_chunk (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
   chunk_id VARCHAR(512) NOT NULL COMMENT 'chunk 唯一 ID(内容寻址)',
-  kb_id BIGINT NOT NULL DEFAULT 0,
-  source_doc_id VARCHAR(512) NOT NULL,
-  source_name VARCHAR(512) NOT NULL,
-  chunk_index INT NOT NULL DEFAULT 0,
-  start_char INT,
-  end_char INT,
-  overlap_left INT,
-  overlap_right INT,
-  chunk_type VARCHAR(16) DEFAULT NULL COMMENT 'parent / child / NULL',
-  parent_chunk_id VARCHAR(512) DEFAULT NULL,
-  child_ids JSON DEFAULT NULL COMMENT '父块子块 id 列表',
-  content MEDIUMTEXT NOT NULL,
-  content_sha256 CHAR(64) DEFAULT NULL,
+  kb_id BIGINT NOT NULL DEFAULT 0 COMMENT '知识库ID（0=默认库；多 kb 物理隔离）',
+  source_doc_id VARCHAR(512) NOT NULL COMMENT '源文档 ID（kb_id:safe_name:digest）',
+  source_name VARCHAR(512) NOT NULL COMMENT '逻辑文档名（入库/删除/溯源用）',
+  chunk_index INT NOT NULL DEFAULT 0 COMMENT '文档内切片序号（从 0 递增）',
+  start_char INT COMMENT '原文起始字符偏移',
+  end_char INT COMMENT '原文结束字符偏移',
+  overlap_left INT COMMENT '左重叠字符数',
+  overlap_right INT COMMENT '右重叠字符数',
+  chunk_type VARCHAR(16) DEFAULT NULL COMMENT '切片类型：parent=父块 / child=子块 / NULL=普通切片',
+  parent_chunk_id VARCHAR(512) DEFAULT NULL COMMENT '所属父块 chunk_id（子块回指；父块为 NULL）',
+  child_ids JSON DEFAULT NULL COMMENT '父块子块 id 列表（JSON 数组；展开行懒加载用）',
+  content MEDIUMTEXT NOT NULL COMMENT '切片正文（管理查询/详情展示数据源）',
+  content_sha256 CHAR(64) DEFAULT NULL COMMENT '切片内容 SHA-256（去重/校验）',
   UNIQUE KEY uk_chunk_id (chunk_id(191)),
   KEY idx_source (kb_id, source_name(191)),
   KEY idx_parent (parent_chunk_id(191))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RAG 切片持久化(管理查询)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RAG 切片持久化（管理查询走 MySQL；ES 仅保留做全文检索；父子块同表）';
 
 -- ---------------------------------------------------------------------------
 -- 4. 图谱/社区管理快照（Neo4j 保留做图遍历；标签隔离 EntityKb{id}/CommunityKb{id}）
@@ -150,26 +150,26 @@ CREATE TABLE IF NOT EXISTS rag_community_member (
 --    落 MySQL 后支持历史会话查询/统计/审计）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rag_chat_session (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
   session_id VARCHAR(64) NOT NULL COMMENT '会话ID（uuid，与 Redis/前端一致）',
   user_id BIGINT NOT NULL DEFAULT 0 COMMENT '创建人用户ID',
   kb_id BIGINT NOT NULL DEFAULT 0 COMMENT '会话绑定的知识库ID',
   title VARCHAR(256) DEFAULT NULL COMMENT '会话标题（自动生成/手动修改）',
-  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-  update_time DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   UNIQUE KEY uk_session (session_id),
   KEY idx_user (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG 对话会话';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG 对话会话（多 kb 按 kb_id 关联）';
 
 CREATE TABLE IF NOT EXISTS rag_chat_message (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
   session_id VARCHAR(64) NOT NULL COMMENT '所属会话ID',
-  role VARCHAR(16) NOT NULL COMMENT 'user / assistant / system',
+  role VARCHAR(16) NOT NULL COMMENT '消息角色：user / assistant / system',
   content MEDIUMTEXT NOT NULL COMMENT '消息正文',
   kb_id BIGINT NOT NULL DEFAULT 0 COMMENT '知识库ID（冗余，按 kb 查历史）',
   chunk_ids JSON DEFAULT NULL COMMENT '回答引用的切片 ID 列表（assistant 消息）',
   graph_evidence JSON DEFAULT NULL COMMENT '图谱证据（Observation 摘要，assistant 消息）',
-  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   KEY idx_session (session_id, id),
   KEY idx_kb (kb_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG 对话消息';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG 对话消息（会话历史审计）';

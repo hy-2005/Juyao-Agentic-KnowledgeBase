@@ -12,7 +12,8 @@
 | [CHUNK_SPLITTING_REVIEW.md](CHUNK_SPLITTING_REVIEW.md) | chunk 拆分评审：预分批/规则主通道/父子分块/OCR 已生效/表格与层级待办 | 🔄 进行中（表格结构/层级解析待办） | 2026-08-07 | 2026-08-07 |
 | [RETRIEVAL_REVIEW.md](RETRIEVAL_REVIEW.md) | 检索评审：相对截断（已回退）/阈值 0.5/HyDE+simple_query 配置化/漏斗扩容/多样性/match_phrase | 🔄 进行中（rerank 截断/缓存遗留） | 2026-08-07 | 2026-08-12 |
 | [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底）+ 2026-08-12 多图谱改造（标签隔离 + MySQL 管理快照） | 🔄 进行中（hops 约束/实体合并等 6 项待办；多图谱改造已实施待实测） | 2026-08-07 | 2026-08-12 |
-| [GRAPH_COMMUNITY_UI_REVIEW.md](GRAPH_COMMUNITY_UI_REVIEW.md) | 图谱社区展示：节点按社区着色 + 社区面板 + 聚类布局/边界气泡（2026-08-12 恢复 + 气泡跟随 roam 重构） | ✅ 已完成（2026-08-08，2026-08-12 增强恢复） | 2026-08-08 | 2026-08-12 |
+| [GRAPH_COMMUNITY_UI_REVIEW.md](GRAPH_COMMUNITY_UI_REVIEW.md) | 图谱社区展示：节点按社区着色 + 社区面板 + 聚类布局/边界气泡 + §3 批量入库模式（2026-08-13） | ✅ 已完成（2026-08-08，2026-08-12 增强恢复，2026-08-13 §3） | 2026-08-08 | 2026-08-13 |
+| [COMMUNITY_SYNC_REVIEW.md](COMMUNITY_SYNC_REVIEW.md) | 社区同步方案评审：全量重建现状 + 摘要缓存/子图增量/双写切换方案对比 | ❌ 未完成（方案讨论稿） | 2026-08-13 | 2026-08-13 |
 | [INGESTION_UPDATE_REVIEW.md](INGESTION_UPDATE_REVIEW.md) | 文档更新/增量评审：先写后删差集/chunk_id 内容寻址方案 | 📌 先写后删已实施，增量 chunk_id 待办 | 2026-08-07 | 2026-08-07 |
 | [CHUNK_MYSQL_PERSISTENCE_REVIEW.md](CHUNK_MYSQL_PERSISTENCE_REVIEW.md) | 切片 MySQL 持久化：管理查询走 MySQL，ES 仅保留全文检索 | ✅ 已完成（2026-08-08） | 2026-08-08 | 2026-08-08 |
 | [TENANT_PERMISSION_REVIEW.md](TENANT_PERMISSION_REVIEW.md) | 租户/权限评审：kbId 贯通/API 鉴权/kb 授权模型 | 📌 kbId 贯通已实施，权限模型待办 | 2026-08-07 | 2026-08-07 |

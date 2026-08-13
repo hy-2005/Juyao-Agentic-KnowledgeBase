@@ -44,12 +44,12 @@ def _connect() -> pymysql.connections.Connection:
     )
 
 
-def _iter_pages(query: str, params: dict, page_size: int = _SYNC_BATCH):
+def _iter_pages(query: str, params: dict | None = None, page_size: int = _SYNC_BATCH):
     """Neo4j 分批游标读取：按 name 排序 SKIP/LIMIT 翻页，避免一次全量载入内存。"""
     skip = 0
     while True:
         page = get_read_graph().query(
-            query, params={**params, "skip": skip, "limit": page_size}
+            query, params={**(params or {}), "skip": skip, "limit": page_size}
         )
         if not page:
             return
@@ -156,28 +156,37 @@ def sync_graph_snapshot_to_mysql(kb_id: int) -> int:
         with conn.cursor() as cur:
             for table in ("rag_community_member", "rag_community", "rag_graph_edge", "rag_graph_entity"):
                 cur.execute(f"DELETE FROM {table} WHERE kb_id = %s", (kb,))
+            # ON DUPLICATE KEY UPDATE 兜底：Neo4j 源数据异常（如实体挂多社区导致
+            # 拉取行重复）时唯一键冲突不炸整批——重复行覆盖为最新值即可
             _exec_batches(
                 cur,
                 "INSERT INTO rag_graph_entity (kb_id, name, community_id, in_degree, out_degree) "
-                "VALUES (%s,%s,%s,%s,%s)",
+                "VALUES (%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE community_id = VALUES(community_id), "
+                "in_degree = VALUES(in_degree), out_degree = VALUES(out_degree)",
                 [(kb, name, cid, in_d, out_d) for name, in_d, out_d, cid in entities],
             )
             _exec_batches(
                 cur,
                 "INSERT INTO rag_graph_edge (kb_id, head_name, relation_predicate, tail_name, chunk_ids, evidence_snippets) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
+                "VALUES (%s,%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE chunk_ids = VALUES(chunk_ids), "
+                "evidence_snippets = VALUES(evidence_snippets)",
                 [(kb, h, rel, t, cids, ev) for h, rel, t, cids, ev in edges],
             )
             _exec_batches(
                 cur,
                 "INSERT INTO rag_community (kb_id, community_id, summary, entity_count) "
-                "VALUES (%s,%s,%s,%s)",
+                "VALUES (%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE summary = VALUES(summary), "
+                "entity_count = VALUES(entity_count)",
                 [(kb, cid, summary, cnt) for cid, summary, cnt in communities],
             )
             _exec_batches(
                 cur,
                 "INSERT INTO rag_community_member (kb_id, community_id, entity_name) "
-                "VALUES (%s,%s,%s)",
+                "VALUES (%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE kb_id = VALUES(kb_id)",
                 [(kb, cid, name) for cid, name in members],
             )
         conn.commit()
@@ -193,6 +202,26 @@ def sync_graph_snapshot_to_mysql(kb_id: int) -> int:
         return total
     except Exception as exc:
         logger.warning("MySQL 图谱快照同步失败 kb=%s（下次调度重试）：%s", kb, exc)
+        return 0
+    finally:
+        conn.close()
+
+
+def purge_kb_graph_snapshot(kb_id: int) -> int:
+    """清空某 kb 的四张图谱快照表（purge_kb 级联清理用；kb 删除后快照即孤儿数据）。"""
+    kb = int(kb_id)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            deleted = 0
+            for table in ("rag_community_member", "rag_community", "rag_graph_edge", "rag_graph_entity"):
+                cur.execute(f"DELETE FROM {table} WHERE kb_id = %s", (kb,))
+                deleted += cur.rowcount
+        conn.commit()
+        logger.info("【清空 kb】MySQL 图谱快照删除 %s 行 kb=%s", deleted, kb)
+        return deleted
+    except Exception as exc:
+        logger.warning("MySQL purge_kb_graph_snapshot 失败 kb=%s：%s", kb, exc)
         return 0
     finally:
         conn.close()

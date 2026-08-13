@@ -39,6 +39,21 @@ def _kb(kb_id: int | None) -> int:
     return int(kb_id or 0)
 
 
+def _mark_graph_dirty(kb_id: int) -> None:
+    """图谱写操作后标记 kb dirty：30s 静默窗口后调度器重建社区 + 同步 MySQL 快照。
+
+    管理查询已切 MySQL 快照——手工增删改图后若不触发同步，管理台列表/全图
+    看不到刚做的修改（旧版直查 Neo4j 无此问题）。写操作都走这里，失败静默
+    （标记失败只影响快照刷新时机，不影响写操作本身成功）。
+    """
+    try:
+        from rag_core.application.ingest_flow.community_scheduler import get_scheduler
+
+        get_scheduler().mark_dirty(kb_id)
+    except Exception:
+        pass
+
+
 @router.get("/stats", response_model=GraphStatsResponse)
 def admin_graph_stats(
     kb_id: int = Query(0, alias="kbId"),
@@ -131,7 +146,9 @@ def admin_list_all_edges(
 @router.post("/entities")
 def admin_create_entity(body: EntityCreateRequest, kb_id: int = Query(0, alias="kbId")):
     try:
-        return create_entity(body.name, kb_id=_kb(kb_id))
+        result = create_entity(body.name, kb_id=_kb(kb_id))
+        _mark_graph_dirty(_kb(kb_id))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -139,7 +156,9 @@ def admin_create_entity(body: EntityCreateRequest, kb_id: int = Query(0, alias="
 @router.put("/entities")
 def admin_rename_entity(body: EntityRenameRequest, kb_id: int = Query(0, alias="kbId")):
     try:
-        return rename_entity(body.old_name, body.new_name, kb_id=_kb(kb_id))
+        result = rename_entity(body.old_name, body.new_name, kb_id=_kb(kb_id))
+        _mark_graph_dirty(_kb(kb_id))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -149,7 +168,9 @@ def admin_delete_entity(
     name: str = Query(..., min_length=1), kb_id: int = Query(0, alias="kbId")
 ):
     try:
-        return delete_entity(name, kb_id=_kb(kb_id))
+        result = delete_entity(name, kb_id=_kb(kb_id))
+        _mark_graph_dirty(_kb(kb_id))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -157,13 +178,15 @@ def admin_delete_entity(
 @router.post("/edges")
 def admin_create_edge(body: EdgeCreateRequest, kb_id: int = Query(0, alias="kbId")):
     try:
-        return create_edge(
+        result = create_edge(
             head_name=body.head_name,
             relation_predicate=body.relation_predicate,
             tail_name=body.tail_name,
             evidence=body.evidence,
             kb_id=_kb(kb_id),
         )
+        _mark_graph_dirty(_kb(kb_id))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -171,7 +194,7 @@ def admin_create_edge(body: EdgeCreateRequest, kb_id: int = Query(0, alias="kbId
 @router.put("/edges")
 def admin_update_edge(body: EdgeUpdateRequest, kb_id: int = Query(0, alias="kbId")):
     try:
-        return update_edge(
+        result = update_edge(
             head_name=body.head_name,
             relation_predicate=body.relation_predicate,
             tail_name=body.tail_name,
@@ -181,6 +204,8 @@ def admin_update_edge(body: EdgeUpdateRequest, kb_id: int = Query(0, alias="kbId
             evidence=body.evidence,
             kb_id=_kb(kb_id),
         )
+        _mark_graph_dirty(_kb(kb_id))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -193,11 +218,13 @@ def admin_delete_edge(
     kb_id: int = Query(0, alias="kbId"),
 ):
     try:
-        return delete_edge(
+        result = delete_edge(
             head_name=head_name,
             relation_predicate=relation_predicate,
             tail_name=tail_name,
             kb_id=_kb(kb_id),
         )
+        _mark_graph_dirty(_kb(kb_id))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

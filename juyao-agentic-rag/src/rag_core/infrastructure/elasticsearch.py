@@ -8,6 +8,8 @@
 #   建索引须使用 body={"mappings": ...}；勿混用 8.x 客户端的顶层 mappings= 写法。
 #
 # 【配置】见 rag_core.config.Settings：elasticsearch_url、elasticsearch_index。
+# 【多知识库】每 kb 一个 index（es_index(kb) 命名，kb=0 沿用原名兼容存量数据），
+#   不再共享单 index 用 kb_id term 过滤（物理隔离，PITFALLS #24 同根）。
 
 import logging
 
@@ -15,7 +17,7 @@ from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from langchain_core.documents import Document
 
-from rag_core.core.config import Settings, get_settings
+from rag_core.core.config import Settings, es_index, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,38 +28,46 @@ def get_elasticsearch_client() -> Elasticsearch:
     return Elasticsearch(settings.elasticsearch_url)
 
 
-def ensure_es_index_exists() -> None:
-    # 索引不存在则创建，已存在则跳过。
+def ensure_es_index_exists(kb_id: int = 0) -> None:
+    # 索引不存在则创建，已存在则跳过（按 kb 命名，kb=0 沿用原名兼容存量数据）。
     # mapping：content 为 text + IK 分词（ik_max_word 索引 / ik_smart 检索）；
     # chunk_id / source_doc_id / source_name 为 keyword（过滤、与 Qdrant chunk_id 对齐）；
     # chunk_index、字符区间、overlap_* 为 integer（溯源）。
-    settings = get_settings()
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
-    if client.indices.exists(index=settings.elasticsearch_index):
+    if client.indices.exists(index=name):
         return
-    client.indices.create(
-        index=settings.elasticsearch_index,
-        body={
-            "mappings": {
-                "properties": {
-                    "content": {
-                        "type": "text",
-                        "analyzer": "ik_max_word",
-                        "search_analyzer": "ik_smart",
-                    },
-                    "chunk_id": {"type": "keyword"},
-                    "source_doc_id": {"type": "keyword"},
-                    "source_name": {"type": "keyword"},
-                    "kb_id": {"type": "integer"},
-                    "chunk_index": {"type": "integer"},
-                    "start_char": {"type": "integer"},
-                    "end_char": {"type": "integer"},
-                    "overlap_left": {"type": "integer"},
-                    "overlap_right": {"type": "integer"},
+    # exists 检查与 create 非原子：并发入库/消息重试时另一线程可能已建（400 already_exists）
+    # —— 幂等容忍（与 Qdrant 409 同款竞态，见 PITFALLS #28）
+    try:
+        client.indices.create(
+            index=name,
+            body={
+                "mappings": {
+                    "properties": {
+                        "content": {
+                            "type": "text",
+                            "analyzer": "ik_max_word",
+                            "search_analyzer": "ik_smart",
+                        },
+                        "chunk_id": {"type": "keyword"},
+                        "source_doc_id": {"type": "keyword"},
+                        "source_name": {"type": "keyword"},
+                        "kb_id": {"type": "integer"},
+                        "chunk_index": {"type": "integer"},
+                        "start_char": {"type": "integer"},
+                        "end_char": {"type": "integer"},
+                        "overlap_left": {"type": "integer"},
+                        "overlap_right": {"type": "integer"},
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
+    except Exception as exc:
+        if "resource_already_exists_exception" in str(exc):
+            logger.info("ES index 已存在（并发创建容忍，直接复用）：%s", name)
+            return
+        raise
 
 
 def _chunk_to_source(doc: Document) -> dict:
@@ -85,30 +95,29 @@ def _chunk_to_source(doc: Document) -> dict:
     return {k: v for k, v in src.items() if v is not None}
 
 
-def _bulk_actions(settings: Settings, chunks: list[Document]):
+def _bulk_actions(index: str, chunks: list[Document]):
     # 生成 bulk 动作：_op_type=index 同 _id 覆盖，chunk_id 重复导入幂等；_id 用 chunk_id 便于对账。
     for doc in chunks:
         src = _chunk_to_source(doc)
         yield {
             "_op_type": "index",
-            "_index": settings.elasticsearch_index,
+            "_index": index,
             "_id": src["chunk_id"],
             "_source": src,
         }
 
 
-def sync_chunks_to_elasticsearch(chunks: list[Document]) -> int:
-    # 批量写入 ES；返回 bulk 成功条数（与 len(chunks) 一致即全部成功）。
+def sync_chunks_to_elasticsearch(chunks: list[Document], kb_id: int = 0) -> int:
+    # 批量写入 ES（该 kb 的 index）；返回 bulk 成功条数（与 len(chunks) 一致即全部成功）。
     # refresh=wait_for：写完即可搜；大批量可改 False 再手动 refresh。
     # raise_on_error=False：汇总 errors 后统一抛错，便于带 ES 原文排查。
     if not chunks:
         return 0
-    settings = get_settings()
-    ensure_es_index_exists()
+    ensure_es_index_exists(kb_id)
     client = get_elasticsearch_client()
     success, errors = bulk(
         client,
-        _bulk_actions(settings, chunks),
+        _bulk_actions(es_index(kb_id), chunks),
         refresh="wait_for",
         raise_on_error=False,
     )
@@ -140,13 +149,14 @@ def search_elasticsearch(
 ) -> list[tuple[Document, float]]:
     # 对 content 做 multi_match（BM25），返回 (Document, _score) 列表，顺序即该路「名次」：第 1 条 rank=1。
     # 与向量路 top_k 结果在 retriever 中做 RRF 融合；RRF 只认名次不认 BM25 绝对值（见 _reciprocal_rank_fusion）。
-    # kb_id 始终叠加 term 过滤（租户隔离，含 0）；索引不存在或失败时返回空列表并 warning，不阻断向量侧。
+    # 物理隔离：只搜该 kb 的 index（kb=0 沿用原名兼容存量）；索引不存在或失败时返回空列表并 warning，不阻断向量侧。
     settings = get_settings()
     k = settings.top_k if k is None else k
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
     try:
-        if not client.indices.exists(index=settings.elasticsearch_index):
-            logger.warning("ES 索引不存在，跳过全文检索：%s", settings.elasticsearch_index)
+        if not client.indices.exists(index=name):
+            logger.warning("ES 索引不存在，跳过全文检索：%s", name)
             return []
     except Exception as exc:
         logger.warning("ES 检查索引失败，跳过全文检索：%s", exc)
@@ -169,15 +179,14 @@ def search_elasticsearch(
                             ],
                             "minimum_should_match": 1,
                         }
-                    },
-                    {"term": {"kb_id": int(kb_id)}},
+                    }
                 ]
             }
         },
         "size": k,
     }
     try:
-        resp = client.search(index=settings.elasticsearch_index, body=body)
+        resp = client.search(index=name, body=body)
     except Exception as exc:
         logger.warning("ES search 失败，跳过全文检索：%s", exc)
         return []
@@ -251,10 +260,11 @@ def list_chunks(
     keyword: str | None = None,
     page_num: int = 1,
     page_size: int = 20,
+    kb_id: int = 0,
 ) -> tuple[list[dict], int]:
-    settings = get_settings()
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
-    if not _es_index_ready(client, settings.elasticsearch_index):
+    if not _es_index_ready(client, name):
         return [], 0
     page_num = max(1, page_num)
     page_size = max(1, min(page_size, 100))
@@ -263,7 +273,7 @@ def list_chunks(
     sort = [{"_score": "desc"}, {"chunk_index": "asc"}] if keyword else [{"chunk_index": "asc"}]
     body = {"query": query, "from": from_idx, "size": page_size, "sort": sort}
     try:
-        resp = client.search(index=settings.elasticsearch_index, body=body)
+        resp = client.search(index=name, body=body)
     except Exception as exc:
         logger.warning("ES list_chunks 失败：%s", exc)
         return [], 0
@@ -277,18 +287,18 @@ def list_chunks(
     return rows, total
 
 
-def get_chunk_by_id(chunk_id: str) -> dict | None:
+def get_chunk_by_id(chunk_id: str, kb_id: int = 0) -> dict | None:
     """按 chunk_id 查切片详情(含完整正文)。
 
     子块只存 Qdrant,ES 未命中时回退按 chunk_id 查 Qdrant payload(metadata.chunk_id 精确匹配);
     两处都查不到返回 None(上游据此 404)。
     """
-    settings = get_settings()
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
-    if not _es_index_ready(client, settings.elasticsearch_index):
+    if not _es_index_ready(client, name):
         return None
     try:
-        resp = client.get(index=settings.elasticsearch_index, id=chunk_id, ignore=[404])
+        resp = client.get(index=name, id=chunk_id, ignore=[404])
     except Exception as exc:
         logger.warning("ES get_chunk_by_id 失败：%s", exc)
         return None
@@ -296,31 +306,31 @@ def get_chunk_by_id(chunk_id: str) -> dict | None:
         # 子块只存 Qdrant,ES 未命中时回退按 chunk_id 查 Qdrant
         from rag_core.infrastructure.qdrant import get_chunk_by_id_from_qdrant
 
-        return get_chunk_by_id_from_qdrant(chunk_id)
+        return get_chunk_by_id_from_qdrant(chunk_id, kb_id=kb_id)
     return _source_to_chunk_row(resp.get("_source") or {}, include_full_content=True)
 
 
-def count_chunks(source_name: str | None = None) -> int:
-    settings = get_settings()
+def count_chunks(source_name: str | None = None, kb_id: int = 0) -> int:
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
-    if not _es_index_ready(client, settings.elasticsearch_index):
+    if not _es_index_ready(client, name):
         return 0
     query = _build_list_query(source_name, None)
     try:
-        resp = client.count(index=settings.elasticsearch_index, body={"query": query})
+        resp = client.count(index=name, body={"query": query})
     except Exception as exc:
         logger.warning("ES count_chunks 失败：%s", exc)
         return 0
     return int(resp.get("count") or 0)
 
 
-def chunk_stats_by_source(source_name: str | None = None, top_n: int = 50) -> dict:
-    settings = get_settings()
+def chunk_stats_by_source(source_name: str | None = None, top_n: int = 50, kb_id: int = 0) -> dict:
+    name = es_index(kb_id)
     client = get_elasticsearch_client()
-    if not _es_index_ready(client, settings.elasticsearch_index):
+    if not _es_index_ready(client, name):
         return {"total": 0, "by_source": []}
     if source_name:
-        total = count_chunks(source_name)
+        total = count_chunks(source_name, kb_id=kb_id)
         return {"total": total, "by_source": [{"source_name": source_name, "count": total}]}
     body = {
         "size": 0,
@@ -331,7 +341,7 @@ def chunk_stats_by_source(source_name: str | None = None, top_n: int = 50) -> di
         },
     }
     try:
-        resp = client.search(index=settings.elasticsearch_index, body=body)
+        resp = client.search(index=name, body=body)
     except Exception as exc:
         logger.warning("ES chunk_stats_by_source 失败：%s", exc)
         return {"total": 0, "by_source": []}

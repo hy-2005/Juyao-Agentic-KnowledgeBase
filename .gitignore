@@ -116,3 +116,5 @@ venv/
 .env.docker.local
 .env
 ，codegraph/
+.juyao/
+.bin/

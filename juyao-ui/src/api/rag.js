@@ -271,57 +271,61 @@ export function listAllRagGraphEdges(params) {
   })
 }
 
-/** 新增实体 */
-export function createRagGraphEntity(data) {
+/** 新增实体（kbId 决定写入哪个知识库图谱） */
+export function createRagGraphEntity(data, kbId = 0) {
   return request({
     url: `${BASE}/graph/entities`,
     method: 'post',
+    params: { kbId },
     data
   })
 }
 
 /** 重命名实体 */
-export function renameRagGraphEntity(data) {
+export function renameRagGraphEntity(data, kbId = 0) {
   return request({
     url: `${BASE}/graph/entities`,
     method: 'put',
+    params: { kbId },
     data
   })
 }
 
 /** 删除实体 */
-export function deleteRagGraphEntity(name) {
+export function deleteRagGraphEntity(name, kbId = 0) {
   return request({
     url: `${BASE}/graph/entities`,
     method: 'delete',
-    params: { name }
+    params: { name, kbId }
   })
 }
 
 /** 新增关系 */
-export function createRagGraphEdge(data) {
+export function createRagGraphEdge(data, kbId = 0) {
   return request({
     url: `${BASE}/graph/edges`,
     method: 'post',
+    params: { kbId },
     data
   })
 }
 
 /** 修改关系 */
-export function updateRagGraphEdge(data) {
+export function updateRagGraphEdge(data, kbId = 0) {
   return request({
     url: `${BASE}/graph/edges`,
     method: 'put',
+    params: { kbId },
     data
   })
 }
 
 /** 删除关系 */
-export function deleteRagGraphEdge(params) {
+export function deleteRagGraphEdge(params, kbId = 0) {
   return request({
     url: `${BASE}/graph/edges`,
     method: 'delete',
-    params
+    params: { ...params, kbId }
   })
 }
 
@@ -364,4 +368,19 @@ export function listCommunities(params) {
     method: 'get',
     params
   })
+}
+
+/** 社区重建调度状态：自动重建开关 + 待重建/重建中的 kb（批量入库模式） */
+export function getCommunityStatus() {
+  return request({ url: `${BASE}/community/status`, method: 'get' })
+}
+
+/** 批量入库模式开关：enabled=false 暂停自动重建（大批量上传期间只积累 dirty） */
+export function setCommunityAutoRebuild(enabled) {
+  return request({ url: `${BASE}/community/auto-rebuild`, method: 'post', data: { enabled } })
+}
+
+/** 手动立即重建社区：kbId 为空 = 全部 dirty kb；后台执行，立即返回 */
+export function rebuildCommunity(kbId) {
+  return request({ url: `${BASE}/community/rebuild`, method: 'post', data: { kbId } })
 }

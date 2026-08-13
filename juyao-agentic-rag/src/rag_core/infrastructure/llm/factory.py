@@ -5,10 +5,50 @@ from langchain_core.embeddings import Embeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_openai import ChatOpenAI
 from rag_core.core.config import get_settings
+from rag_core.infrastructure.llm.concurrency import (
+    ConcurrencyPolicy,
+    get_embed_concurrency_policy,
+)
 from rag_core.infrastructure.llm.dashscope_embeddings import get_dashscope_embeddings
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class ConcurrencyLimitedEmbeddings(Embeddings):
+    """嵌入客户端并发策略装饰器（策略模式）：每次向量调用经策略 submit 执行。
+
+    本地模型 → WorkerPoolPolicy（工作线程池 + 阻塞任务队列，全局并发 ≤ N）；
+    云端 → DirectPolicy（当前线程直连，零开销透传）。
+    """
+
+    def __init__(self, delegate: Embeddings, policy: ConcurrencyPolicy):
+        self._delegate = delegate
+        self._policy = policy
+
+    def embed_documents(self, texts):
+        return self._policy.submit(lambda: self._delegate.embed_documents(texts))
+
+    def embed_query(self, text):
+        return self._policy.submit(lambda: self._delegate.embed_query(text))
+
+
+class DimensionLimitedEmbeddings(Embeddings):
+    """向量维度截断装饰器：取前 N 维。
+
+    MRL（Matryoshka）训练的模型（qwen3-embedding 等）支持低维截断且质量有保障——
+    服务端返回 4096 维时按配置截到目标维（如 2048），Qdrant collection 建在该维度。
+    """
+
+    def __init__(self, delegate: Embeddings, dim_limit: int):
+        self._delegate = delegate
+        self._dim = max(1, int(dim_limit))
+
+    def embed_documents(self, texts):
+        return [v[: self._dim] for v in self._delegate.embed_documents(texts)]
+
+    def embed_query(self, text):
+        return self._delegate.embed_query(text)[: self._dim]
 
 
 def build_openai_http_client(*, timeout: float | None = None) -> httpx.Client:
@@ -74,8 +114,27 @@ def get_embeddings() -> Embeddings:
         provider, settings.embed_model
     )
     if provider == "dashscope":
-        return get_dashscope_embeddings()
-    return OllamaEmbeddings(model=settings.embed_model, base_url=settings.ollama_base_url)
+        raw = get_dashscope_embeddings()
+    elif provider == "openai":
+        # OpenAI 兼容协议（llama-swap / vLLM 等自建服务）：/v1/embeddings 接口。
+        # 服务器不校验 key，传占位值即可；显式 http_client 避免走系统代理
+        from langchain_openai import OpenAIEmbeddings
+
+        raw = OpenAIEmbeddings(
+            model=settings.embed_model,
+            base_url=settings.ollama_base_url.rstrip("/") + "/v1",
+            api_key="local",
+            http_client=build_openai_http_client(timeout=60),
+        )
+    else:
+        # ollama 原生协议：/api/embed 接口
+        raw = OllamaEmbeddings(model=settings.embed_model, base_url=settings.ollama_base_url)
+    # 维度截断（MRL 低维截断；0 = 不截断）
+    if settings.embed_dim_limit and int(settings.embed_dim_limit) > 0:
+        raw = DimensionLimitedEmbeddings(raw, int(settings.embed_dim_limit))
+    # 统一包一层并发策略装饰器：本地模型进 embedding 专属线程池（默认 10 worker，与 rerank 分开），
+    # 云端为直连透传
+    return ConcurrencyLimitedEmbeddings(raw, get_embed_concurrency_policy())
 
 
 def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
@@ -97,7 +156,7 @@ def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
         "[LLM] get_chat_llm → model=%s base_url=%s streaming=%s",
         settings.gen_model, base_url, streaming
     )
-    return ChatOpenAI(
+    raw = ChatOpenAI(
         model=settings.gen_model,
         api_key=resolve_llm_api_key(),
         base_url=base_url,
@@ -107,6 +166,13 @@ def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:
         extra_body=extra_body,
         **kwargs,
     )
+    # 本地 LLM 全局并发限流（策略模式）：invoke 进线程池排队；流式属性原样委托
+    from rag_core.infrastructure.llm.concurrency import (
+        ConcurrencyLimitedChatModel,
+        get_llm_concurrency_policy,
+    )
+
+    return ConcurrencyLimitedChatModel(raw, get_llm_concurrency_policy())
 
 
 def get_chunk_llm(**kwargs) -> ChatOpenAI:
@@ -124,7 +190,7 @@ def get_chunk_llm(**kwargs) -> ChatOpenAI:
         "[LLM] get_chunk_llm → model=%s base_url=%s",
         model, base_url
     )
-    return ChatOpenAI(
+    raw = ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url=base_url,
@@ -136,3 +202,10 @@ def get_chunk_llm(**kwargs) -> ChatOpenAI:
         extra_body=extra_body,
         **kwargs,
     )
+    # 与 get_chat_llm 同款本地并发限流（切分也打同一个本地 qwen3）
+    from rag_core.infrastructure.llm.concurrency import (
+        ConcurrencyLimitedChatModel,
+        get_llm_concurrency_policy,
+    )
+
+    return ConcurrencyLimitedChatModel(raw, get_llm_concurrency_policy())

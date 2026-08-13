@@ -123,14 +123,24 @@ def list_chunks_mysql(
     *,
     source_name: str | None = None,
     keyword: str | None = None,
+    kb_id: int = 0,
+    only_parents: bool = True,
     page_num: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict], int]:
-    """管理列表：条件过滤 + keyword 对 content LIKE（管理台搜索量小，可接受）。"""
+    """管理列表：条件过滤 + keyword 对 content LIKE（管理台搜索量小，可接受）。
+
+    only_parents=True（默认）只返回父块（chunk_type IS NULL 或 'parent'）——
+    子块（chunk_type='child'）藏在父块的 child_ids 里，前端展开行懒加载，
+    避免列表被子块刷屏（父子展示约定）。
+    kb_id 过滤：多知识库物理隔离下按 kb 查询（kb=0 默认库）。
+    """
     page_num = max(1, page_num)
     page_size = max(1, min(page_size, 100))
-    where: list[str] = []
-    params: list = []
+    where: list[str] = ["kb_id = %s"]
+    params: list = [int(kb_id)]
+    if only_parents:
+        where.append("(chunk_type IS NULL OR chunk_type <> 'child')")
     if source_name:
         where.append("source_name = %s")
         params.append(source_name)
@@ -175,20 +185,25 @@ def get_chunk_by_id_mysql(chunk_id: str) -> dict | None:
 
 
 def chunk_stats_by_source_mysql(
-    source_name: str | None = None, top_n: int = 50
+    source_name: str | None = None, top_n: int = 50, kb_id: int = 0
 ) -> dict:
-    """切片统计：总数 + 按 source 分组计数（管理台统计条）。"""
+    """切片统计：总数 + 按 source 分组计数（管理台统计条；按 kb 过滤，只计父块）。"""
     conn = _connect()
     try:
         with conn.cursor() as cur:
             if source_name:
-                cur.execute("SELECT COUNT(*) AS n FROM rag_chunk WHERE source_name = %s", (source_name,))
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM rag_chunk WHERE source_name = %s AND kb_id = %s "
+                    "AND (chunk_type IS NULL OR chunk_type <> 'child')",
+                    (source_name, int(kb_id)),
+                )
                 total = int((cur.fetchone() or {}).get("n") or 0)
                 return {"total": total, "by_source": [{"source_name": source_name, "count": total}]}
             cur.execute(
                 "SELECT source_name, COUNT(*) AS n FROM rag_chunk "
+                "WHERE kb_id = %s AND (chunk_type IS NULL OR chunk_type <> 'child') "
                 "GROUP BY source_name ORDER BY n DESC LIMIT %s",
-                (top_n,),
+                (int(kb_id), top_n),
             )
             rows = cur.fetchall()
         total = sum(int(r.get("n") or 0) for r in rows)

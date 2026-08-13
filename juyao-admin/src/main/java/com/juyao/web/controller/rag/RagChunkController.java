@@ -25,6 +25,7 @@ public class RagChunkController extends BaseController{
 
     @GetMapping("/list")
     public TableDataInfo list(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
             @RequestParam(value = "sourceName", required = false) String sourceName,
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
@@ -33,8 +34,9 @@ public class RagChunkController extends BaseController{
             return ragAdminClient.getTable(
                     "/api/v1/admin/chunks",
                     RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
                             "sourceName", sourceName,
-                            "keyword", keyword, 
+                            "keyword", keyword,
                             "pageNum", String.valueOf(pageNum),
                             "pageSize", String.valueOf(pageSize)));
         } catch (Exception e){
@@ -46,11 +48,15 @@ public class RagChunkController extends BaseController{
     }
 
     @GetMapping("/stats")
-    public AjaxResult stats(@RequestParam(value = "sourceName", required = false) String sourceName){
+    public AjaxResult stats(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam(value = "sourceName", required = false) String sourceName){
         try{
             Map<String, Object> data = ragAdminClient.getJson(
                     "/api/v1/admin/chunks/stats",
-                    RagAdminClient.params("sourceName", sourceName));
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "sourceName", sourceName));
             return success(data);
         } catch (Exception e){
             return error("查询切片统计失败: " + e.getMessage());

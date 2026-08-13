@@ -66,7 +66,7 @@ def get_json_chat_llm(
         "[LLM] get_json_chat_llm → model=%s base_url=%s",
         model, base_url
     )
-    return ChatOpenAI(
+    raw = ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url=base_url,
@@ -78,3 +78,10 @@ def get_json_chat_llm(
         extra_body=extra_body,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
+    # JSON 任务（图谱抽取等）同款本地并发限流：与对话/切分共享同一个 LLM 线程池
+    from rag_core.infrastructure.llm.concurrency import (
+        ConcurrencyLimitedChatModel,
+        get_llm_concurrency_policy,
+    )
+
+    return ConcurrencyLimitedChatModel(raw, get_llm_concurrency_policy())

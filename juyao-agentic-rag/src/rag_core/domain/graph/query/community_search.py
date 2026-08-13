@@ -81,7 +81,10 @@ def community_search(
     )
 
     client = get_qdrant_client()
-    collection = settings.community_summary_collection
+    # 物理隔离：每 kb 独立摘要 collection（kb=0 沿用原名兼容存量），无需 kb filter
+    from rag_core.core.config import community_collection
+
+    collection = community_collection(kb_id)
 
     # collection 不存在 = 0 命中（不抛错，best-effort；常见于冷启动 / kb 未建社区）
     try:
@@ -102,25 +105,17 @@ def community_search(
         logger.warning("community_search: 问题 embed 失败：%s", exc)
         return []
 
-    # 2. 按 kb 过滤 + 余弦相似度检索 top_k
-    flt = models.Filter(
-        must=[
-            models.FieldCondition(
-                key="kb_id", match=models.MatchValue(value=int(kb_id))
-            )
-        ]
-    )
+    # 2. 余弦相似度检索 top_k（collection 本身已按 kb 物理隔离，无需 kb filter）
     try:
         # 多取一些再阈值过滤（避免恰好卡边界）
-        raw = client.search(
+        # 注意：qdrant-client >=1.10 移除了 client.search，必须用 query_points
+        # （query 直接传原始向量；旧代码 client.search 会让 L1 静默异常降级 L2，PITFALLS #29）
+        raw = client.query_points(
             collection_name=collection,
-            query_vector=q_vec,
-            query_filter=flt,
+            query=q_vec,
             limit=max(top_k * 2, top_k),
             with_payload=True,
-            with_vectors=False,
-            score_threshold=None,  # 客户端阈值过滤
-        )
+        ).points
     except Exception as exc:
         logger.warning("community_search: Qdrant search 失败：%s", exc)
         return []

@@ -55,4 +55,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <delete id="deleteByKbAndKey">
         delete from rag_document_hash where kb_id = #{kbId} and doc_logical_key = #{docLogicalKey}
     </delete>
+
+    <delete id="deleteByKb">
+        delete from rag_document_hash where kb_id = #{kbId}
+    </delete>
 </mapper>
