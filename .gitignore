@@ -74,4 +74,45 @@ venv/
 # Docker Compose .env
 .env.docker.local
 .env
+
+######################################################################
+# Open Source Hygiene
+# 敏感/运行时文件（勿提交）
+
+# 登录 token 缓存
+token.txt
+
+# 管理端运行时上传数据（测试文档、用户上传）
+juyao-admin/src/main/resources/data/upload/
+
+# 个人笔记/工作区（系统运行时文件，勿公开）
+juyao/
+
+# RAGAS 评测中间产物（pkl / 快照）
+*.pkl
+juyao-agentic-rag/reports/
+
+# 会话痕迹与自动化工具缓存
+.claude/
+.playwright-mcp/
+
+######################################################################
+# Python Artifacts (juyao-agentic-rag)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+juyao-agentic-rag/.env
+juyao-agentic-rag/config/local.toml
+
+# Python Virtual Environment
+venv/
+.venv/
+
+# Docker Compose .env
+.env.docker.local
+.env
 ，codegraph/
