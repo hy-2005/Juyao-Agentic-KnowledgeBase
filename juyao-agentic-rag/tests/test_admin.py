@@ -97,29 +97,22 @@ def test_children_route_registered() -> None:
     assert paths.index(children_path) < paths.index(chunk_path)
 
 
-def test_edges_to_subgraph_with_community_ids(monkeypatch) -> None:
-    """节点带 community_id:批量查询社区归属并注入 node dict。"""
+def test_edges_to_subgraph_no_community_ids() -> None:
+    """边行 → {nodes, links}；社区已随 LightRAG 迁移删除，节点不再带 community_id。"""
     from rag_core.domain.graph.query import admin_queries
 
-    # 模拟社区归属查询:实体名 -> community_id
-    def fake_community_map(names):
-        return {"光头强": "kb0:community:1", "熊大": "kb0:community:1", "熊二": "kb0:community:2"}
-
-    monkeypatch.setattr(admin_queries, "_fetch_community_map", fake_community_map)
     rows = [
         {"h": "光头强", "rel": "是", "t": "熊大"},
         {"h": "熊二", "rel": "是", "t": "熊大"},
     ]
-    data = admin_queries._edges_to_subgraph(rows)
+    data = admin_queries._edges_to_subgraph(0, rows)
     nodes = {n["name"]: n for n in data["nodes"]}
-    assert nodes["光头强"]["community_id"] == "kb0:community:1"
-    assert nodes["熊大"]["community_id"] == "kb0:community:1"
-    assert nodes["熊二"]["community_id"] == "kb0:community:2"
-    # 无社区归属时兼容旧行为
-    rows2 = [{"h": "路人", "rel": "x", "t": "光头强"}]
-    data2 = admin_queries._edges_to_subgraph(rows2)
-    n2 = {n["name"]: n for n in data2["nodes"]}
-    assert "community_id" not in n2["路人"]
+    assert set(nodes) == {"光头强", "熊大", "熊二"}
+    # 前端按 community_id 着色已废弃——节点不应携带该键（无色渲染不受影响）
+    assert all("community_id" not in n for n in nodes.values())
+    # 契约：可视化组件用 links（不是 edges）
+    assert {e["source"] for e in data["links"]} == {"光头强", "熊二"}
+    assert all(e["target"] == "熊大" for e in data["links"])
 
 
 def test_communities_route_registered() -> None:

@@ -49,9 +49,9 @@ class TripleExtractor:
             return []
 
         logger.info(
-            "【GraphRAG抽取】开始 chunk 文本长度=%s 预览=%s",
+            "【GraphRAG抽取】开始 chunk 文本长度=%s 原文=%s",
             len(text),
-            text.replace("\n", " ")[:160],
+            text.replace("\n", " ")[:300],
         )
         response = self._llm.invoke(
             [
@@ -60,7 +60,8 @@ class TripleExtractor:
             ]
         )
         raw = (getattr(response, "content", "") or "").strip()
-        logger.debug("【GraphRAG抽取】模型原始返回长度=%s", len(raw))
+        # 原始 JSON 全量打 INFO（入库期间抽查质量用，含 evidence/时间地点提示等完整字段）
+        logger.info("【GraphRAG抽取】模型原始返回=%s", raw)
 
         payload = self._safe_parse_json(raw)
         triples = parse_triples(payload)
@@ -68,9 +69,14 @@ class TripleExtractor:
         raw_list = payload.get("triples") if isinstance(payload, dict) else None
         list_len = len(raw_list) if isinstance(raw_list, list) else None
         if triples:
+            # 三元组内容直接进日志：入库期间人工抽查质量（head -关系-> tail 串联，一屏看完）
+            triple_preview = " | ".join(
+                f"{t.head_name} -{t.relation_predicate}-> {t.tail_name}" for t in triples
+            )
             logger.info(
-                "【GraphRAG抽取】有效三元组=%s（原始 triples 数组长度=%s）",
+                "【GraphRAG抽取】有效三元组=%s 内容=%s（原始 triples 数组长度=%s）",
                 len(triples),
+                triple_preview,
                 list_len if list_len is not None else "无triples字段",
             )
         else:

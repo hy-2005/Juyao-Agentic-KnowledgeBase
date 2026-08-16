@@ -22,6 +22,8 @@ from rag_core.domain.graph.query.admin_mutations import (
     update_edge,
 )
 from rag_core.domain.graph.query.admin_queries import (
+    edge_detail,
+    entity_detail,
     fetch_all_edges,
     full_graph,
     graph_stats,
@@ -40,14 +42,13 @@ def _kb(kb_id: int | None) -> int:
 
 
 def _mark_graph_dirty(kb_id: int) -> None:
-    """图谱写操作后标记 kb dirty：30s 静默窗口后调度器重建社区 + 同步 MySQL 快照。
+    """图谱写操作后标记 kb dirty：静默窗口后调度器全量同步 MySQL 快照。
 
     管理查询已切 MySQL 快照——手工增删改图后若不触发同步，管理台列表/全图
-    看不到刚做的修改（旧版直查 Neo4j 无此问题）。写操作都走这里，失败静默
-    （标记失败只影响快照刷新时机，不影响写操作本身成功）。
+    看不到刚做的修改。写操作都走这里，失败静默（标记失败只影响快照刷新时机）。
     """
     try:
-        from rag_core.application.ingest_flow.community_scheduler import get_scheduler
+        from rag_core.application.ingest_flow.graph_sync_scheduler import get_scheduler
 
         get_scheduler().mark_dirty(kb_id)
     except Exception:
@@ -68,9 +69,56 @@ def admin_list_communities(
     page_num: int = Query(1, alias="pageNum", ge=1),
     page_size: int = Query(10, alias="pageSize", ge=1, le=100),
 ):
-    """社区列表（分页：id/摘要/实体数/成员实体），社区面板 + 点击聚焦用。"""
+    """社区列表（已废弃功能的兼容端点：社区随 LightRAG 迁移删除，恒返回空。
+
+    保留路由防前端/Java 网关 404；存量库旧数据读 MySQL rag_community 表。
+    """
     rows, total = list_communities(kb_id=_kb(kb_id), page_num=page_num, page_size=page_size)
     return {"rows": rows, "total": total}
+
+
+@router.post("/kg-cards/rebuild")
+def admin_rebuild_kg_cards(kb_id: int = Query(0, alias="kbId")):
+    """全量重建 LightRAG 实体/关系卡片（副本漂移修复 / 存量库补建）。
+
+    Neo4j 是事实源，重建 = 全图扫描重写 kg_cards collection；
+    手工增删改图（entities/edges 端点）不会自动同步卡片，编辑后需调本端点。
+    """
+    from rag_core.application.graph.kg_card_sync import rebuild_kg_cards
+
+    count = rebuild_kg_cards(_kb(kb_id))
+    return {"ok": True, "cards": count}
+
+
+@router.get("/entity/detail")
+def admin_entity_detail(
+    name: str = Query(..., min_length=1),
+    kb_id: int = Query(0, alias="kbId"),
+):
+    """实体详情（点击图谱节点展示，GRAPH_DETAIL_PERSIST_REVIEW）。"""
+    detail = entity_detail(kb_id=_kb(kb_id), name=name.strip())
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"实体不存在或快照未同步：{name}")
+    return detail
+
+
+@router.get("/edge/detail")
+def admin_edge_detail(
+    head_name: str = Query(..., alias="headName", min_length=1),
+    relation_predicate: str = Query(..., alias="relationPredicate", min_length=1),
+    tail_name: str = Query(..., alias="tailName", min_length=1),
+    kb_id: int = Query(0, alias="kbId"),
+):
+    """边详情（点击图谱边展示）：三元组 + 全部 hints（类 Neo4j 属性面板）。"""
+    detail = edge_detail(
+        kb_id=_kb(kb_id),
+        head_name=head_name.strip(),
+        relation_predicate=relation_predicate.strip(),
+        tail_name=tail_name.strip(),
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="关系不存在或快照未同步")
+    return detail
 
 
 @router.get("/edges", response_model=GraphListResponse)

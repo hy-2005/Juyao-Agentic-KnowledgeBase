@@ -1,7 +1,8 @@
 """图谱查询公开 API（原 knowledge_graph/query.py 的 re-export 迁移至此）。
 
-派系 2 改造（GRAPH_QUERY_REVIEW §6.5）：build_graph_observation_text 已废弃——
-chunk_id 锚定路径被删除（错 chunk 污染图谱扩展）。新主路径走 graph_search.run_graph_search。
+LightRAG 迁移（LIGHTRAG_MIGRATION_REVIEW）：对话主路径走
+kg_card_search.run_kg_card_search（local/global 双路卡片检索）；
+本包另暴露管理台子图遍历与边格式化工具。
 """
 
 from rag_core.domain.graph.query.edge_queries import (
@@ -10,16 +11,15 @@ from rag_core.domain.graph.query.edge_queries import (
     resolve_entity_names,
 )
 from rag_core.domain.graph.query.edge_view import GraphEdgeView
-from rag_core.domain.graph.query.observation import (
-    build_graph_observation_question_driven,
-    format_edges_for_prompt,
-)
+from rag_core.domain.graph.query.kg_card_search import KgCardSearchResult, run_kg_card_search
+from rag_core.domain.graph.query.observation import format_edges_for_prompt
 
 __all__ = [
     "GraphEdgeView",
-    "build_graph_observation_question_driven",
+    "KgCardSearchResult",
     "format_edges_for_prompt",
     "query_edges_for_chunks",
     "query_edges_from_entity_seeds",
     "resolve_entity_names",
+    "run_kg_card_search",
 ]

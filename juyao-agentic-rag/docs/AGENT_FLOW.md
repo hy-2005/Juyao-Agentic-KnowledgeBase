@@ -1,986 +1,182 @@
-# 整体 Agent 流程图
+# 整体 Agent 流程图（LightRAG 并行架构版）
 
-> 涵盖 **HTTP 入口 → 意图路由 → 三条分支（direct / graph_only / vector_only） → 检索子管线（多 query + HyDE + 双层 RRF + 重排） → 图谱补强 → 流式生成 → SSE 输出** 的完整链路。
-> 配套代码：`rag_core/api/routes/chat.py`、`rag_core/application/chat_flow/`、`rag_core/domain/retrieval/`、`rag_core/domain/graph/query/`。
-> 创建：2026-08-11 · 更新：2026-08-12
-
-> 2026-08-12 更新（派系 2 改造实施完成）：新增 §7 入库链路详细图 + §8 检索链路详细图两个独立 mermaid（含派系 2 L1/L2/L3 级联、社区摘要同步、三库写入、清理路径等）。原 §1 全局流程图保留为概览版。
-
-> 2026-08-12 更新：图谱路径即将升级为派系 2 实施中（`GRAPH_QUERY_REVIEW.md §6.5`），以下 §0.4 路线 B/C、§0.5、§1 主流程图描述的图谱行为将在 8 步实施后变为新架构（社区优先 + L1/L2/L3 级联 + A+B+C + Prompt 同构 + 独立 collection + 删除 chunk_id 锚定）。当前文档描述的是**实施前**的旧架构，与代码同步更新将在 Step 7 完成后进行。
+> 涵盖 **HTTP 入口 → 闲聊短路 → 双路并行检索（传统向量 + LightRAG 图谱卡片） → 证据审核门 → 流式生成/拒答 → SSE 输出** 与 **入库链路（切块 → 三库写入 → 三元组抽取（含实体简注）→ 卡片同步）** 的完整链路。
+> 配套代码：`rag_core/api/routes/chat.py`、`rag_core/application/chat_flow/`、`rag_core/domain/retrieval/`、`rag_core/domain/graph/query/kg_card_search.py`、`rag_core/application/graph/kg_card_sync.py`。
+> 创建：2026-08-11 · 更新：2026-08-16（LightRAG 迁移整体重写，旧串行架构文档已废弃，见 LIGHTRAG_MIGRATION_REVIEW.md）
 
 ## 0. 用人话说一遍（先看这段再看图）
 
-> 这一节不写代码、不画图，全程口语。看完下面的 mermaid 之前，建议先把这段读完——后面图里所有节点都能在脑子里找到对应的人/动作。
-
 ### 0.1 一句话总览
 
-**用户问了一个问题，系统像一个老练的秘书那样决定：要不要查档案、查哪类档案、查完之后够不够、要不要再补一份人脉关系图，最后把答案一字一句流式写给用户。**
+**用户问了一个问题，系统不再"掂量该查哪路"，而是两路一起查——档案柜翻一遍、人脉图查一遍——然后把两摞材料一起交给一个审核员，审核员说"够答"就流式写答案，说"不够"就直接告诉用户缺什么。**
 
-整条链路就是这一个故事。
+### 0.2 类比：秘书小聚的工作日常（新版）
 
-### 0.2 类比：秘书小聚的工作日常
+小聚桌上还是两样东西：
 
-把整个系统想成一个秘书叫**小聚**（致敬聚耀），桌上摆着两样东西：
+- 🗄️ **档案柜**——合同、制度、报告原文（Qdrant 向量 + ES 全文）
+- 🕸️ **人脉卡盒**——每个实体一张名片（名字+一句话简介），每条关系一张便签（谁—对谁—干了什么，LIGHTRAG 卡片向量库）
 
-- � **档案柜**——里面是公司的合同、制度、报告（这就是向量库 + ES 全文检索）
-- 🕸️ **人脉图谱**——是一张 A3 大纸，画着「张三在哪家公司 → 法人是谁 → 关联了哪些项目」（这就是 Neo4j 知识图谱）
-
-老板扔过来一个问题，小聚的工作分四步：
+老板扔过来一个问题，小聚的新工作流：
 
 | 步骤 | 秘书动作 | 系统对应 |
 |---|---|---|
-| **1️⃣ 掂量问题** | 老板问的是「你好」还是「合同里验收条款怎么写」？要不要查档案？ | **意图路由 B**：direct / graph_only / vector_only |
-| **2️⃣ 找材料** | 翻档案柜、查人脉图 | **D 检索 + C/F 图谱** |
-| **3️⃣ 够不够？** | 找到的这些能答上吗？要不要再翻一份关系图？ | **E 充分性判断** |
-| **4️⃣ 写答案** | 一边写一边念给老板听（不等写完） | **H 流式生成** |
+| **1️⃣ 是不是打招呼** | "你好"就直接回礼，不翻任何柜子 | 规则闲聊短路（纯正则，零 LLM） |
+| **2️⃣ 两路同时找** | 左手翻档案柜，右手翻卡盒——**同时进行，谁也不等谁** | 并行检索：传统链路 ∥ LightRAG 链路 |
+| **3️⃣ 审核员把关** | 把两摞材料一起递给审核员："这些够回答老板吗？" | 证据审核门（LLM：sufficient + missing） |
+| **4️⃣ 写答案或明说不够** | 够 → 一边写一边念；不够 → 直说"缺 XX 资料" | 流式生成 ∥ 严格拒答（strict_refusal） |
 
-接下来一段一段讲每一步。
+### 0.3 与旧架构的根本区别（为什么改）
 
-### 0.3 第 1 步 · 掂量问题（节点 B · 意图路由）
+旧架构是**串行接力**：意图路由判断走哪路 → 单路检索 → 判足 → 不足再补另一路。三个问题：
 
-老板问题一进门，小聚先**自己拍脑袋**——不用问别人：
+1. **路由判错全盘皆输**——graph_only 判错就漏掉向量证据（P1-2 靠兜底打补丁）
+2. **图谱入口太脆**——靠问句实体名三层匹配，换个称呼/改写就漏
+3. **补强轮拉高时延**——最差路径 = 路由 + 向量 + 判足 + 补图 + 生成五段串行
 
-- 「你好」「谢谢」→ **不查档案**，直接寒暄回答（direct）
-- 「小李和小王之间有什么关系？」→ **只查人脉图**，档案柜不用开（graph_only）
-- 「合同验收条款怎么写？」→ **去档案柜找**（vector_only）
-- 看不出来？→ 那才花钱**打电话问专家**（调 LLM）
+新架构并行两路 + 一次审核，时延 = max(两路) + 审核 + 生成；图谱入口换成**卡片向量语义召回**（实体卡/关系卡），称呼怎么换都能按语义命中。
 
-**小诀窍**：能拍脑袋就不打电话，省钱省时间。打电话还打不通的话，再退回到拍脑袋。
+### 0.4 卡盒里的卡片是什么（LightRAG 数据模型）
 
-### 0.4 第 2 步 · 找材料（三条路）
+入库时抽取三元组**顺带**产出两样东西：
 
-#### 路线 A · direct（啥也不查）
+- **实体简注（gloss）**：每个实体在当前 chunk 语境下的一句话角色（≤30 字）。同一实体在 82 个 chunk 出现就有 82 条，Neo4j 实体节点的 `summary_hints` 列表**累积去重**（原始审计轨迹）；同时 `summary` 属性由 **LLM 语义合并**维护——每次入库把当前摘要与本批新增 gloss 融合成一段通顺新摘要（`merged_hint_count` 游标保证增量幂等，失败退机械拼接）
+- **关系概括（relation_full）**：一句中文概括该断言（不引入文中未出现的事实）——这个字段旧架构就有，直接复用
 
-极少见，仅限寒暄。系统直接拿「无 KB 人设」回复，不让 AI 装知道。
+这两样东西做成**卡片**写进独立向量库 `kg_cards`（每 kb 一个 collection）：
 
-#### 路线 B · graph_only（只查人脉图）
-
-只发生在问题明显是「关系网型」时（人-人-公司、地址-位置、时间线等）。
-
-小聚的步骤：
-
-1. **从问题里抠出实体**：「小李」「小王」「A 公司」→ 这叫「实体抽取」
-2. **到大图上找这些人**：找不到怎么办？看图谱的「社区摘要」（相当于看图边的注解）
-3. **沿关系往外展开**：一度、二度、三度跳出去（多跳展开）
-4. **把找到的关系整理成文字**：「小李 ←合伙→ A 公司 ←控股→ B 项目」
-
-**兜底**：图上一条边都没找到？小聚**不会直接说「不知道」**，而是**退回档案柜再翻一遍**（graph_only → vector_only 降级）。
-
-#### 路线 C · vector_only（默认走档案柜）
-
-这是**最常走的路**。小聚不是只搜一次，而是一套组合拳：
-
-**Step 1 · 拆问题**
-- 原问题：「验收后多久付尾款？」
-- 拆成 sub-query：「合同里关于尾款支付的条款」「合同里关于验收完成后多少天付款的约定」
-- 再让 LLM 假装写一段「合同原文风格的话」（HyDE 假答案）——只用来检索，**不作为最终回答**
-
-为什么？因为用户的问法经常和档案里的措辞差很远（用户说"算日期"，档案说"稳定运行 30 天"），所以**让 LLM 先模拟档案的口吻去搜**，命中率高得多。
-
-简单问题（≤12 字且没有"为什么/怎么/多少"这种推理词）就**跳过拆解**，单 query 直搜——省时间。
-
-**Step 2 · 多路并行搜**
-每条 query 同时派两个人去找：
-- 🧠 **向量检索**（语义相似）：问的是"意思"，找的是"意思相近的段落"
-- 🔤 **全文检索 / ES**（关键词）：问的是"字面"，找的是"含这些词的段落"
-
-两个结果按名次做一次融合（RRF，名次越高贡献越大），不是简单加分数——避免向量分 0.9 和 BM25 分 12 这种不同尺度的数直接相加。
-
-**Step 3 · 跨 query 再融一次**
-「尾款条款」命中 A、B 段，「验收付款约定」也命中 A、C 段——A 段被两个 query 都点名，自然排第一。
-
-**Step 4 · 精排 + 多样性采样**
-最后让一个"裁判"（cross-encoder rerank）对候选逐条精排，按相关性打分。同样是多 query 都做精排、再融合。
-
-裁判打分后还要做一道菜：**同源多样性采样**——别让同一份合同的 5 个相邻段落挤占候选，要照顾到不同来源。
-
-整个检索像筛沙子：
-
-```
-原始档案(几十万段)
-  → 拆 query，多角度搜索    （百万级 → 几百段）
-  → 单 query 内向量+ES 融合 （几百 → 几十段）
-  → 跨 query 二次融合       （几十 → 十几段）
-  → 精排                    （十几 → 几段）
-  → 多样性采样              （几段 → 最终喂给 LLM 的）
-```
-
-### 0.5 第 3 步 · 够不够？（节点 E · 充分性判断）
-
-小聚把找到的段落给「评估员」看一眼：
-
-- **评估员**：读问题 + 段落，输出「够 / 不够」
-- **如果够** → 直接去写答案（节点 G）
-- **如果不够** → **再派人脉图出场补一补**（节点 F）
-
-补图时也是讲究的：
-1. **先按档案里的段落去查图**（chunk 锚定）—— 既然段落都来自某份合同，那合同里的人/公司关系图谱可能正好对得上
-2. **查不到？** → 再退回「从问题里抠实体去查图」（问句实体兜底）
-
-充分性判断自己也分三档：
-- **简单规则档**：没结果 / 分数太低 → 直接判不够
-- **LLM 精判档**：让 LLM 看一眼（默认档）
-- **LLM 失败档**：退回简单规则档
-
-### 0.6 第 4 步 · 写答案（节点 H · 流式生成）
-
-小聚开始**一边写一边念**——用户看到的是「文字一个 token 一个 token 冒出来」，不是等全部写完才显示。
-
-写之前选 prompt：
-- **查到了材料** → 「你有知识库/图谱依据，请引用」+ 资料正文（prompt 是「基于 Observation 严谨作答」）
-- **啥也没查到** → 「没有 KB 依据，禁止编造内部文档」+ 默认人设
-
-写完之后：
-- 如果中途用到了图谱 → 末尾加一行「—— 图谱补充：共 N 条关系」
-- 加一行免责声明
-- 把完整回复存到 Redis，供下一轮对话参考
-
-### 0.7 整条链路串起来（一次完整对话）
-
-```
-老板问："项目验收后多久付尾款？"
-   │
-   ↓ [1. 小聚掂量] 推理型 + 没寒暄 → 拍脑袋说"去档案柜"
-   │
-   ↓ [2a. 拆问题]  LLM 拆出 sub-queries + HyDE 假答案
-   │
-   ↓ [2b. 多路搜]  每条 query：向量 + ES 并行 → 单 query RRF
-   │
-   ↓ [2c. 跨融合]  多 query 命中段 → 跨 query RRF
-   │
-   ↓ [2d. 精排]    cross-encoder rerank → 多样性采样 → 8~10 段
-   │
-   ↓ [3. 够不够？] 评估员读 question + 段落 → "够"
-   │
-   ↓ [4. 写答案]   prompt 选了有 KB 的，流式写 → 边写边发
-   │
-   ↓ 客户端 SSE:  meta → token → token → ... → done
-```
-
-老板看到的就是：「meta（告诉你这次走了哪条路）→ 一段段中文蹦出来 → 完事」。
-
-### 0.8 三条岔路什么时候走？
-
-| 老板问的是 | 小聚走哪条 | 为什么 |
+| 卡片 | 向量文本（语义召回用） | payload |
 |---|---|---|
-| 「你好」「谢谢」 | direct | 寒暄不浪费检索 |
-| 「张三和王五是什么关系」 | graph_only | 关系型问题，图谱快 |
-| 「合同里验收条款怎么写」 | vector_only | 字面/语义型，档案柜强 |
-| 「A 验收后多久付尾款」（推理/算日期型） | vector_only | 推理型，先向量检索，再按需补图 |
-| 看不出来 | 先尝试 vector_only | 漏检索比多检索代价高（兜底策略） |
+| 实体卡 | `实体名 —— 摘要`（hints 合并） | type=entity / name / summary |
+| 关系卡 | `头 谓词 尾 —— 摘要`（**必须带头尾，防丢主客**） | type=relation / head / predicate / tail / summary / categories |
 
-### 0.9 一句话记忆口诀
-
-> **掂量 → 找材料 → 够不够 → 写答案**
-> **路由 → 检索+图谱 → 充分性 → 流式生成**
-> **直接走、查图、先查档再补图，三选一**
-> **找材料靠组合拳（多 query + 多路 + 双层融合 + 精排 + 多样性）**
-
----
+Neo4j 是**事实源**（结构 + 全部 hints），kg_cards 是**检索副本**（uuid5 幂等 upsert，漂移可 rebuild）。
 
 ## 1. 全局流程图
 
 ```mermaid
-flowchart TB
-    %% 1. HTTP 入口
-    subgraph s_http ["1. HTTP 层 src/rag_core/api/routes/chat.py"]
-        direction TB
-        H1["POST /api/v1/chat/stream  body: user_id session_id message kb_id"]
-        H2["require_internal_token  内部 token 鉴权 (P1-1 防 8000 直连)"]
-        H3["Redis load_messages  按 user_id + session_id 读历史"]
-        H4["构造 event_gen SSE 生成器  assistant_holder + tool_messages_holder"]
+flowchart TD
+    A[HTTP /api/v1/chat/stream] --> B{规则闲聊短路<br/>纯正则}
+    B -- 命中 --> Z1[direct：无 KB 人设直接作答]
+    B -- 未命中 --> P1[并行 gather]
+
+    subgraph P1 [② 并行双路]
+        direction LR
+        D[传统链路<br/>改写/HyDE → 向量+BM25<br/>→ 双层RRF → rerank] --> M[merged_docs + Observation]
+        L[LightRAG链路<br/>关键词提取(高层+底层)<br/>local: 实体卡→Neo4j一跳<br/>global: 关系卡直检<br/>→ 融合去重 → rerank] --> K[卡片 Observation]
     end
 
-    %% 2. 对话入口
-    subgraph s_entry ["2. 对话入口 chat_flow/entry.py"]
-        direction TB
-        E1["astream_chat_events question history assistant_holder kb_id"]
-        E2["require_dashscope_api_key  无 key 直接抛错"]
-    end
-
-    %% 3. 主流程编排
-    subgraph s_flow ["3. 主流程编排 chat_flow/flow.py"]
-        direction TB
-        F0["routed_astream_chat_events  构造 FlowState question history kb_id"]
-        F1["Step 1 节点 B 意图路由  steps/route.py run_route_step"]
-        F1A["规则快路径 零 LLM  route_question_intent_rules"]
-        F1A1{"规则能确定"}
-        F1B["LLM JSON 判定  route_question_intent_llm  backend = llm"]
-        F1B1{"LLM 成功"}
-        F1C["规则兜底  backend = rules_fallback"]
-        F1D["配置 mode = rules  backend = rules 纯规则"]
-        FBR{"RouteBranch"}
-        FD["分支 direct  stop_reason = route_direct_no_tools  observation 追加系统提示"]
-        FG["分支 graph_only  graph_query_enabled"]
-        FV["分支 vector_only 默认  D -> E -> F 或 G"]
-        FG_ON["graph_query_enabled = True"]
-        FG_ON_C["节点 C run_graph_query_step  调 run_graph_search L1/L2/L3 级联"]
-        FG_ON_0{"had_graph_edges"}
-        FG_ON_DG["0 边 降级 run_retrieve_step  stop_reason = graph_only_fallback_vector  P1-2 修复"]
-        FG_OFF["graph_query_enabled = False  降级 run_retrieve_step  stop_reason = graph_disabled_fallback_vector"]
-        FV_D["节点 D run_retrieve_step  search_context question kb_id  写入 merged_docs max_score observation"]
-        FV_E["节点 E run_sufficiency_step  decide_vector_path_needs_graph_supplement"]
-        FV_E_pre{"max_score 小于 min_relevance_score"}
-        FV_E_pre_T["need_g = True  backend = heuristic_low_score_precheck"]
-        FV_E_mode{"rag_sufficiency_mode"}
-        FV_E_HE["heuristic 模式  空结果 或 低分 = 不足  backend = heuristic_*"]
-        FV_E_LLM["LLM 模式 默认  读 question + Observation 走 JSON  _rag_sufficiency_llm"]
-        FV_E_FALL{"LLM 失败"}
-        FV_E_LLMOK["backend = llm"]
-        FV_E_LLMFB["回退启发式  backend = llm_fallback_heuristic"]
-        FV_E_G{"need_g"}
-        FV_F["节点 F run_graph_supplement_step  调 run_graph_search 与 graph_only 共用入口"]
-        FV_G["走 G 仅向量证据  stop_reason = route_vector_only"]
-        FV_HV["stop_reason = vector_then_graph_supplement"]
-        FHAD["had_evidence = merged_docs 或 had_graph_edges"]
-        FLOG["_log_graph_snapshots 排查日志"]
-        FMETA["yield meta _build_meta  citations score route_branch executed_steps graph_snapshot_meta"]
-        FFINAL["Step 节点 H stream_final_answer  finalize.py"]
-    end
-
-    %% 4. 检索子管线
-    subgraph s_ret ["4. 检索子管线 domain/retrieval/retriever.py"]
-        direction TB
-        R1["search_context query kb_id  1. 收集所有 query specs"]
-        R_SIMPLE{"_is_simple_query  12 字内 无推理动词"}
-        R_SIMPLE_T["简单事实型 单 query  跳过 LLM 改写/HyDE 省时延"]
-        R_QR["rewrite_query  LLM 拆 sub-queries  失败静默返回空"]
-        R_HYDE["generate_hypothetical_answer  HyDE 假答案 条款风格 80 至 200 字"]
-        R_HYDE_FLAG["vector_only = True  HyDE 仅走向量 不污染 BM25"]
-        R2["2. _parallel_retrieve specs  每条 query 并行 向量 + ES  HyDE 跳过 ES"]
-        R_VEC["Qdrant 向量召回 top_k  kb_id 强制过滤 防串库"]
-        R_ES["Elasticsearch BM25 召回 top_k"]
-        R_THR["阈值过滤  threshold = min 绝对阈值 最高分 乘 相对比例  P1 相对截断"]
-        R_RRF1["单 query 内 RRF  fuse_two_rankings vec es rrf_k"]
-        R_RRF2["3. 跨 query 二次 RRF  fuse_query_rankings per_query rrf_k  多 query 都命中的 chunk 自然加分"]
-        R_TRUNC["截断到 rrf_top_n 进入 rerank"]
-        R_RERANK["4. rerank_documents_multi  每条 query 并行 Cross-Encoder / Ollama rerank  失败路不贡献 全失败回退 RRF 顺序"]
-        R_RERRRF["跨 query rerank RRF 聚合  复用 fuse_query_rankings"]
-        R_DIV["_diversify_by_source  按 source_name 同源多样性采样  per_source = 2 不足时回填"]
-        R_MAXS["max_score 各 query 向量原始相似度最大值  仅展示用 不参与排序"]
-        R_PARENT["父子块 子块命中映射父块  _fetch_parents_by_ids 按 chunk_id 取父块"]
-        R_RET["返回 RetrievedContext documents max_score"]
-    end
-
-    %% 5. 图谱子管线 (派系 2 统一入口 L1/L2/L3)
-    subgraph s_kg ["5. 图谱子管线 domain/graph/query/graph_search.py"]
-        direction TB
-        G1["run_graph_search  L1 社区优先 -> L2 全图降级 -> L3 真没有"]
-        G_L1["L1 派系 2 社区优先"]
-        G_L1S["community_search question kb_id  问题 vs community_summaries embedding  top-K + min_similarity"]
-        G_L1S_OK{"top-1 大于等于阈值"}
-        G_L1_ABC["A + B + C pipeline  asyncio.gather + to_thread"]
-        G_L1_A["A rewrite_question_for_graph LLM 改写"]
-        G_L1_B["B decompose_question_for_graph LLM 拆解"]
-        G_L1_C["C QuestionGraphSeedExtractor.extract  基于改写后问句 + 候选实体 n-gram + embedding 双路"]
-        G_L1_FILT["实体过滤到 K 社区子图范围  _filter_entities_to_scope"]
-        G_L1_Q["query_edges_from_entity_seeds  hops = 4 max_edges = 40 timeout = 10s"]
-        G_L1_HIT{"n_edges 大于 0"}
-        G_L1_END["GraphSearchResult level = L1  source = graph_search_L1"]
-        G_L2["L2 全图降级  hops = 2 max_edges = 20 timeout = 5s"]
-        G_L2_ABC["A + B + C pipeline 无子图约束"]
-        G_L2_Q["query_edges_from_entity_seeds 全图"]
-        G_L2_HIT{"n_edges 大于 0"}
-        G_L2_END["GraphSearchResult level = L2  source = graph_search_L2"]
-        G_L3["L3 真没有 终态放弃  GraphSearchResult level = EMPTY"]
-    end
-
-    %% 6. finalize + SSE
-    subgraph s_fin ["6. 流式生成 + SSE 输出"]
-        direction TB
-        L1["finalize.stream_final_answer"]
-        L2{"had_evidence"}
-        L3A["True -> SYSTEM_PROMPT 有 KB/图谱  prefix = KB_ANSWER_PREFIX"]
-        L3B["False -> SYSTEM_PROMPT_NO_KB_EVIDENCE  prefix = NO_KB_STREAM_PREFIX"]
-        L4["yield token prefix"]
-        L5["get_chat_llm streaming = True .astream  构造 messages = System + history + Human"]
-        L6["async for chunk in astream  yield token"]
-        L7["graph_snapshots 非空 -> format_graph_snapshots_footer  追加 图谱补充 共 N 条关系 页脚"]
-        L8["追加 DISCLAIMER / DISCLAIMER_NO_KB_REFERENCES"]
-        L9["assistant_holder.clear() + append 完整回复  供 Redis append_turn 持久化"]
-        LSSE["SSE 输出 meta -> token -> done 或 error  text/event-stream no-cache"]
-    end
-
-    %% 7. 落库
-    subgraph s_persist ["7. 会话持久化"]
-        P1["Redis append_turn  user_msg assistant_msg tool_messages  按 chat_max_rounds + chat_history_ttl_seconds 滚动"]
-    end
-
-    %% 连线
-    U(["用户消息"]) --> H1 --> H2 --> H3 --> H4 --> E1 --> E2 --> F0 --> F1
-    F1 --> F1A --> F1A1
-    F1A1 -- "命中 问候 图谱特征 向量字面" --> FBR
-    F1A1 -- "None 规则不确定" --> F1B
-    F1A1 -. "mode=rules 纯规则路径" .-> F1D
-    F1B --> F1B1
-    F1B1 -- "成功" --> FBR
-    F1B1 -- "失败" --> F1C --> FBR
-    F1D --> FBR
-
-    FBR -- "direct" --> FD --> FHAD
-    FBR -- "graph_only" --> FG --> FG_ON
-    FG_ON -- "True" --> FG_ON_C --> FG_ON_0
-    FG_ON_0 -- "True 图谱有边" --> FHAD
-    FG_ON_0 -- "False 0 边" --> FG_ON_DG --> FHAD
-    FG_ON -- "False" --> FG_OFF --> FHAD
-    FBR -- "vector_only" --> FV --> FV_D
-
-    %% 检索子管线细节
-    FV_D --> R1 --> R_SIMPLE
-    R_SIMPLE -- "是" --> R_SIMPLE_T --> R2
-    R_SIMPLE -- "否" --> R_QR --> R_HYDE
-    R_HYDE -- "非空" --> R_HYDE_FLAG --> R2
-    R_HYDE -- "空或失败" --> R2
-    R2 --> R_VEC --> R_THR
-    R_VEC --> R_PARENT
-    R_THR --> R_ES --> R_RRF1
-    R_THR -- "HyDE 通道 跳过 ES" --> R_RRF1
-    R_RRF1 --> R_RRF2 --> R_TRUNC --> R_RERANK --> R_RERRRF --> R_DIV --> R_MAXS --> R_RET --> FV_E
-
-    %% 充分性判断
-    FV_E --> FV_E_pre
-    FV_E_pre -- "是" --> FV_E_pre_T --> FV_E_G
-    FV_E_pre -- "否" --> FV_E_mode
-    FV_E_mode -- "heuristic" --> FV_E_HE --> FV_E_G
-    FV_E_mode -- "llm 默认" --> FV_E_LLM --> FV_E_FALL
-    FV_E_FALL -- "成功" --> FV_E_LLMOK --> FV_E_G
-    FV_E_FALL -- "失败" --> FV_E_LLMFB --> FV_E_G
-    FV_E_G -- "True" --> FV_F --> FV_HV --> FHAD
-    FV_E_G -- "False" --> FV_G --> FHAD
-
-    %% 图谱子管线细节 (派系 2 统一入口)
-    FG_ON_C -. "进入" .-> G_L1
-    FV_F -. "进入" .-> G_L1
-    G_L1 --> G_L1S --> G_L1S_OK
-    G_L1S_OK -- "否 0 命中 或 top-1 小于阈值" --> G_L2
-    G_L1S_OK -- "是" --> G_L1_ABC
-    G_L1_ABC --> G_L1_A --> G_L1_C
-    G_L1_ABC --> G_L1_B --> G_L1_C
-    G_L1_C --> G_L1_FILT --> G_L1_Q --> G_L1_HIT
-    G_L1_HIT -- "是" --> G_L1_END --> FHAD
-    G_L1_HIT -- "否" --> G_L2
-    G_L2 --> G_L2_ABC --> G_L2_Q --> G_L2_HIT
-    G_L2_HIT -- "是" --> G_L2_END --> FHAD
-    G_L2_HIT -- "否" --> G_L3 --> FHAD
-
-    FHAD --> FLOG --> FMETA --> FFINAL --> L1 --> L2
-    L2 -- "True" --> L3A --> L4
-    L2 -- "False" --> L3B --> L4
-    L4 --> L5 --> L6
-    L6 --> L7 --> L8 --> L9 --> LSSE --> P1
-
-    %% 样式
-    classDef entry fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
-    classDef decision fill:#fff3e0,stroke:#ef6c00,color:#e65100
-    classDef route fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
-    classDef retrieve fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-    classDef kg fill:#fce4ec,stroke:#ad1457,color:#880e4f
-    classDef final fill:#ede7f6,stroke:#4527a0,color:#311b92
-    classDef persist fill:#f5f5f5,stroke:#616161,color:#212121
-
-    class H1,H2,H3,H4,E1,E2 entry
-    class FBR,FG_ON_0,FV_E_pre,FV_E_mode,FV_E_FALL,FV_E_G,R_SIMPLE,F1A1,F1B1,G_L1S_OK,G_L1_HIT,G_L2_HIT,L2 decision
-    class F1,F1A,F1B,F1C,F1D,FD,FG,FV route
-    class R1,R_QR,R_HYDE,R2,R_VEC,R_ES,R_THR,R_RRF1,R_RRF2,R_RERANK,R_RERRRF,R_DIV,R_PARENT,R_RET retrieve
-    class G1,G_L1,G_L1S,G_L1_ABC,G_L1_A,G_L1_B,G_L1_C,G_L1_FILT,G_L1_Q,G_L1_END,G_L2,G_L2_ABC,G_L2_Q,G_L2_END,G_L3 kg
-    class FFINAL,L1,L3A,L3B,L5,L6,L7,L8,L9,LSSE final
-    class P1 persist
+    M --> R{③ 证据审核门<br/>sufficient? missing?}
+    K --> R
+    R -- "不足 & strict_refusal" --> Z2[拒答：告知缺什么<br/>不调生成 LLM]
+    R -- "充足 或 宽松模式" --> F[④ 流式生成 LLM → SSE token]
 ```
 
-## 2. 关键设计点速览
+关键点：
 
-| 阶段 | 设计意图 | 关键模块 |
+- **没有 LLM 意图路由**——route.py 已删除；meta 里的 `route_branch` 值只剩 `direct` / `parallel`（旧枚举值保留仅为消费端兼容）
+- **没有补强轮**——两路一次性到位，审核门只做放行/拦截，不做"再去补一路"
+- 单路异常不炸穿另一路（`asyncio.gather(return_exceptions=True)`）
+
+## 2. 对话主链各节点
+
+| 节点 | 代码 | 说明 |
 |---|---|---|
-| **B 路由级联** | 规则快路径零 LLM；规则不确定才调模型；LLM 失败回退规则 | `steps/route.py: resolve_intent_route` |
-| **E 充分性判断** | 启发式兜底（空/低分）+ LLM 精判；失败再回退启发式 | `steps/sufficiency.py` |
-| **C 图谱优先** | 问句实体抽取 → 节点匹配 → 多跳展开；0 边时降级向量（P1-2） | `domain/graph/query/observation.py` |
-| **F 补图锚定** | chunk 锚定优先（确定性信号），0 边才走问句实体兜底（修复 P0-1 死代码） | `steps/graph_supplement.py` |
-| **D 多 query 检索** | 原 query + LLM 改写 sub-queries + HyDE 假答案；简单 query 跳过 LLM | `domain/retrieval/retriever.py` |
-| **双层 RRF** | 单 query 内向量+ES 名次融合 → 跨 query 名次二次融合（公式统一） | `domain/retrieval/fusion.py` |
-| **多 query rerank** | 每条 query 并行精排 → 跨 query RRF 聚合 → 同源多样性采样 | `domain/retrieval/reranker.py` |
-| **HyDE 防污染** | 标记 `vector_only=True`，跳过 ES（避免假答案稀释 BM25 关键词） | `domain/retrieval/hyde.py` |
-| **父子块映射** | 子块命中 → `_fetch_parents_by_ids` 按 `chunk_id` 取父块并去重 | `retriever.py:_fetch_parents_by_ids` |
-| **H 流式生成** | `had_evidence` 决定 system prompt；图谱页脚 + 免责声明；`assistant_holder` 供 Redis 持久化 | `steps/finalize.py` |
-| **SSE 契约** | `meta`（首）→ `token*` → `done/error`（末）；`executed_steps` 字段只增不减 | `api/routes/chat.py` |
+| 闲聊短路 | `flow._is_chitchat` | 极短问候正则；宁漏勿滥（漏判只是多跑一轮检索） |
+| 传统检索 | `steps/retrieve.py` → `domain/retrieval/retriever.search_context` | 与旧版完全一致（见 §3） |
+| LightRAG 检索 | `steps/lightrag_retrieve.py` → `kg_card_search.run_kg_card_search` | 见 §4 |
+| 证据审核 | `steps/sufficiency.py run_review_step` | LLM 读合并 Observation → `{sufficient, missing}`；heuristic 模式=双路全空才拦；LLM 失败回退 heuristic |
+| 拒答 | `flow._stream_refusal_answer` | 固定模板流式输出"缺什么"，不调生成 LLM（`rag_strict_refusal=True` 时生效） |
+| 生成 | `steps/finalize.stream_final_answer` | 与旧版一致（system prompt 按证据有无二选一 + 图谱页脚） |
 
-## 3. 备选 / 兜底路径汇总
+SSE 契约：meta 事件保留旧全部 key（新增 `kg_card_count` / `review_missing`），executed_steps 元素字段不变（新增步骤名 `lightrag_retrieve`，tool 仍为 `query_knowledge_graph`）。
 
-- **路由级联**：rules → llm → rules_fallback
-- **graph_only 0 边**：自动降级向量检索（不是直接判无证据）
-- **graph_query_enabled=False**：图谱总开关关闭时降级向量
-- **vector_then_graph_supplement=False**：节点 E 直接判 sufficient，跳过 F
-- **simple query**（≤12 字 + 无推理动词）：跳过 LLM 改写与 HyDE，节省时延
-- **HyDE 失败 / 空文本**：静默跳过 HyDE 通道；不阻塞主流程
-- **rerank 全路失败**：回退 RRF 截断顺序，仍做同源多样性采样
-- **图谱 Neo4j 不可用**：Observation 输出 `图谱查询暂时不可用`，节点 C/F 仍返回 0 边而非崩溃
-- **实体未命中节点**：`_community_summaries_for_question` 用 2/3-gram 重叠度兜底社区摘要
+## 3. 传统检索子管线（未改动，摘要）
 
-## 4. 各阶段详细步骤（拆分版）
+改写（LLM 多 sub-query，简单问题跳过）→ HyDE 假答案 → 多 query 并行召回（Qdrant 向量 `similarity_search_with_relevance_scores` + ES BM25）→ 双层手写 RRF（单 query 内向量+ES 融合 → 跨 query 融合，rrf_k=60）→ rerank（多 query 精排 + 跨 query rerank-RRF + 同源多样性采样）。详见 RETRIEVAL_REVIEW.md。
 
-> 下方按主流程节点逐节展开，便于排查与新成员上手。
-
-### 4.1 节点 B · 意图路由（步骤 1）
-
-**入口**：`FlowState.question` → `run_route_step(state)` → `resolve_intent_route(question)` → `IntentRouteResult(branch, backend)`
-
-**级联顺序**：
-
-1. **规则快路径**（`route_question_intent_rules`，零 LLM 调用）
-   - 命中 `_DIRECT_GREETING_RE`（问候/寒暄）→ `direct`（仅在非 strict 模式）
-   - 命中 `_GRAPH_COMPLEX_RE` / `_MULTI_ENTITY_AND_RE` / `should_invoke_graph_by_rules` → `graph_only`
-   - 命中 `_VECTOR_LITERAL_RE`（长什么样 / 原文摘录等）且未命中图谱特征 → `vector_only`
-   - 均未命中 → 返回 `None`，进入下一级
-2. **LLM 精判**（`route_question_intent_llm`，JSON 输出）
-   - strict 模式收到 `direct` → 强改 `vector_only`（知识库"漏检索"比"多检索"代价高）
-   - 非严格模式下，非问候的 `direct` 也强制改 `vector_only`（意图路由误判修复）
-3. **规则兜底**：LLM 异常时 `route_question_intent_rules(question) or RouteBranch.VECTOR_ONLY`，`backend = rules_fallback`
-
-**配置开关**：
-
-- `intent_route_mode=rules` → 跳过 LLM，纯规则（调试 / 降级用）
-- `flowchart_strict_mode=True` → 不允许 `direct`，二分支 `graph_only | vector_only`
-
-**写入状态**：`state.route`、`state.intent_backend`，并记入 `meta.intent_route_backend`。
-
-### 4.2 节点 C · 图谱仅查（graph_only 分支）
-
-**入口**：`run_graph_query_step(state, round_idx=1)` → `build_graph_observation_question_driven(question, round_idx, kb)`
-
-**子流程**：
-
-1. `QuestionGraphSeedExtractor().extract(question)`：LLM 抽实体 + relation_hints（失败 → Observation 输出"问句实体抽取失败"，返回 0 边）
-2. `resolve_entity_names(entities)`：实体规范化匹配 Neo4j 节点（未命中 → `_community_summaries_for_question` 兜底）
-3. `query_edges_from_entity_seeds(matched, relation_hints=hints, kb)`：多跳展开（受 `max_hops` / `relation_category_hints` 约束）
-4. `format_edges_for_prompt`：按 chunk / 头尾类型 / 关系大类 / time+location hints / evidence 摘录（每条 ≤120 字）拼装 Observation
-5. `_append_graph_step`：写入 `observation_lines` + `graph_snapshots` + `executed_steps`（`tool = query_knowledge_graph`）
-
-**降级规则**：
-
-- `had_graph_edges=False` → 自动 `run_retrieve_step`，`stop_reason = graph_only_fallback_vector`（修复 P1-2：原实现直接判无证据）
-- `graph_query_enabled=False` → 跳过 C 直接降级向量检索，`stop_reason = graph_disabled_fallback_vector`
-
-### 4.3 节点 D · 向量检索（vector_only 分支的步骤 2）
-
-**入口**：`run_retrieve_step(state, round_idx=1)` → `execute_retrieval_step(query, round_idx, kb_id)` → `search_context(query, kb_id)`
-
-详见 §4.5「检索子管线详解」。`state.merged_docs / max_score / retrieval_rounds` 同步更新。
-
-### 4.4 节点 E · 充分性判断
-
-**入口**：`run_sufficiency_step(state)` → `decide_vector_path_needs_graph_supplement(...)`
-
-**判定顺序**：
-
-1. **前置低分拦截**：`max_score < min_relevance_score` → `need_g=True`，`backend = heuristic_low_score_precheck`（避免无谓调 LLM）
-2. **空结果**：直接 `need_g=True`，`backend = heuristic_empty`
-3. `vector_then_graph_supplement=False` → 直接判 sufficient（`supplement_disabled`）
-4. **模式分支**（`rag_sufficiency_mode`）：
-   - `heuristic`：仅启发式（空 / 低分）
-   - `llm`（默认）：`_rag_sufficiency_llm(question, observation)` → JSON `sufficient`；失败回退启发式
-5. 写入 `state.needs_graph` 与 `state.rag_e_backend`
-
-### 4.5 检索子管线详解（步骤 2 的内部）
-
-**入口**：`search_context(query, kb_id)`，共 4 个步骤：
-
-#### 4.5.1 Step 1 · 组装 query specs
-
-- **简单问题短路**（`_is_simple_query`：≤12 字且无推理/对比动词）→ 只用原 query
-- 否则追加：
-  - `rewrite_query`：LLM 拆 1~N 条事实型 sub-queries（失败静默返回 `[]`）
-  - `generate_hypothetical_answer`：HyDE 假答案（陈述语气、80~200 字、条款风格），标记 `vector_only=True` 跳过 ES
-
-#### 4.5.2 Step 2 · 每条 query 并行召回
-
-- 向量：`Qdrant.similarity_search_with_relevance_scores`，强制 `kb_id` 过滤（防串库）
-- 父子模式：子块命中 → `_fetch_parents_by_ids` 按 `chunk_id` 取父块，按名次取最优子块分数
-- ES：`Elasticsearch` BM25 top_k（HyDE 通道跳过）
-- 阈值过滤：`threshold = min(绝对阈值, 最高分×相对比例)`（P1 相对截断）
-- 单 query 内 RRF：`fuse_two_rankings(vec, es, rrf_k)`
-
-#### 4.5.3 Step 3 · 跨 query RRF
-
-`fuse_query_rankings(per_query_results, rrf_k)`：把所有 query 的名次结果二次融合，多 query 都命中的 chunk 自然加分。截断到 `rrf_top_n` 进入 rerank。
-
-#### 4.5.4 Step 4 · 多 query 精排
-
-- `rerank_documents_multi`：每条 query 并行 rerank（Cross-Encoder DashScope 或 Ollama `/api/rerank`）
-- 任一路失败 → 该路不贡献，其他路继续；全失败 → 回退 RRF 截断顺序
-- 跨 query rerank RRF 聚合（复用 `fuse_query_rankings`）
-- `_diversify_by_source`：每 source 最多 2 条，不足时回填
-- `max_score`：取所有 query 向量原始相似度的最大值（仅展示用）
-
-### 4.6 节点 F · 补图（vector_only 后置补强）
-
-**入口**：`run_graph_supplement_step(state, round_idx=2)` → `build_graph_observation_text(chunk_ids, round_idx, kb)`
-
-**优先级**（修复 P0-1 死代码）：
-
-1. **chunk 锚定优先**（确定性信号）：`query_edges_for_chunks(state.merged_docs.keys())`
-2. **0 边兜底**：`build_graph_observation_question_driven`（复用 C 的链路，`source = question_entities_supplement`）
-
-`_append_graph_step` 统一落盘：`observation_lines + graph_snapshots + executed_steps`。
-
-### 4.7 节点 H · 流式生成与 SSE 输出
-
-**入口**：`stream_final_answer(question, history, observation_lines, had_evidence, graph_snapshots, assistant_holder)`
-
-**prompt 选择**：
-
-- `had_evidence=True` → `SYSTEM_PROMPT`（有 KB/图谱依据，要求引用 observation）+ `KB_ANSWER_PREFIX`
-- `had_evidence=False` → `SYSTEM_PROMPT_NO_KB_EVIDENCE`（无 KB 人设，禁止虚构内部文档依据）+ `NO_KB_STREAM_PREFIX`
-
-**消息构造**：
+## 4. LightRAG 图谱链路（kg_card_search.run_kg_card_search）
 
 ```
-messages = [
-    SystemMessage(system_text),
-    *history_dicts_to_messages(history),
-    HumanMessage(build_execute_user_prompt(question, observation_lines)),
-]
+问题+历史
+  → ① 关键词提取（一次 LLM，输出 high_level[] + low_level[]；
+     带最近 6 轮历史做共指消解——"那它的税率呢"必须解析出"它"；
+     失败/为空 → 双路都用原问句兜底）
+  → ② local（底层关键词）
+     " ".join(low) 向量检索 kg_cards(type=entity) topk=kg_local_topk
+     → 命中实体名为种子 → Neo4j EntityKb{id} 一跳扩展（hops=1）
+     → 涉及实体批量读 summary_hints → 边卡=头(描述)—[谓词]→尾(描述)：关系概括+时间
+  → ②' global（高层关键词，与 local 并行）
+     " ".join(high) 向量检索 kg_cards(type=relation) topk=kg_global_topk
+     → 关系卡（payload 自带头/尾/摘要/类别）
+  → ③ 融合：实体卡 + local 边卡 + global 关系卡，文本级去重
+  → ④ rerank（原问句 × 卡片全文，bge-reranker-v2-m3；失败保留召回序）
+     → 取 kg_card_rerank_top_n 张 → Observation 文本
 ```
 
-**流式输出**：
+- 卡片相似度下限 `kg_card_min_similarity=0.35`（摘要短文本与问句语义距离天然大于原文片段，比 chunk 的 0.5 松）
+- collection 不存在（新库未入库）→ 本路安静返回空，向量路不受影响
+- global 直检关系卡是**有意偏离 LightRAG 原版**（原版 global 也搜实体）——主题类问题不点名实体，关系卡让主题词直接命中断言本身；代价是关系摘要写得泛时区分度差，评测需分路盯（见 LIGHTRAG_MIGRATION_REVIEW §7）
 
-1. `yield ('token', {content: prefix})`
-2. `async for chunk in get_chat_llm(streaming=True).astream(messages)` → `yield ('token', {content})`
-3. 若 `graph_snapshots` 非空 → `format_graph_snapshots_footer` 追加 `—— 图谱补充: 共 N 条关系`
-4. 追加 `DISCLAIMER` / `DISCLAIMER_NO_KB_REFERENCES`
-5. `assistant_holder.clear()` 后 `append(f"{prefix}{raw_answer}{footer}{tail}")` 供 Redis 持久化
-
-**SSE 契约**（由 `api/routes/chat.py` 封装）：
+## 5. 入库链路（ingest.py → graph_writer.py）
 
 ```
-event: meta\ndata: { ... }
-event: token\ndata: {"content": "..."}
-...
-event: done\ndata: {}
+文件 → 切块（父子模式：父块进 ES/图谱/MySQL，子块进 Qdrant）
+  → ① Qdrant（子+父，uuid5(chunk_id) 幂等）
+  → ② ES + MySQL 切片表
+  → ③ 图谱写入 write_chunks_to_graph：
+       每 chunk LLM 抽三元组（含 head_gloss/tail_gloss/relation_full/evidence）
+       → Neo4j MERGE：实体节点累积 summary_hints，RELATED 边累积各 hints 列表
+       → MySQL 快照增量 upsert_graph_delta（度数/边 + 全部 hints 详情列，
+         供前端点击节点/边展示属性，见 GRAPH_DETAIL_PERSIST_REVIEW.md）
+       → kg_card_sync.sync_kg_cards：读回 Neo4j 事实源 →
+         本批 touched 实体/关系合并摘要 → 批量 upsert kg_cards（best-effort）
+  → ④ 先写后删差集清理（文档更新场景）
+  → 调度器 mark_dirty → 静默窗口后 MySQL 快照全量同步（校正度数漂移）
 ```
 
-异常分支 → `event: error\ndata: {"error": str(exc)}`，已写入的 `assistant_holder` 不会持久化。
+- 抽取单元 = **父块**（上下文大、LLM 调用少）
+- 卡片同步**读回 Neo4j** 而非内存拼接——半成品批次不污染副本
+- 文档删除：purge 返回 deleted_edges/deleted_entities 清单 → 对应卡片删除；**幸存实体的 gloss 不回滚**（角色描述非事实断言，可接受）
+- 手工改图（管理台 entities/edges 端点）**不自动同步卡片**——编辑后调 `POST /api/v1/admin/graph/kg-cards/rebuild` 全量重建
 
-### 4.8 会话持久化
+## 6. 删除与清库路径
 
-`append_turn(redis, user_id, session_id, user_msg, assistant_msg, tool_messages, max_rounds, ttl_seconds)`：
-
-- 按 `chat_max_rounds` 滚动（多轮对话窗口）
-- TTL `chat_history_ttl_seconds` 控制过期
-- 异常时 `logger.exception` 但不影响 SSE `done` 事件
-
-## 5. SSE meta 事件载荷（对外契约）
-
-`meta` 事件 key 集合（只增不减，前端与 Java `RagChatClient` 依赖）：
-
-| key | 含义 | 来源 |
-|---|---|---|
-| `citations` | 引用的 chunk_id 列表 | `state.merged_docs.keys()` 排序 |
-| `score` | 向量最高相似度 | `state.max_score` |
-| `retrieval_rounds` | 向量检索轮数 | `state.retrieval_rounds` |
-| `graph_rounds` | 图谱检索轮数 | `state.graph_rounds` |
-| `had_evidence` | 是否存在证据 | `merged_docs ∨ had_graph_edges` |
-| `planner_iterations` | 规划迭代次数 | 固定 1（步骤式编排） |
-| `stop_reason` | 终止原因 | 详见 §3 |
-| `plan` | 计划步骤描述 | `intent_route` + `rag_sufficiency_eval` |
-| `executed_steps` | 决策轨迹 | `StepRecord.to_dict()` 列表 |
-| `graph_snapshot_meta` | 图谱快照摘要 | `build_graph_snapshot_meta` |
-| `route_branch` | 路由支线 | `state.route.value` |
-| `intent_route` | 同上（兼容旧 key） | `state.route.value` |
-| `intent_route_mode` | 路由模式配置 | `intent_route_mode` |
-| `intent_route_backend` | 路由实际后端 | `state.intent_backend` |
-| `flowchart_strict_mode` | 严格模式开关 | `flowchart_strict_mode` |
-| `rag_sufficiency_mode` | 充分性模式 | `rag_sufficiency_mode` |
-| `rag_sufficiency_backend` | 充分性后端 | `state.rag_e_backend` |
-
-`executed_steps` 元素字段（兼容旧实现，只增不减）：
-
-| key | 含义 |
+| 场景 | 动作 |
 |---|---|
-| `name` | 步骤名（route / retrieve / sufficiency / graph_supplement / graph_query / finalize） |
-| `status` | ok / failed / skipped |
-| `tool` | search_knowledge_base / query_knowledge_graph |
-| `ms` | 步骤耗时（ms，保留 1 位小数） |
-| `input_summary` | 输入摘要 |
-| `output_summary` | 输出摘要 |
-| `tool` / `edge_count` / `entity_seeds` / `doc_count` / `max_score` / `is_empty` / `query` / `round` | 旧字段（按需保留） |
+| 删文档 | Qdrant/ES/MySQL 按 source_name 删 + Neo4j purge（前缀）→ 卡片按删除清单清理 |
+| 文档更新（重传） | 先写后删：新旧 chunk_id 差集 → purge_chunk_ids → 卡片清理 |
+| 删知识库 | 删 Qdrant 容器（chunks + kg_cards）+ ES index + Neo4j 标签整片（含存量 CommunityKb{id} 垃圾）+ MySQL 快照表 |
 
-## 6. 相关文档
+## 7. 图谱卡片同步运维
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — 原始架构速览（HTTP / 入库 / 检索三条链路总览）
-- [ARCHITECTURE_REVIEW.md](./ARCHITECTURE_REVIEW.md) — 架构评审（§9 决策 + §10 映射表）
-- [RETRIEVAL_REVIEW.md](./RETRIEVAL_REVIEW.md) — 检索评审（相对截断/漏斗扩容/多样性/match_phrase/查询分级）
-- [GRAPH_QUERY_REVIEW.md](./GRAPH_QUERY_REVIEW.md) — 图谱评审（查询/入库/社区/兜底）
-- [PITFALLS.md](./PITFALLS.md) — 踩坑记录（P0-1 补图死代码 / P1-1 鉴权 / P1-2 graph_only 0 边等）
+- `rebuild_kg_cards(kb)`：全图扫描 → 清空 kg_cards → 重写（`POST /api/v1/admin/graph/kg-cards/rebuild?kbId=`）
+- 幂等 id：`uuid5("kg_card:{entity:名}")` / `uuid5("kg_card:{relation:头|谓词|尾}")`——同卡重写覆盖不重复
+- 社区功能（Leiden 检测/LLM 摘要/Community 节点）**已整体删除**；`/internal/rag/community/*` 三个 URL 保留为快照同步调度的兼容入口（Java RagCommunityController 在调，改路径会 404），`/admin/graph/communities` 恒返回空
 
----
+## 8. 新增/变更配置一览
 
-## 7. 入库链路（Ingest Pipeline · 详细图）
-
-> 范围：`application/ingest_flow/ingest.py` + `cleanup.py` + `application/graph/community_build.py` + `infrastructure/qdrant.py` 的社区摘要同步。派系 2 改造后社区摘要独立 collection（`community_summaries`）与文档 chunk（`juyao_knowledge_chunks`）物理隔离。
-
-```mermaid
-flowchart TB
-    %% 1. 入库入口
-    subgraph s_ingest_entry ["1. 入库入口"]
-        direction TB
-        I0["Java 上传 (HTTP 或 Kafka)"]
-        I1["Kafka topic 异步可选  cli/kafka_consumer.py"]
-        I2["CLI 直跑  rag_core/cli/ingest.py"]
-    end
-
-    %% 2. Python 主流程
-    subgraph s_main ["2. Python 主流程 ingest_file()"]
-        direction TB
-        M1["load_document() 读取原文 (PDF/DOCX/MD/HTML/CSV/...)"]
-        M2{"chunk_parent_enabled 父子分块开关"}
-        M3["split_into_parent_child_chunks  结构感知主通道 零 LLM  父块 + 子块"]
-        M4["split_into_chunks  普通切分 规则主通道 + 必要时 LLM 语义切分"]
-        M5["ensure_collection_exists()  get_vector_store()"]
-        M6["add_documents chunks + child_chunks  point id = uuid5 chunk_id 幂等覆盖  payload 含 metadata.kb_id 等"]
-        M7["sync_chunks_to_elasticsearch  _id = chunk_id 幂等"]
-        M8["sync_chunks_to_mysql  管理查询专用 (按 source_name + kb_id)"]
-        M9{"enable_graph"}
-        M10["write_chunks_to_graph()  并行 ingest_graph_workers  LLM 抽三元组  normalize_entity_name -> parse_triples  Neo4jTripleStore.upsert_triples MERGE 累加"]
-        M11["build_communities kb = kb_id reset = True"]
-        M11A["detect_communities Leiden  实体分组"]
-        M11B["每社区 LLM 摘要  _store_community -> Neo4j Community 节点 + MEMBER_OF 边"]
-        M11C["upsert_community_summaries  community_summaries Qdrant collection (与 chunks 物理隔离)"]
-        M12{"purge_before_write"}
-        M13["差集清理  stale = old_chunk_ids - new_chunk_ids  delete_chunks_by_ids stale include_graph = True  Qdrant/ES/MySQL 按 chunk_id 删  Neo4j purge + _rebuild_communities_after_delete"]
-        M14["返回 chunks_count triples_count"]
-    end
-
-    %% 3. 外部存储
-    subgraph s_stores ["3. 外部存储"]
-        direction TB
-        S1[("Qdrant  juyao_knowledge_chunks  chunk 向量")]
-        S2[("Elasticsearch  elasticsearch_index  chunk 全文索引")]
-        S3[("MySQL  rag_chunk_registry  管理查询元数据")]
-        S4[("Neo4j  Entity / RELATED / Community  图谱 + 社区")]
-        S5[("Qdrant  community_summaries  社区摘要向量 (派系 2 新增)")]
-    end
-
-    %% 4. 清理路径
-    subgraph s_clean ["4. 清理路径"]
-        direction TB
-        C0["delete (Java 或 CLI)"]
-        C1["delete_document_from_indexes source_name kb_id  delete_chunks_by_ids chunk_ids  purge_kb kb_id"]
-        C2["Qdrant/ES/MySQL 删除 (按 source_name / kb_id 隔离)"]
-        C3["Neo4j purge_document_edges / purge_chunk_ids (边级 kb_ids 过滤)"]
-        C4["_rebuild_communities_after_delete kb  build_communities reset = True  Leiden 重检测  摘要重生成  Community 节点重建  community_summaries 按 kb 清空 + 重写"]
-    end
-
-    %% 连线
-    I0 --> I1 --> M1
-    I0 --> I2 --> M1
-    M1 --> M2
-    M2 -- "True" --> M3 --> M5
-    M2 -- "False" --> M4 --> M5
-    M5 --> M6 --> S1
-    M6 --> M7 --> S2
-    M6 --> M8 --> S3
-    M7 --> M8
-    M8 --> M9
-    M9 -- "True" --> M10 --> M11
-    M9 -- "False" --> M12
-    M10 --> S4
-    M11 --> M11A --> M11B
-    M11B --> S4
-    M11B --> M11C --> S5
-    M11C --> M12
-    M11B --> M12
-    M12 -- "True" --> M13 --> M14
-    M12 -- "False" --> M14
-    M13 -. "内部触发" .-> C4
-
-    %% 清理
-    C0 --> C1 --> C2
-    C1 -- "include_graph = True" --> C3 --> C4
-    C4 --> S4
-    C4 --> S5
-
-    %% 样式
-    classDef entry fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
-    classDef main fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
-    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-    classDef clean fill:#fff3e0,stroke:#ef6c00,color:#e65100
-    classDef decision fill:#fff3e0,stroke:#ef6c00,color:#e65100
-
-    class I0,I1,I2 entry
-    class M1,M3,M4,M5,M6,M7,M8,M10,M11,M11A,M11B,M11C,M13,M14 main
-    class S1,S2,S3,S4,S5 store
-    class C0,C1,C2,C3,C4 clean
-    class M2,M9,M12 decision
-```
-
-### 7.1 入库链路关键点
-
-| 阶段 | 设计意图 | 关键代码 |
+| 配置 | 默认 | 说明 |
 |---|---|---|
-| **结构感知切分** | 父子分块为默认主通道，零 LLM 调用（节省时延） | `domain/chunking/splitter.py: split_into_parent_child_chunks` |
-| **三库幂等写入** | point/_id/UUID5 主键，同 chunk_id 重复入库不重复 | `infrastructure/qdrant.py:add_documents` / `elasticsearch.py:sync_*` / `mysql_chunks.py:sync_*` |
-| **kb 隔离** | payload 走 `metadata.kb_id` 嵌套路径（Qdrant 文档坑 3） | `ingest.py:42-45` filter |
-| **MERGE 幂等累加** | 同一 `(head, relation, tail)` 边累加 chunk_ids/doc_ids | `infrastructure/neo4j.py:Neo4jTripleStore.upsert_triples` |
-| **实体归一化** | 入库与查询两侧共用 `normalize_entity_name`（prompt 同构） | `domain/graph/schema.py:35` |
-| **社区重建 (reset)** | 入库 / 删除触发 Leiden + LLM 摘要 + Community 节点 + Qdrant 摘要向量 | `application/graph/community_build.py: build_communities` |
-| **社区摘要独立 collection** | 与 chunks 物理隔离，便于派系 2 embedding 检索 | `infrastructure/qdrant.py: upsert_community_summaries` |
-| **先写后删差集** | 写入前快照旧 chunk_id，写成功后按差集精确清理（不误删新数据） | `ingest.py:155-165 delete_chunks_by_ids` |
-| **失败 best-effort** | 社区构建失败仅 warn，不阻断入库主流程 | `ingest.py:151-152 try/except` |
+| `kg_card_collection` | kg_cards | 卡片 collection 基名（每 kb 加 `_kb{id}`） |
+| `kg_local_topk` / `kg_global_topk` | 8 / 8 | 双路召回数 |
+| `kg_card_rerank_top_n` | 6 | 融合后保留卡片数 |
+| `kg_card_min_similarity` | 0.35 | 卡片向量召回下限 |
+| `kg_card_summary_max_chars` | 400 | 合并摘要截断上限 |
+| `kg_keyword_timeout_s` | 15 | 关键词提取 LLM 超时 |
+| `rag_strict_refusal` | True | 审核不足时严格拒答（False=旧行为照答，灰度对照用） |
+| `graph_sync_debounce_s` | 180 | 快照同步静默窗口（原 community_rebuild_debounce_s 更名） |
+| `kg_card_embed_base_url` / `kg_card_embed_model` | 空 | **双模型组**：卡片向量化独立端点/模型（空=跟随主组同源同池） |
+| `kg_card_rerank_base_url` / `kg_card_rerank_model` | 空 | 卡片重排独立端点/模型（空=跟随主组） |
+| `kg_card_max_concurrency` | 10 | 卡片组独立线程池并发（仅独立端点时生效） |
+| `kg_summary_merge_enabled` | True | 实体摘要语义合并开关（False=退机械分号拼接） |
+| `kg_summary_merge_batch_size` / `workers` / `timeout_s` | 8 / 3 / 90 | 语义合并 LLM 批大小/并发/超时 |
 
-### 7.2 入库链路兜底
+已删除：`vector_then_graph_supplement`、`intent_route_mode/timeout`、`graph_search_l1_*/l2_*`、全部 `community_summary_*`、`community_rebuild_debounce_s`。
 
-| 失败场景 | 兜底行为 |
-|---|---|
-| Qdrant 不可达 | 直接抛错（不静默）→ 入库失败，旧数据保留 |
-| Neo4j 不可达 | `write_chunks_to_graph` 内部异常 → 整批失败 |
-| 社区构建 LLM 失败 | `build_communities` 失败 → warn 日志 → 主流程继续；社区可后续手动重建 |
-| ES / MySQL 失败 | 入库失败；旧数据保留 |
-| `purge_before_write=True` 删旧失败 | 主流程已成功（写入先于删），日志告警，不阻断返回 |
+## 9. 遗留与注意
 
----
-
-## 8. 检索链路（Retrieval Pipeline · 详细图）
-
-> 范围：`api/routes/chat.py` + `application/chat_flow/*` + `domain/retrieval/*` + `domain/graph/query/graph_search.py`（派系 2 入口）。覆盖派系 2 改造后的新架构：图谱主路径走 L1/L2/L3 级联，与向量检索解耦。
-
-```mermaid
-flowchart TB
-    %% 1. HTTP 入口
-    subgraph s_http ["1. HTTP 入口 src/rag_core/api/routes/chat.py"]
-        direction TB
-        H1["POST /api/v1/chat/stream  body user_id session_id message kb_id"]
-        H2["require_internal_token  (P1-1 防 8000 直连)"]
-        H3["Redis load_messages  按 user_id + session_id 读历史"]
-        H4["构造 event_gen SSE 生成器  assistant_holder + tool_messages_holder"]
-    end
-
-    %% 2. 聊天入口
-    subgraph s_entry ["2. 聊天入口 chat_flow/entry.py"]
-        direction TB
-        E1["astream_chat_events question history kb_id"]
-        E2["require_dashscope_api_key  无 key 直接抛错"]
-    end
-
-    %% 3. 主流程编排
-    subgraph s_flow ["3. 主流程编排 chat_flow/flow.py run_chat_flow"]
-        direction TB
-        F1["Step 1 节点 B 意图路由  run_route_step -> resolve_intent_route"]
-        F1A["规则快路径  route_question_intent_rules  问候 图谱特征 向量字面"]
-        F1B{"规则能确定"}
-        F1C["LLM JSON 判定  route_question_intent_llm"]
-        F1D{"LLM 成功"}
-        F1E["规则兜底  backend = rules_fallback"]
-        F1F["配置 mode = rules  backend = rules 纯规则"]
-        FBR{"RouteBranch"}
-        FD["A DIRECT  append 系统提示  stop_reason = route_direct_no_tools"]
-        FG["B GRAPH_ONLY  graph_query_enabled"]
-        FG_ON["graph_query_enabled = True"]
-        FG_OFF["graph_query_enabled = False  -> 降级 run_retrieve_step"]
-        FV["C VECTOR_ONLY 默认主路径"]
-        FV_D["1. D await run_retrieve_step  search_context question kb_id"]
-        FV_E["2. E run_sufficiency_step"]
-        FV_E_pre{"max_score 小于 min_relevance_score"}
-        FV_E_pre_T["need_g = True  backend = heuristic_low_score_precheck"]
-        FV_E_mode{"rag_sufficiency_mode"}
-        FV_E_HE["heuristic  backend = heuristic_*"]
-        FV_E_LLM["LLM 精判 默认  _rag_sufficiency_llm question observation"]
-        FV_E_FALL{"LLM 失败"}
-        FV_E_LLMOK["backend = llm"]
-        FV_E_LLMFB["回退启发式  backend = llm_fallback_heuristic"]
-        FV_E_G{"need_g"}
-        FV_F["3. F await run_graph_supplement_step  (派系 2 入口 与 graph_only 共用)"]
-        FV_GV["走 G 仅向量证据  stop_reason = route_vector_only"]
-        FV_HV["stop_reason = vector_then_graph_supplement"]
-        FHAD["had_evidence = merged_docs 或 had_graph_edges"]
-        FMETA["yield meta _build_meta  citations score route_branch executed_steps"]
-        FFINAL["H stream_final_answer"]
-    end
-
-    %% 4. 检索子管线
-    subgraph s_ret ["4. 检索子管线 domain/retrieval/retriever.py search_context"]
-        direction TB
-        R1["1. _build_query_specs query"]
-        R_SIMPLE{"_is_simple_query  12 字内 无推理动词"}
-        R_SIMPLE_T["简单事实型 -> 单 query  跳过 LLM 改写/HyDE"]
-        R_QR["rewrite_query  LLM 拆 sub-queries"]
-        R_HYDE["generate_hypothetical_answer  HyDE 假答案 vector_only = True"]
-        R_HYDE_FLAG["HyDE 标记 vector_only  跳过 ES 召回"]
-        R2["2. _parallel_retrieve specs  每条 query 并行 向量 + ES"]
-        R_VEC["Qdrant 向量 top_k  kb_id 强制 filter"]
-        R_PARENT["父子模式 子块 -> 映射父块  _fetch_parents_by_ids"]
-        R_ES["Elasticsearch BM25 top_k (HyDE 跳过)"]
-        R_THR["阈值过滤  threshold = min 绝对 最高 乘 比例 (P1 相对截断)"]
-        R_RRF1["单 query 内 RRF  fuse_two_rankings vec es rrf_k"]
-        R_RRF2["3. 跨 query RRF  fuse_query_rankings per_query rrf_k"]
-        R_TRUNC["截断到 rrf_top_n"]
-        R_RERANK["4. rerank_documents_multi  每条 query 并行 Cross-Encoder rerank"]
-        R_RERRRF["跨 query rerank RRF 聚合"]
-        R_DIV["_diversify_by_source  每 source 最多 2 条 不足回填"]
-        R_MAXS["max_score 各 query 向量原始相似度最大值"]
-        R_RET["返回 RetrievedContext documents max_score"]
-    end
-
-    %% 5. 图谱主路径 (派系 2)
-    subgraph s_graph ["5. 图谱主路径 run_graph_search 派系 2 入口"]
-        direction TB
-        G_L1["L1 派系 2 社区优先"]
-        G_L1S["community_search question kb_id  问题 vs community_summaries embedding 检索  top-K (default 2) + min_similarity (default 0.5)"]
-        G_L1S_OK{"top-1 大于等于阈值"}
-        G_L1_ABC["A + B + C pipeline (asyncio.gather + to_thread)"]
-        G_L1_A["A rewrite_question_for_graph (LLM 改写)"]
-        G_L1_B["B decompose_question_for_graph (LLM 拆解)"]
-        G_L1_C["C QuestionGraphSeedExtractor.extract  基于改写后问句 + 候选实体 (n-gram + embedding 双路)"]
-        G_L1_FILT["实体过滤到 K 社区子图范围  _filter_entities_to_scope"]
-        G_L1_Q["query_edges_from_entity_seeds  hops = 4 max_edges = 40 timeout = 10s"]
-        G_L1_HIT{"n_edges 大于 0"}
-        G_L1_END["GraphSearchResult level = L1  source = graph_search_L1"]
-        G_L2["L2 全图降级 (hops = 2 max_edges = 20 timeout = 5s)"]
-        G_L2_ABC["A + B + C pipeline 无子图约束"]
-        G_L2_Q["query_edges_from_entity_seeds 全图"]
-        G_L2_HIT{"n_edges 大于 0"}
-        G_L2_END["GraphSearchResult level = L2  source = graph_search_L2"]
-        G_L3["L3 真没有 (终态放弃)  GraphSearchResult level = EMPTY"]
-    end
-
-    %% 6. 流式生成
-    subgraph s_fin ["6. 流式生成与 SSE"]
-        direction TB
-        L1H{"had_evidence"}
-        L_T["True -> SYSTEM_PROMPT  prefix = KB_ANSWER_PREFIX"]
-        L_F["False -> SYSTEM_PROMPT_NO_KB_EVIDENCE  prefix = NO_KB_STREAM_PREFIX"]
-        L_MSGS["messages = System + history + Human execute_user_prompt"]
-        L_STREAM["async for chunk in get_chat_llm streaming = True .astream"]
-        L_FOOTER["graph_snapshots 非空 -> format_graph_snapshots_footer"]
-        L_DISC["追加 DISCLAIMER / DISCLAIMER_NO_KB_REFERENCES"]
-        L_HOLD["assistant_holder.append 完整回复"]
-        L_SSE["SSE 输出  event meta -> token -> done 或 error"]
-    end
-
-    %% 7. 持久化
-    subgraph s_persist ["7. 会话持久化"]
-        P1["Redis append_turn  user_msg assistant_msg tool_messages  按 chat_max_rounds + chat_history_ttl_seconds 滚动"]
-    end
-
-    %% 连线
-    H1 --> H2 --> H3 --> H4 --> E1 --> E2 --> F1
-    F1 --> F1A --> F1B
-    F1A -. "mode = rules 旁路" .-> F1F
-    F1B -- "命中" --> FBR
-    F1B -- "None 规则不确定" --> F1C --> F1D
-    F1D -- "成功" --> FBR
-    F1D -- "失败" --> F1E --> FBR
-    F1F --> FBR
-
-    FBR -- "direct" --> FD --> FHAD
-    FBR -- "graph_only" --> FG --> FG_ON
-    FG -- "False" --> FG_OFF --> FHAD
-    FG_ON -- "True" --> G_L1
-    FBR -- "vector_only" --> FV --> FV_D
-
-    %% 检索子管线
-    FV_D --> R1 --> R_SIMPLE
-    R_SIMPLE -- "是" --> R_SIMPLE_T --> R2
-    R_SIMPLE -- "否" --> R_QR --> R_HYDE
-    R_HYDE -- "非空" --> R_HYDE_FLAG --> R2
-    R_HYDE -- "空或失败" --> R2
-    R2 --> R_VEC --> R_THR
-    R_VEC --> R_PARENT
-    R_THR --> R_ES --> R_RRF1
-    R_THR -- "HyDE 通道 跳过 ES" --> R_RRF1
-    R_RRF1 --> R_RRF2 --> R_TRUNC --> R_RERANK --> R_RERRRF --> R_DIV --> R_MAXS --> R_RET --> FV_E
-
-    %% 充分性判断
-    FV_E --> FV_E_pre
-    FV_E_pre -- "是" --> FV_E_pre_T --> FV_E_G
-    FV_E_pre -- "否" --> FV_E_mode
-    FV_E_mode -- "heuristic" --> FV_E_HE --> FV_E_G
-    FV_E_mode -- "llm 默认" --> FV_E_LLM --> FV_E_FALL
-    FV_E_FALL -- "成功" --> FV_E_LLMOK --> FV_E_G
-    FV_E_FALL -- "失败" --> FV_E_LLMFB --> FV_E_G
-    FV_E_G -- "True" --> FV_F --> FV_HV --> FHAD
-    FV_E_G -- "False" --> FV_GV --> FHAD
-
-    %% 派系 2 主路径
-    FV_F -. "进入" .-> G_L1
-    G_L1 --> G_L1S --> G_L1S_OK
-    G_L1S_OK -- "否 0 命中 或 top-1 小于阈值" --> G_L2
-    G_L1S_OK -- "是" --> G_L1_ABC
-    G_L1_ABC --> G_L1_A --> G_L1_C
-    G_L1_ABC --> G_L1_B --> G_L1_C
-    G_L1_C --> G_L1_FILT --> G_L1_Q --> G_L1_HIT
-    G_L1_HIT -- "是" --> G_L1_END --> FHAD
-    G_L1_HIT -- "否" --> G_L2
-    G_L2 --> G_L2_ABC --> G_L2_Q --> G_L2_HIT
-    G_L2_HIT -- "是" --> G_L2_END --> FHAD
-    G_L2_HIT -- "否" --> G_L3 --> FHAD
-
-    %% finalize + SSE
-    FHAD --> FMETA --> FFINAL --> L1H
-    L1H -- "True" --> L_T --> L_MSGS
-    L1H -- "False" --> L_F --> L_MSGS
-    L_MSGS --> L_STREAM --> L_FOOTER --> L_DISC --> L_HOLD --> L_SSE --> P1
-
-    %% 样式
-    classDef entry fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
-    classDef flow fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
-    classDef decision fill:#fff3e0,stroke:#ef6c00,color:#e65100
-    classDef retrieve fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-    classDef kgcls fill:#fce4ec,stroke:#ad1457,color:#880e4f
-    classDef fin fill:#ede7f6,stroke:#4527a0,color:#311b92
-    classDef persist fill:#f5f5f5,stroke:#616161,color:#212121
-
-    class H1,H2,H3,H4,E1,E2 entry
-    class F1,F1A,F1C,F1E,F1F,FD,FG,FG_OFF,FV,FV_D,FV_E,FV_F,FV_GV,FV_HV,FHAD,FMETA,FFINAL flow
-    class F1B,F1D,FBR,FG_ON,FV_E_pre,FV_E_mode,FV_E_FALL,FV_E_G,R_SIMPLE,G_L1S_OK,G_L1_HIT,G_L2_HIT,L1H decision
-    class R1,R_QR,R_HYDE,R_HYDE_FLAG,R2,R_VEC,R_PARENT,R_ES,R_THR,R_RRF1,R_RRF2,R_RERANK,R_RERRRF,R_DIV,R_MAXS,R_RET retrieve
-    class G_L1,G_L1S,G_L1_ABC,G_L1_A,G_L1_B,G_L1_C,G_L1_FILT,G_L1_Q,G_L1_END,G_L2,G_L2_ABC,G_L2_Q,G_L2_END,G_L3 kgcls
-    class L_T,L_F,L_MSGS,L_STREAM,L_FOOTER,L_DISC,L_HOLD,L_SSE fin
-    class P1 persist
-    class R_SIMPLE_T retrieve
-```
-
-### 8.1 检索链路关键点
-
-| 阶段 | 设计意图 | 关键代码 |
-|---|---|---|
-| **路由级联** | 规则快路径零 LLM，规则不确定才调模型，LLM 失败回退 | `application/chat_flow/steps/route.py: resolve_intent_route` |
-| **向量与图谱解耦** | 图谱不读 `state.merged_docs.keys()`，错 chunk 不污染图谱 | `run_graph_search` 独立签名 |
-| **派系 2 主题筛选** | community 摘要 embedding 匹配 → K 社区子图 → 多跳 | `domain/graph/query/graph_search.py: run_graph_search` |
-| **A+B+C 改写** | 问句改写 + 拆解 + 实体名映射，3 次 LLM 调用 | `domain/graph/query/question_pipeline.py` |
-| **双层 RRF** | 单 query 内 (向量+ES) 名次融合 → 跨 query 名次二次融合 | `domain/retrieval/fusion.py` |
-| **多 query rerank** | 每条 query 单独 rerank → 跨 query RRF 聚合 → 同源多样性采样 | `domain/retrieval/reranker.py` |
-| **HyDE 防污染** | 标记 `vector_only=True`，跳过 ES | `domain/retrieval/hyde.py` |
-| **父子块映射** | 子块命中 → `_fetch_parents_by_ids` 按 `chunk_id` 取父块并去重 | `domain/retrieval/retriever.py:_fetch_parents_by_ids` |
-| **充分性判断 3 档** | 启发式兜底（空/低分）+ LLM 精判；失败再回退启发式 | `application/chat_flow/steps/sufficiency.py` |
-| **SSE 契约** | `meta`（首）→ `token*` → `done/error`（末）；`executed_steps` 字段只增不减 | `api/routes/chat.py` |
-| **流式生成双 prompt** | `had_evidence` 决定 system prompt；图谱页脚 + 免责声明 | `application/chat_flow/steps/finalize.py` |
-
-### 8.2 检索链路兜底
-
-| 失败场景 | 兜底行为 |
-|---|---|
-| `graph_only` L1/L2 全空 | 流程级降级到向量（保留 P1-2 修复）`stop_reason=graph_only_fallback_vector` |
-| `graph_query_enabled=False` | 跳过图谱直接向量 `stop_reason=graph_disabled_fallback_vector` |
-| LLM 路由失败 | 回退到规则 `backend=rules_fallback` |
-| 向量检索 collection 不存在 | 返回空 Observation，走 `search_context` 的空结果处理 |
-| 充分性 LLM 失败 | 回退启发式 `backend=llm_fallback_heuristic` |
-| `run_graph_search` L1/L2 全异常 | L3 终态放弃 `had_graph_edges=False` |
-| LLM 流式异常 | `event: error` 已写入 assistant_holder 不持久化 |
-| Redis 不可达 | 历史为空（`load_messages` 异常被吞），对话继续 |
-
-### 8.3 检索链路调用链速查
-
-```
-HTTP (chat.py)
-  └─ astream_chat_events (entry.py)
-        └─ routed_astream_chat_events (flow.py)
-              ├─ run_route_step (steps/route.py)
-              ├─ run_retrieve_step | run_graph_query_step | run_graph_supplement_step
-              │     ├─ run_retrieve_step → search_context (retriever.py)
-              │     │     └─ rerank_documents_multi, fuse_query_rankings, etc.
-              │     └─ run_graph_*_step → run_graph_search (graph_search.py)
-              │           └─ community_search | prepare_graph_query
-              └─ stream_final_answer (steps/finalize.py)
-                    └─ LLM astream → SSE token events
-              └─ append_turn (Redis, after done)
-```
-
+1. **Java/Vue 端社区面板待清理**：Python 侧功能已删，兼容 URL 不炸但面板恒空；后续在 Java/Vue 侧移除入口
+2. **多跳能力降级**：local 固定一跳（LightRAG 原版模式），A→B→C→D 长链问题变弱；`query_edges_from_entity_seeds` 留了 hops 参数可升级
+3. **实体摘要合并没有 LLM 重写**：机械去重拼接，评测发现质量不足时在 `kg_card_sync._merge_summary` 单点升级
+4. **存量库无卡片**：实体/关系摘要不存在，需全量重抽才有——按用户决策走"新库测试、数据不迁移"

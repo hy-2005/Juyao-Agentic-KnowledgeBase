@@ -2,7 +2,7 @@
 
 > 维护规则（见 CLAUDE.md）：**每个踩坑必须记录到本文件**——现象、根因、修复、教训。
 > 创建：2026-08-07
-> 更新：2026-08-13
+> 更新：2026-08-14
 
 ---
 
@@ -294,6 +294,16 @@
 
 ---
 
+## 30. qwen3 自适应思考：简单 prompt 不思考、复杂任务思考——且思考内容走 reasoning_content 字段
+
+- **场景**：LLM 切回本地 qwen3-30B 后想关闭思考提速；先用「1+1=？」测试——输出无 think 块、13s，曾误判「默认不思考/思考影响不大」
+- **现象**：换真实抽取 prompt 后同一模型耗时 93s，content 里仍无 `<think>` 块，但响应 `reasoning_content` 字段有 1447 字思考
+- **根因**：qwen3 是**自适应思考**——按任务难度决定是否思考（简单题直接答）；llama-swap 把思考过程映射到 OpenAI 兼容的 `reasoning_content` 字段，而非 content 内 `<think>` 块。用简单 prompt 测、或只看 content 判断思考，都会误判
+- **修复**：请求体下发 `chat_template_kwargs={"enable_thinking": false}`（实测 93s→7s、reasoning_content=0、三元组质量无损）；封装为 `local_think` 配置（默认 false，只对本地 base_url 生效），抽取（json_client）与切分（factory）生效，对话 LLM 保留思考
+- **教训**：判断模型是否思考要看「复杂任务 + reasoning_content 字段」，不能拿简单 prompt 或 content 里的 think 块当依据；本地模型行为开关优先用服务端协议字段（chat_template_kwargs），比改 prompt 前缀（/no_think）干净
+
+---
+
 ## 踩坑模式总结（教训提炼）
 
 1. **"先 X 后 Y"的顺序改动，Y 的删除/清理条件必须精确到原子键**（坑 2）
@@ -324,6 +334,7 @@
 25. **绕过统一拦截器的请求（裸 axios）必须自己补业务码判断，否则后端错误被当成成功**；多控件共享同一业务状态时做「状态继承」，不让用户重复选择（坑 25）
 26. **调用自封装 API 前先确认返回契约（已解包 body / AxiosResponse）**——一次修复里「漏判断」和「双重解包」两个方向各错一遍（坑 25 续）
 27. **外部 SDK pydantic 模型字段是否必填，实测为准**——`FilterSelector()` 无参构造直接抛 validation error；best-effort try 必须打全异常，别吞成一行 warning（坑 26）
+28. **判断模型是否思考要看「复杂任务 + reasoning_content 字段」**——qwen3 自适应思考，简单 prompt 或 content 里找 think 块都会误判；关闭思考用服务端协议字段（chat_template_kwargs）而非 prompt 前缀（坑 30）
 
 ## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler
 
@@ -360,3 +371,27 @@
 - **根因**：OCR 触发条件为「文本 <20 字符 **且 page.get_images() 非空」——整页图片渲染的扫描件页面级图片不被 get_images() 列出（返回 0），条件不满足 → 不 OCR
 - **修复**：去掉「含图片」条件——页面文本过少即尝试 OCR；纯空白页 OCR 为空，不会更差（实测 79 → 6470 字符，全部 6 页 OCR 成功）
 - **教训**：判断"页面是否含图片"不能依赖 get_images()（它只列嵌入图片对象）；扫描件判定以文本量为准，OCR 兜底宁多勿漏
+
+## 29. Qdrant collection 不存在时静默返回空：全链路排查时"没命中"与"库不存在"无法区分
+
+- **场景**：LightRAG 卡片检索全链路日志排查（用户要看卡），跑完只看到关键词输出、无检索/一跳/重排任何日志，最终 Observation 为空
+- **现象**：检索函数返回 0 命中且**不打印任何日志**——从日志上完全看不出"检索了但没命中"还是"根本没检索"
+- **根因**：`kg_card_search._query_card_collection` 对 collection 不存在（UnexpectedResponse 404）走"空结果而非异常"设计（并行架构下不能因图谱路炸穿向量路），但该分支**静默 return [] 无日志**；实际触发是 kb13 被删除、卡片 collection 随 purge_kb 一并消失（用户删库重建 kb14）
+- **修复**：collection 不存在分支补 INFO 日志「collection 不存在（新库未入库或已删除），本路空返回」；检索命中明细/一跳展开/融合去重/重排分数全链路日志埋入 kg_card_search（供逐卡观测）
+- **教训**：任何"静默降级"的分支都必须留日志——降级路径恰恰是故障高发路径，没日志等于排查时先猜一遍数据状态；全链路观测日志要覆盖"入口→召回→展开→融合→重排"每一段，缺一段就无法定位
+
+## 30. docker compose v5 的 config/up 需显式 --profile：default profile 服务被误判 undefined
+
+- **场景**：192.168.15.208 上给 llama-swap 双模型组部署（补 -card 实例），`docker compose config -q` 报 `service "cube-llamafactory" depends on undefined service "cube-llm"`
+- **现象**：compose 文件服务树完整（python yaml 解析正常、cube-llm 在 default profile 列表里），但 `docker compose config` 默认解析看不到 cube-llm，依赖校验误报 undefined；容器却一直正常跑
+- **根因**：docker compose v5 的 `config`/`up` 命令**只解析当前激活的 profile**（默认只激活隐式 default）；服务显式写了 `profiles: [default, dual-primary, single]` 时，"default" 不再保证默认可见——必须显式 `--profile default` 或 `COMPOSE_PROFILES=...` 才激活
+- **修复**：部署/重启一律 `docker compose -f docker-compose_amd.yaml --profile default up -d <svc>`；本次服务器历史启动命令本就带 profile，所以一直正常
+- **教训**：compose 报"undefined service"先怀疑 profile 过滤而非文件破坏（先 `--profile default config --services` 对照）；改 compose 文件后校验命令要和实际启动命令带相同的 profile 参数
+
+## 31. 容器内 sed r 是"锚点后插入"：劈开目标服务映射导致 duplicate key
+
+- **场景**：compose 文件插入新服务块，用 `sed -i '/^  cube-llamafactory:/r /block.txt'` 在锚点行后追加
+- **现象**：`compose config` 报 `mapping key "image" already defined at line 114`——新服务块的属性被塞进了 cube-llamafactory 服务映射内部
+- **根因**：sed r 命令语义是"在匹配行**之后**插入"，锚点行本身是服务名（缩进 2 空格 + 冒号），其后续属性行缩进更深，插入块接在服务名行后 = 变成该服务的属性，同名 image 键重复
+- **修复**：改用 awk 在锚点行**之前**插入（`awk '/^  cube-llamafactory:/ && !done {while ((getline l < f)>0) print l; done=1} {print}'`）；已破坏版本用插入前的 cp 备份回滚
+- **教训**：向 YAML 插入块务必先想清楚锚点语义（sed r = 行后、awk = 行前）；任何文件修改先 cp 备份再操作，回滚才有依据

@@ -74,6 +74,7 @@
           :cluster-by-community="clusterByCommunity"
           height="100%"
           @node-click="onNodeClick"
+          @edge-click="onEdgeClick"
           @community-click="$emit('community-click', $event)"
         />
         <el-empty v-else description="暂无图谱数据" />
@@ -131,6 +132,9 @@
     >
       <div v-if="selectedNode" class="node-drawer">
         <div class="node-drawer-title">{{ selectedNode }}</div>
+        <!-- 实体摘要（MySQL 快照详情接口，GRAPH_DETAIL_PERSIST_REVIEW） -->
+        <div v-if="nodeSummaryLoading" class="node-summary loading"><i class="el-icon-loading" /> 摘要加载中…</div>
+        <div v-else-if="nodeSummary" class="node-summary">{{ nodeSummary }}</div>
         <div v-for="(item, idx) in nodeRelations" :key="idx" class="node-rel-item">
           <span class="rel-from">{{ item.source }}</span>
           <i class="el-icon-right" />
@@ -142,15 +146,25 @@
         <el-button type="primary" size="mini" style="margin-top:12px" @click="$emit('drill-subgraph', selectedNode)">展开子图</el-button>
       </div>
     </el-drawer>
+
+    <!-- 边详情（点击图谱边，类 Neo4j 属性面板） -->
+    <kg-detail-drawer
+      :visible.sync="edgeDetailOpen"
+      type="relation"
+      :kb-id="kbId"
+      :edge-key="selectedEdge"
+    />
   </div>
 </template>
 
 <script>
 import KgGraphPanel from './KgGraphPanel'
+import KgDetailDrawer from './KgDetailDrawer'
+import { getRagGraphEntityDetail } from '@/api/rag'
 
 export default {
   name: 'KgFullGraphShell',
-  components: { KgGraphPanel },
+  components: { KgGraphPanel, KgDetailDrawer },
   props: {
     graphData: { type: Object, default: () => ({ nodes: [], links: [] }) },
     loading: { type: Boolean, default: false },
@@ -171,6 +185,10 @@ export default {
       listPageSize: 50,
       nodeDrawerOpen: false,
       selectedNode: '',
+      nodeSummary: '',
+      nodeSummaryLoading: false,
+      edgeDetailOpen: false,
+      selectedEdge: {},
       communityView: false,
       clusterByCommunity: false
     }
@@ -222,6 +240,23 @@ export default {
     onNodeClick(name) {
       this.selectedNode = name
       this.nodeDrawerOpen = true
+      this.fetchNodeSummary(name)
+    },
+    onEdgeClick(edge) {
+      this.selectedEdge = edge
+      this.edgeDetailOpen = true
+    },
+    fetchNodeSummary(name) {
+      // 全屏抽屉顶部展示实体摘要（MySQL 快照）；失败静默——摘要是增强不是必需
+      this.nodeSummary = ''
+      this.nodeSummaryLoading = true
+      getRagGraphEntityDetail({ kbId: this.kbId, name })
+        .then((res) => {
+          const d = res && res.data ? res.data : res
+          this.nodeSummary = (d && d.summary) || ''
+        })
+        .catch(() => {})
+        .finally(() => { this.nodeSummaryLoading = false })
     },
     onLinkRowClick(row) {
       this.selectedNode = row.source
@@ -334,6 +369,19 @@ export default {
   font-weight: 600;
   margin-bottom: 12px;
   color: #303133;
+}
+.node-summary {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: #f5f7fa;
+  border-left: 3px solid #409EFF;
+  border-radius: 4px;
+}
+.node-summary.loading {
+  color: #909399;
 }
 .node-rel-item {
   display: flex;

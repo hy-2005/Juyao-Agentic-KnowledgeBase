@@ -6,13 +6,9 @@ SYSTEM_PROMPT = load_prompt("system")
 SYSTEM_PROMPT_NO_KB_EVIDENCE = load_prompt("system_no_kb_evidence")
 KG_ENTITY_RELATION_CONTRACT_PROMPT = load_prompt("kg_entity_relation_contract")
 KG_TRIPLE_EXTRACTION_SYSTEM_PROMPT = load_prompt("kg_triple_extraction_system")
-QUESTION_INTENT_ROUTE_SYSTEM_PROMPT = load_prompt("question_intent_route_system")
-QUESTION_INTENT_ROUTE_FLOWCHART_STRICT_PROMPT = load_prompt("question_intent_route_flowchart_strict")
 RAG_SUFFICIENCY_EVAL_SYSTEM_PROMPT = load_prompt("rag_sufficiency_eval_system")
-QUESTION_GRAPH_SEED_SYSTEM_PROMPT = load_prompt("question_graph_seed_system")
-# Step 4 · 问句加工链路（A 改写 / B 拆解）：与共享合同拼装后注入
-GRAPH_QUERY_REWRITE_PROMPT = load_prompt("graph_query_rewrite")
-GRAPH_QUERY_DECOMPOSE_PROMPT = load_prompt("graph_query_decompose")
+LIGHTRAG_KEYWORD_SYSTEM_PROMPT = load_prompt("lightrag_keyword_system")
+KG_ENTITY_SUMMARY_MERGE_SYSTEM_PROMPT = load_prompt("kg_entity_summary_merge_system")
 
 
 def build_execute_user_prompt(question: str, observation_lines: list[str]) -> str:

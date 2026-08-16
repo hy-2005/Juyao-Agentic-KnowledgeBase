@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from rag_core.core.config import get_settings
 from rag_core.api.security import require_internal_token
 from rag_core.application.ingest_flow.cleanup import purge_kb
-from rag_core.application.ingest_flow.community_scheduler import get_scheduler
+from rag_core.application.ingest_flow.graph_sync_scheduler import get_scheduler
 from rag_core.application.ingest_flow.events import apply_kafka_ingest_payload
 
 logger = logging.getLogger(__name__)
@@ -30,14 +30,19 @@ def _require_ingest_internal_token(request: Request) -> None:
 
 
 @router.post("/api/v1/internal/rag/ingest/event")
-async def internal_rag_ingest_event(request: Request, body: dict[str, Any] = Body(...)):
+def internal_rag_ingest_event(request: Request, body: dict[str, Any] = Body(...)):
+    """内部入库（普通同步请求节点，2026-08-14 改造）。
+
+    不再显式 asyncio.to_thread：sync def 由 FastAPI 框架放入默认线程执行，
+    代码上是普通下游请求节点（阻塞式入库不占用事件循环）。
+    """
     _require_ingest_internal_token(request)
     action = str(body.get("action") or "")
     doc = str(body.get("docLogicalKey") or "")
     logger.info("[RAG-HTTP] 内部入库开始 action=%s doc=%s", action, doc)
     t0 = time.perf_counter()
-    # 入库不立即重建社区：标记 dirty，由调度器在 30s 静默窗口统一重建（批量上传只重建一次）
-    _, changed = await asyncio.to_thread(apply_kafka_ingest_payload, body, build_communities=False)
+    # 入库不立即同步快照：标记 dirty，由调度器静默窗口统一同步（批量上传只同步一次）
+    _, changed = apply_kafka_ingest_payload(body, build_communities=False)
     if changed:
         scheduler = get_scheduler()
         scheduler.mark_dirty(int(body.get("kbId") or 0))
@@ -49,14 +54,18 @@ async def internal_rag_ingest_event(request: Request, body: dict[str, Any] = Bod
 
 @router.get("/api/v1/internal/rag/community/status")
 async def internal_community_status(request: Request):
-    """社区重建调度状态（管理台批量模式开关展示）：自动重建开关 + 待重建/重建中的 kb。"""
+    """图谱快照同步调度状态。
+
+    URL 保留旧 community 路径（Java RagCommunityController 在调用，改路径会 404）；
+    社区重建已删除，status 键沿用旧契约。
+    """
     _require_ingest_internal_token(request)
     return get_scheduler().status()
 
 
 @router.post("/api/v1/internal/rag/community/auto-rebuild")
 async def internal_community_auto_rebuild(request: Request, body: dict[str, Any] = Body(...)):
-    """批量入库模式开关：enabled=false 暂停自动重建（dirty 只积累），true 恢复。"""
+    """批量入库模式开关：enabled=false 暂停自动同步（dirty 只积累），true 恢复。"""
     _require_ingest_internal_token(request)
     enabled = bool(body.get("enabled", True))
     get_scheduler().set_paused(not enabled)
@@ -65,7 +74,7 @@ async def internal_community_auto_rebuild(request: Request, body: dict[str, Any]
 
 @router.post("/api/v1/internal/rag/community/rebuild")
 async def internal_community_rebuild(request: Request, body: dict[str, Any] = Body(...)):
-    """手动立即重建：kbId 为空 = 全部 dirty kb；后台线程执行，立即返回。"""
+    """手动立即同步图谱快照：kbId 为空 = 全部 dirty kb；后台线程执行，立即返回。"""
     _require_ingest_internal_token(request)
     kb_id = body.get("kbId")
     get_scheduler().trigger_rebuild_now(int(kb_id) if kb_id is not None else None)

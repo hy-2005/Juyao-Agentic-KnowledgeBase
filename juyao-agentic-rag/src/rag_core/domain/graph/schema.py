@@ -3,8 +3,7 @@ GraphRAG：三元组在 Python 侧的「合同」与解析。
 
 数据流：
   LLM JSON → parse_triples → list[Triple] → Neo4jTripleStore.upsert_triples
-  运行时问句：QuestionGraphSeedExtractor 产出 **同键名** triples（见 prompt.QUESTION_GRAPH_SEED），
-  entities_and_hints_from_seed_payload 解析；relation_predicate 可为空，仅作种子实体。
+  （head_gloss/tail_gloss 由 Entity.summary_hints 累积，供 LightRAG 实体卡摘要）
 
 去重键：同一 (head_name, relation_predicate, tail_name) 合并扩展字段（_merge_text）。
 兼容旧键名：head/tail/relation → head_name/tail_name/relation_predicate。
@@ -91,6 +90,10 @@ class Triple:
     time_text: str = ""
     location_text: str = ""
     evidence: str = ""
+    # 实体简注（LightRAG 卡片摘要数据源）：每 chunk 按当次语境 ≤30 字，
+    # 库侧 Entity.summary_hints 累积合并——不是"终极描述"，是可叠加的碎片
+    head_gloss: str = ""
+    tail_gloss: str = ""
 
     def normalized(self) -> "Triple":
         # 实体名走归一化（P0-1）：全半角/括号修饰/引号统一，谓词保持原样（闭集由 prompt 约束）
@@ -108,6 +111,8 @@ class Triple:
             time_text=self.time_text.strip(),
             location_text=self.location_text.strip(),
             evidence=self.evidence.strip(),
+            head_gloss=self.head_gloss.strip(),
+            tail_gloss=self.tail_gloss.strip(),
         )
 
 
@@ -133,6 +138,9 @@ def _item_to_triple(item: dict) -> Triple | None:
     relation_category = str(item.get("relation_category", "")).strip()
     relation_full = str(item.get("relation_full", "")).strip()
     modality = str(item.get("modality", "")).strip()
+    # gloss 上限 120 字：prompt 要求 ≤30 字，留 4 倍冗余防 LLM 漂移（超长截断而非丢弃）
+    head_gloss = str(item.get("head_gloss", "")).strip()[:120]
+    tail_gloss = str(item.get("tail_gloss", "")).strip()[:120]
 
     return Triple(
         head_name=head_name,
@@ -148,6 +156,8 @@ def _item_to_triple(item: dict) -> Triple | None:
         time_text=time_text,
         location_text=location_text,
         evidence=evidence,
+        head_gloss=head_gloss,
+        tail_gloss=tail_gloss,
     ).normalized()
 
 
@@ -183,6 +193,8 @@ def parse_triples(payload: object) -> list[Triple]:
             time_text=_merge_text(old.time_text, cur.time_text),
             location_text=_merge_text(old.location_text, cur.location_text),
             evidence=_merge_text(old.evidence, cur.evidence),
+            head_gloss=_merge_text(old.head_gloss, cur.head_gloss),
+            tail_gloss=_merge_text(old.tail_gloss, cur.tail_gloss),
         ).normalized()
 
     return list(by_key.values())

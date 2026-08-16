@@ -19,6 +19,12 @@
 - `location_text`：地理或场景概括（非实体节点的地点描述放在这里）。
 - `evidence`：≤120 字，直接摘录原文支撑该断言的关键句；勿臆造细节。
 
+【实体简注】（LightRAG 卡片摘要数据源，LIGHTRAG_MIGRATION_REVIEW §4.1）无则 `""`：
+
+- `head_gloss`：头实体一句话简注（≤30 字）——该实体**在本文中**是什么/扮演什么角色（如"负责财政收支的国务院组成部门"）。只写文中出现的信息，禁止编造。
+- `tail_gloss`：尾实体一句话简注（同上）。
+- 同一实体在多个 chunk 重复出现时每次都按当次语境写 gloss，库侧自动累积合并——不要试图一次写"终极完整描述"。
+
 【质量规则】
 
 - 一条三元组只表达一个清晰断言；同一对实体多种关系可多条。
@@ -30,5 +36,5 @@
 示例：
 
 ```json
-{"triples":[{"head_name":"马可","relation_predicate":"经营","tail_name":"马可侦探事务所","head_type":"人物","tail_type":"组织","head_sense":"","tail_sense":"","relation_category":"业务","relation_full":"马可在雨城经营马可侦探事务所。","modality":"事实确定","time_text":"","location_text":"雨城","evidence":"马可在雨城开了间很小的侦探事务所。"}]}
+{"triples":[{"head_name":"马可","relation_predicate":"经营","tail_name":"马可侦探事务所","head_type":"人物","tail_type":"组织","head_sense":"","tail_sense":"","relation_category":"业务","relation_full":"马可在雨城经营马可侦探事务所。","modality":"事实确定","time_text":"","location_text":"雨城","evidence":"马可在雨城开了间很小的侦探事务所。","head_gloss":"雨城的一名私家侦探","tail_gloss":"马可开设的小型侦探社"}]}
 ```

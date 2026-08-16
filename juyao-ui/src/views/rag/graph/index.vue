@@ -236,6 +236,8 @@
             :community-view="communityView"
             :body-height.sync="graphPanelHeight"
             @community-click="handleCommunityClick"
+            @node-click="openEntityDetail"
+            @edge-click="openEdgeDetail"
           />
         </el-card>
       </div>
@@ -261,23 +263,14 @@
       @kb-change="handleFullKbChange"
     />
 
-    <!-- 关系详情 -->
-    <el-drawer title="关系详情" :visible.sync="edgeDetailOpen" size="480px" append-to-body>
-      <div v-if="edgeDetail" class="edge-detail">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="头实体">{{ edgeDetail.head_name }}</el-descriptions-item>
-          <el-descriptions-item label="关系">{{ edgeDetail.relation_predicate }}</el-descriptions-item>
-          <el-descriptions-item label="尾实体">{{ edgeDetail.tail_name }}</el-descriptions-item>
-          <el-descriptions-item label="切片 ID">{{ (edgeDetail.chunk_ids || []).join(', ') || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="时间提示">{{ (edgeDetail.time_hints || []).join('；') || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="地点提示">{{ (edgeDetail.location_hints || []).join('；') || '-' }}</el-descriptions-item>
-        </el-descriptions>
-        <div v-if="(edgeDetail.evidence_snippets || []).length" class="evidence-block">
-          <div class="evidence-title">证据片段</div>
-          <div v-for="(ev, idx) in edgeDetail.evidence_snippets" :key="idx" class="evidence-item">{{ ev }}</div>
-        </div>
-      </div>
-    </el-drawer>
+    <!-- 图谱点击详情（节点/边共用，MySQL 快照直查，类 Neo4j 属性面板） -->
+    <kg-detail-drawer
+      :visible.sync="detailOpen"
+      :type="detailType"
+      :kb-id="kbId"
+      :entity-name="detailEntity"
+      :edge-key="detailEdge"
+    />
 
     <!-- 关系表单 -->
     <el-dialog :title="edgeFormTitle" :visible.sync="edgeDialogOpen" width="520px" append-to-body>
@@ -338,10 +331,11 @@ import {
 } from '@/api/rag'
 import KgGraphViewport from './components/KgGraphViewport'
 import KgFullGraphShell from './components/KgFullGraphShell'
+import KgDetailDrawer from './components/KgDetailDrawer'
 
 export default {
   name: 'RagGraph',
-  components: { KgGraphViewport, KgFullGraphShell },
+  components: { KgGraphViewport, KgFullGraphShell, KgDetailDrawer },
   data() {
     return {
       loading: false,
@@ -352,7 +346,7 @@ export default {
       edgeList: [],
       entityList: [],
       stats: {},
-      kbId: 0, // 当前知识库（0=默认库；多 kb 物理隔离）
+      kbId: this.$store.state.kb.currentKbId != null ? this.$store.state.kb.currentKbId : 0, // 全局 kb（未选择回落默认库）
       kbList: [],
       communities: [],
       communityTotal: 0,
@@ -378,8 +372,11 @@ export default {
       fullLimit: 0, // 全图显示上限（边数）；0 = 全量展示（后端 limit=0 不截断）
       graphData: { nodes: [], links: [] },
       graphMeta: { truncated: false, total_edges: 0, returned_edges: 0 },
-      edgeDetailOpen: false,
-      edgeDetail: null,
+      // 图谱点击详情抽屉（GRAPH_DETAIL_PERSIST_REVIEW）
+      detailOpen: false,
+      detailType: 'entity',
+      detailEntity: '',
+      detailEdge: {},
       edgeDialogOpen: false,
       edgeSubmitting: false,
       edgeEditing: false,
@@ -425,6 +422,23 @@ export default {
     this.getList()
     this.loadCommunities()
   },
+  activated() {
+    // keep-alive 回页：全局 kb 可能被顶栏/其他页面改过，跟随并刷新
+    const globalKb = this.$store.state.kb.currentKbId != null ? this.$store.state.kb.currentKbId : 0
+    if (globalKb !== this.kbId) {
+      this.kbId = globalKb
+      this.handleKbChange()
+    }
+  },
+  watch: {
+    '$store.state.kb.currentKbId'(newId) {
+      // 顶栏/其他页面切换了全局 kb：本页跟随（未选择回落默认库 0）
+      const target = newId != null ? newId : 0
+      if (target === this.kbId) return
+      this.kbId = target
+      this.handleKbChange()
+    }
+  },
   methods: {
     loadKbs() {
       listKbs().then((res) => {
@@ -438,7 +452,8 @@ export default {
       })
     },
     handleKbChange() {
-      // 主面板切换知识库：全部数据按新 kb 重新加载（每库独立图谱/社区/实体）
+      // 主面板切换知识库：全部数据按新 kb 重新加载（每库独立图谱/社区/实体）+ 同步全局
+      this.$store.commit('kb/SET_CURRENT_KB_ID', this.kbId)
       this.expandedCommunity = null
       this.fullScreenOpen = false
       this.graphMode = 'subgraph'
@@ -451,8 +466,9 @@ export default {
       this.loadCommunities()
     },
     handleFullKbChange(kbId) {
-      // 全屏内切换知识库：保持全屏，列表/统计刷新 + 全图按新 kb 重载
+      // 全屏内切换知识库：保持全屏，列表/统计刷新 + 全图按新 kb 重载 + 同步全局
       this.kbId = kbId
+      this.$store.commit('kb/SET_CURRENT_KB_ID', kbId)
       this.expandedCommunity = null
       this.queryParams.pageNum = 1
       this.communityPageNum = 1
@@ -756,8 +772,18 @@ export default {
       this.loadSubgraph(row.name)
     },
     showEdgeDetail(row) {
-      this.edgeDetail = row
-      this.edgeDetailOpen = true
+      // 表格行详情与图谱点击共用抽屉：走 MySQL 快照详情接口，展示全部 hints
+      this.openEdgeDetail({ head: row.head_name, relation: row.relation_predicate, tail: row.tail_name })
+    },
+    openEntityDetail(name) {
+      this.detailType = 'entity'
+      this.detailEntity = name
+      this.detailOpen = true
+    },
+    openEdgeDetail(edge) {
+      this.detailType = 'relation'
+      this.detailEdge = edge
+      this.detailOpen = true
     },
     openEdgeDialog(row) {
       this.edgeEditing = !!row
@@ -969,25 +995,6 @@ export default {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-.edge-detail {
-  padding: 0 16px 16px;
-}
-.evidence-block {
-  margin-top: 16px;
-}
-.evidence-title {
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: #606266;
-}
-.evidence-item {
-  background: #f5f7fa;
-  padding: 8px 10px;
-  border-radius: 4px;
-  margin-bottom: 8px;
-  font-size: 13px;
-  line-height: 1.5;
 }
 .danger-text {
   color: #f56c6c;

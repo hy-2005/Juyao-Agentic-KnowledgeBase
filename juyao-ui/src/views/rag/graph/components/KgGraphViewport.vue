@@ -52,6 +52,8 @@
         :cluster-by-community="clusterByCommunity"
         height="100%"
         @community-click="$emit('community-click', $event)"
+        @node-click="$emit('node-click', $event)"
+        @edge-click="$emit('edge-click', $event)"
       />
       <el-empty v-else :description="emptyText" />
     </div>

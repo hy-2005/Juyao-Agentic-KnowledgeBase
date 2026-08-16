@@ -15,11 +15,17 @@ from langchain_core.documents import Document
 
 
 class RouteBranch(str, Enum):
-    """路由支线：direct=不检索；graph_only=仅图谱；vector_only=向量（可补图）。"""
+    """路由支线（LightRAG 并行架构后的取值）。
+
+    并行架构删除了 LLM 意图路由：只剩 direct（规则命中的闲聊短路）与
+    parallel（传统向量 + LightRAG 图谱双路并行）。graph_only/vector_only
+    保留枚举值仅为旧 SSE 消费端兼容，流程不再产出。
+    """
 
     DIRECT = "direct"
-    GRAPH_ONLY = "graph_only"
-    VECTOR_ONLY = "vector_only"
+    PARALLEL = "parallel"
+    GRAPH_ONLY = "graph_only"  # 已废弃（不再产出）
+    VECTOR_ONLY = "vector_only"  # 已废弃（不再产出）
 
 
 @dataclass
@@ -36,7 +42,7 @@ class ExecuteResult:
 class StepRecord:
     """一步管线执行的轨迹记录；序列化为 dict 时兼容旧 executed_steps 字段。"""
 
-    name: str  # route / retrieve / sufficiency / graph_supplement / graph_query / finalize
+    name: str  # retrieve / lightrag_retrieve / evidence_review / finalize
     status: str  # ok | failed | skipped
     tool: str | None = None  # search_knowledge_base / query_knowledge_graph
     ms: float = 0.0
@@ -98,6 +104,7 @@ class FlowState:
     graph_snapshots: list[dict[str, Any]] = field(default_factory=list)
     graph_rounds: int = 0
     had_graph_edges: bool = False
+    kg_card_count: int = 0  # LightRAG 卡片数（had_graph_edges 的量化版，审核门用）
     # 证据与轨迹
     observation_lines: list[str] = field(default_factory=list)
     executed_steps: list[StepRecord] = field(default_factory=list)
@@ -106,6 +113,7 @@ class FlowState:
     # 流式输出载体（沿用旧接口，由调用方传入）
     assistant_holder: list[str] = field(default_factory=list)
     tool_messages_holder: list[dict[str, Any]] | None = None
-    # 充足性判断
+    # 证据审核门（sufficiency.py run_review_step 写入）
     rag_e_backend: str | None = None
-    needs_graph: bool = False
+    review_sufficient: bool | None = None
+    review_missing: str = ""

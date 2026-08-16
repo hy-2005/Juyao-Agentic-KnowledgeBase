@@ -66,6 +66,68 @@ def rerank_documents_multi(queries: list[str], fused_docs: list[Document]) -> li
     return final_docs
 
 
+def rerank_texts(query: str, texts: list[str], *, top_n: int) -> list[tuple[str, float]]:
+    """单 query 对任意文本列表 rerank（LightRAG 图谱卡片专用，LIGHTRAG_MIGRATION_REVIEW §5.4）。
+
+    双模型组：配置了 kg_card_rerank_base_url 时走第二组端点+独立并发池，
+    与主链路 chunk 重排互不争抢；未配置则与主组同源同池。
+    失败返回空列表（调用方保留原召回顺序兜底，不因 rerank 挂掉丢卡片）。
+    """
+    if not texts or not (query or "").strip():
+        return []
+    settings = get_settings()
+    kg_base = (settings.kg_card_rerank_base_url or "").strip()
+    kg_model = (settings.kg_card_rerank_model or "").strip()
+    if kg_base or kg_model:
+        # 第二组：独立端点（llama-swap OpenAI 兼容 /v1/rerank）或同源独立模型名
+        # （同一 11435 里的第二份 reranker 实例，llama-swap 起独立 llama-server 进程）
+        from rag_core.infrastructure.llm.concurrency import get_kg_card_rerank_concurrency_policy
+
+        req = urllib.request.Request(
+            (kg_base or settings.ollama_base_url).rstrip("/") + "/v1/rerank",
+            data=dumps(
+                {
+                    "model": kg_model or settings.rerank_model,
+                    "query": query[:_RERANK_QUERY_MAX_LEN],
+                    "documents": list(texts),
+                    "top_n": len(texts),
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        payload = _call_rerank(req, label="kg_card", policy=get_kg_card_rerank_concurrency_policy())
+    else:
+        provider = (settings.rerank_provider or "").strip().lower()
+        req = _build_request(
+            provider=provider,
+            query=query[:_RERANK_QUERY_MAX_LEN],
+            documents=list(texts),
+            top_n=len(texts),
+        )
+        if req is None:
+            return []
+        payload = _call_rerank(req, label="kg_card")
+    if payload is None:
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        output = payload.get("output")
+        results = output.get("results") if isinstance(output, dict) else None
+    if not isinstance(results, list) or not results:
+        return []
+    scored: list[tuple[str, float]] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        if not isinstance(index, int) or index < 0 or index >= len(texts):
+            continue
+        scored.append((texts[index], float(item.get("relevance_score") or item.get("score") or 0.0)))
+    scored.sort(key=lambda t: t[1], reverse=True)
+    return scored[: max(1, int(top_n))]
+
+
 def _diversify_by_source(docs: list[Document], top_n: int, per_source: int = 2) -> list[Document]:
     """按 source_name 多样性采样：每文档最多 per_source 条，优先保留不同来源。
 
@@ -192,7 +254,7 @@ def _build_request(
     )
 
 
-def _call_rerank(req: urllib.request.Request, *, label: str) -> dict | None:
+def _call_rerank(req: urllib.request.Request, *, label: str, policy=None) -> dict | None:
     from rag_core.infrastructure.llm.concurrency import get_rerank_concurrency_policy
 
     def _do_call():
@@ -200,8 +262,9 @@ def _call_rerank(req: urllib.request.Request, *, label: str) -> dict | None:
             return loads(response.read().decode("utf-8"))
 
     try:
-        # rerank 专属线程池（与 embedding 的池分开，各 10 并发互不占用）；云端直连
-        return get_rerank_concurrency_policy().submit(_do_call)
+        # rerank 专属线程池（与 embedding 的池分开，各 10 并发互不占用）；云端直连。
+        # policy 由卡片组传入时用独立池（双模型组），None = 主 rerank 池
+        return (policy or get_rerank_concurrency_policy()).submit(_do_call)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         logger.warning("【rerank · %s】调用失败，跳过该路。err=%s", label, exc)
         return None

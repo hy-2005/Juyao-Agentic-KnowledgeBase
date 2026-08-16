@@ -8,6 +8,7 @@ from rag_core.core.config import get_settings
 from rag_core.infrastructure.llm.concurrency import (
     ConcurrencyPolicy,
     get_embed_concurrency_policy,
+    _is_local_base_url,
 )
 from rag_core.infrastructure.llm.dashscope_embeddings import get_dashscope_embeddings
 
@@ -101,6 +102,10 @@ def _resolve_dashscope_task_llm(
         extra_body = {"thinking": {"type": "disabled"}}
     elif is_dashscope:
         extra_body = {"enable_thinking": False}
+    elif not settings.local_think and _is_local_base_url(resolved_base):
+        # 本地 llama-swap 的 qwen3：local_think=false 时用 chat_template_kwargs 关闭自适应思考
+        # （2026-08-14 实测：抽取任务思考 token 占 93s 里的大头，关闭后 7s，质量无损）
+        extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
     else:
         extra_body = {}
     return resolved_model, resolved_base, resolved_key, extra_body
@@ -135,6 +140,40 @@ def get_embeddings() -> Embeddings:
     # 统一包一层并发策略装饰器：本地模型进 embedding 专属线程池（默认 10 worker，与 rerank 分开），
     # 云端为直连透传
     return ConcurrencyLimitedEmbeddings(raw, get_embed_concurrency_policy())
+
+
+def get_kg_card_embeddings() -> Embeddings:
+    """LightRAG 卡片专用 embedding（双模型组：第二组 bge，与主链路 chunk 向量化隔离）。
+
+    独立端点（kg_card_embed_base_url）或独立模型名（kg_card_embed_model）任一配置即
+    走独立客户端 + 独立并发池；两者都未配置才回退主 embedding 实例（同源同池）。
+    独立模型名场景：同一 llama-swap 配置里补了一份 bge（如 bge-m3-Q8_0-card），
+    会起第二个 llama-server 进程，此时 base_url 留空、仅填模型名即可。
+    第二组假定 OpenAI 兼容协议（llama-swap /v1/embeddings），不支持 ollama 原生。
+    """
+    settings = get_settings()
+    base = (settings.kg_card_embed_base_url or "").strip()
+    model = (settings.kg_card_embed_model or "").strip()
+    if not base and not model:
+        return get_embeddings()
+    # 未配独立端点时跟随主 llama-swap 地址（同一 11435），仅换模型名
+    base = base or settings.ollama_base_url
+    model = model or settings.embed_model
+    logger.info(
+        "[LLM] get_kg_card_embeddings → 独立组 base_url=%s model=%s", base, model
+    )
+    from langchain_openai import OpenAIEmbeddings
+    from rag_core.infrastructure.llm.concurrency import get_kg_card_embed_concurrency_policy
+
+    raw = OpenAIEmbeddings(
+        model=model,
+        base_url=base.rstrip("/") + "/v1",
+        api_key="local",
+        http_client=build_openai_http_client(timeout=60),
+    )
+    if settings.embed_dim_limit and int(settings.embed_dim_limit) > 0:
+        raw = DimensionLimitedEmbeddings(raw, int(settings.embed_dim_limit))
+    return ConcurrencyLimitedEmbeddings(raw, get_kg_card_embed_concurrency_policy())
 
 
 def get_chat_llm(*, streaming: bool = True, **kwargs) -> ChatOpenAI:

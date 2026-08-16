@@ -32,6 +32,7 @@
               placeholder="知识库（默认单库）"
               clearable
               style="width: 160px; margin-right: 8px"
+              @change="handleKbChange"
             >
               <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
             </el-select>
@@ -111,7 +112,7 @@ export default {
       sessions: [],
       currentSessionId: '',
       kbList: [],
-      currentKbId: null, // null=单库兼容（后端按 0 处理）
+      currentKbId: this.$store.state.kb.currentKbId, // 全局 kb（null=单库兼容，后端按 0 处理）
       messages: [],
       input: '',
       sending: false,
@@ -136,7 +137,27 @@ export default {
     this.loadKbs()
     await this.initSessions({ autoSelectFirst: true })
   },
+  activated() {
+    // keep-alive 回页：全局 kb 可能被顶栏/其他页面改过，跟随
+    if (this.$store.state.kb.currentKbId !== this.currentKbId) {
+      this.currentKbId = this.$store.state.kb.currentKbId
+    }
+  },
+  watch: {
+    '$store.state.kb.currentKbId'(newId) {
+      // 顶栏/其他页面切换了全局 kb：本页跟随（会话列表与 kb 无关，无需重载）
+      if (newId !== this.currentKbId) {
+        this.currentKbId = newId
+      }
+    }
+  },
   methods: {
+    handleKbChange() {
+      // 本页选库后同步全局（文档/切片/图谱/顶栏跟随）；清空给 '' 归一化为 null
+      const v = this.currentKbId === '' ? null : this.currentKbId
+      this.currentKbId = v
+      this.$store.commit('kb/SET_CURRENT_KB_ID', v)
+    },
     loadKbs() {
       // 知识库下拉数据源（会话提问选库用）
       listKbs().then((res) => {

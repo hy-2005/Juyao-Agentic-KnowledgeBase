@@ -106,13 +106,19 @@ def query_edges_from_entity_seeds(
     settings: Settings | None = None,
     max_edges: int | None = None,
     relation_hints: list[str] | None = None,
+    hops: int | None = None,
     kb: int | None = None,
 ) -> list[GraphEdgeView]:
+    """实体种子多跳扩展。
+
+    hops 显式传入时覆盖配置（LightRAG local 路固定一跳，见 kg_card_search；
+    不传则沿用 graph_max_hops 多跳语义，管理台 subgraph 等旧调用不受影响）。
+    """
     seeds = [s.strip() for s in seed_names if str(s).strip()]
     if not seeds:
         return []
     cfg = settings or get_settings()
-    hops = max(1, min(int(cfg.graph_max_hops), 10))
+    hops = max(1, min(int(hops if hops is not None else cfg.graph_max_hops), 10))
     path_cap = max(10, min(int(cfg.graph_expand_internal_path_cap), 500))
     # hints 下沉到 Cypher（P1-1）：路径遍历时按谓词/关系大类过滤，避免先捞回无关边
     cleaned_hints = [str(h).strip() for h in (relation_hints or []) if str(h).strip()]

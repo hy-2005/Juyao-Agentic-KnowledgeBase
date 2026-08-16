@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     local_model_max_concurrency: int = Field(default=10)
     # 各线程池的阻塞任务队列长度（有界队列，满则 put 阻塞背压，防无限堆积）
     local_model_task_queue_size: int = Field(default=5000)
+    # 本地 llama-swap qwen3 思考模式开关：true=开启思考（慢、质量略优），false=关闭思考
+    # （关闭时请求体下发 chat_template_kwargs={"enable_thinking": False}；2026-08-14 实测 93s→7s，
+    # 抽取/切分等忠实类任务不需要思考链，默认关闭）
+    local_think: bool = Field(default=False)
 
     dashscope_api_key: str = Field(default="")
     llm_api_key: str = Field(default="")  # 对话/切分 LLM 专用 Key；空则回退 dashscope_api_key
@@ -79,17 +83,6 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(default="http://localhost:6333")
     qdrant_api_key: str | None = Field(default=None)
     qdrant_collection: str = Field(default="juyao_knowledge_chunks")
-    # 社区摘要独立 collection（派系 2 Step 2）：与 chunks 物理隔离，独立 upsert/delete
-    community_summary_collection: str = Field(default="community_summaries")
-    # 摘要 embedding 可独立指定；None=跟随 embed_provider/embed_model（默认同源）
-    community_summary_embed_provider: str | None = Field(default=None)
-    community_summary_embedding_model: str | None = Field(default=None)
-    community_summary_top_k: int = Field(default=2)
-    community_summary_min_similarity: float = Field(default=0.5)
-    # 社区摘要生成并发：build_communities 用线程池并行调 LLM（本地模型可跑高并发提速）
-    community_summary_max_workers: int = Field(default=10)
-    # 单条社区摘要 LLM 超时（秒）：服务器过载时避免整批摘要失败为空串
-    community_summary_timeout_s: float = Field(default=180.0)
 
     # --- Elasticsearch ---
     elasticsearch_url: str = Field(default="http://localhost:9201")
@@ -148,16 +141,47 @@ class Settings(BaseSettings):
         description="命中即视为复杂问题的关键词（触发 LLM 改写/HyDE）",
     )
 
-    # --- 社区重建调度（合并批量入库的重建触发）---
-    # 入库不再立即全量重建社区，改为标记 dirty + 静默窗口 debounce：
-    # 连续 N 秒无新入库请求才统一重建（批量上传只重建一次，避免 N 文档 N 次重建 + 并行踩踏）。
-    # 内部人员手动上传必然有停顿，30 秒静默窗口足以覆盖批量操作间隙。
-    community_rebuild_debounce_s: float = Field(default=180.0)
+    # --- 图谱快照同步调度（原社区重建调度骨架，社区已随 LightRAG 迁移删除）---
+    # 入库只标记 dirty + 静默窗口 debounce：连续 N 秒无新入库请求才统一全量同步 MySQL 快照
+    # （校正 upsert_graph_delta 增量的度数漂移；批量上传只同步一次）。
+    graph_sync_debounce_s: float = Field(default=180.0)
+
+    # --- LightRAG 图谱卡片（LIGHTRAG_MIGRATION_REVIEW §4.3/§5）---
+    # 实体/关系摘要向量库：与 chunks 物理隔离的独立 collection，local/global 双路检索入口
+    kg_card_collection: str = Field(default="kg_cards")
+    kg_local_topk: int = Field(default=8, description="local 路实体卡召回数")
+    kg_global_topk: int = Field(default=8, description="global 路关系卡召回数")
+    kg_card_rerank_top_n: int = Field(default=6, description="卡片融合去重后 rerank 保留数")
+    # 卡片向量召回下限（cosine）：低于视为不相关丢弃——比 chunk 检索（0.5）宽松，
+    # 卡片是摘要短文本，与问句的语义距离天然大于原文片段
+    kg_card_min_similarity: float = Field(default=0.35)
+    # 合并摘要写入卡片 payload/embedding 的截断上限：gloss 碎片多的热门实体防 prompt/向量膨胀
+    kg_card_summary_max_chars: int = Field(default=400)
+    kg_keyword_timeout_s: float = Field(default=15.0, description="高低层关键词提取 LLM 超时")
+    # 审核大模型严格拒答开关：True=证据不足直接拒答并告知缺什么；False=退回旧行为（有什么答什么）
+    rag_strict_refusal: bool = Field(default=True)
+
+    # --- LightRAG 卡片专用模型组（第二组 bge，双模型组隔离）---
+    # 入库/检索时传统链路（chunk 向量化+重排）与 LightRAG 链路（卡片向量化+重排）
+    # 各走各的模型服务，各 10 并发互不争抢。全部留空 = 跟随主组（embedding 用
+    # ollama_base_url，rerank 用 rerank_provider/ollama_base_url），且共享主组并发池——
+    # 指向同一服务时不放大并发，只有配置了独立端点才启用独立池。
+    kg_card_embed_base_url: str = Field(default="", description="卡片 embedding 端点（llama-swap OpenAI 兼容，自动拼 /v1）")
+    kg_card_embed_model: str = Field(default="", description="空=跟随 embed_model")
+    kg_card_max_concurrency: int = Field(default=10, description="卡片组线程池并发（独立端点生效）")
+    kg_card_rerank_provider: str = Field(default="", description="空=跟随 rerank_provider")
+    kg_card_rerank_base_url: str = Field(default="", description="卡片 rerank 端点（自动拼 /v1/rerank）")
+    kg_card_rerank_model: str = Field(default="", description="空=跟随 rerank_model")
+
+    # --- 实体摘要语义合并（每次入库 旧摘要+新gloss → LLM 融合，替代机械拼接）---
+    kg_summary_merge_enabled: bool = Field(default=True, description="False=退回机械分号拼接")
+    kg_summary_merge_batch_size: int = Field(default=8, description="单次 LLM 调用合并的实体数")
+    kg_summary_merge_workers: int = Field(default=3, description="合并 LLM 并发（对齐抽取并发）")
+    kg_summary_merge_timeout_s: float = Field(default=90.0)
 
     # --- Agentic RAG ---
-    vector_then_graph_supplement: bool = Field(default=True)
-    intent_route_mode: str = Field(default="llm")
-    intent_route_timeout_s: float = Field(default=15.0)
+    # flowchart_strict_mode/intent_route_* 已随 LLM 意图路由删除；strict 键保留在
+    # SSE meta 里仅为旧消费端兼容（恒 False）
     flowchart_strict_mode: bool = Field(default=False)
     rag_sufficiency_mode: str = Field(default="llm")
     rag_sufficiency_timeout_s: float = Field(default=25.0)
@@ -180,14 +204,6 @@ class Settings(BaseSettings):
     graph_max_hops: int = Field(default=4)  # 多跳上限（P1-1 防爆炸；用户定稿 4 跳平衡多跳能力与遍历成本）
     graph_expand_internal_path_cap: int = Field(default=120)
     graph_question_extract_timeout_s: float = Field(default=30.0)
-    # 派系 2 检索分层参数（Step 2 先定义，Step 5 实际使用）：
-    # L1 实体级跳数；L2 社区级跳数（与 L1 形成两层 fallback）
-    graph_search_l1_hops: int = Field(default=4)
-    graph_search_l1_max_edges: int = Field(default=40)
-    graph_search_l1_timeout_s: float = Field(default=10.0)
-    graph_search_l2_hops: int = Field(default=2)
-    graph_search_l2_max_edges: int = Field(default=20)
-    graph_search_l2_timeout_s: float = Field(default=5.0)
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = Field(default="127.0.0.1:9092")
@@ -234,16 +250,20 @@ def chunk_collection(kb_id: int | None = None) -> str:
     return base if kb == 0 else f"{base}_kb{kb}"
 
 
-def community_collection(kb_id: int | None = None) -> str:
-    """社区摘要 collection 名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。"""
-    base = get_settings().community_summary_collection
+def es_index(kb_id: int | None = None) -> str:
+    """ES 全文索引名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。"""
+    base = get_settings().elasticsearch_index
     kb = int(kb_id or 0)
     return base if kb == 0 else f"{base}_kb{kb}"
 
 
-def es_index(kb_id: int | None = None) -> str:
-    """ES 全文索引名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。"""
-    base = get_settings().elasticsearch_index
+def kg_card_collection(kb_id: int | None = None) -> str:
+    """LightRAG 实体/关系卡片 collection 名（kb=0/None → 原名；kb>0 → {原名}_kb{id}）。
+
+    卡片与切片/社区摘要物理隔离：检索侧按 type=entity|relation 元数据过滤（payload index），
+    实体卡与关系卡共用一个 collection，减少容器数量。
+    """
+    base = get_settings().kg_card_collection
     kb = int(kb_id or 0)
     return base if kb == 0 else f"{base}_kb{kb}"
 

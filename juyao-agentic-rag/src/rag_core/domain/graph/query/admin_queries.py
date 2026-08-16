@@ -1,6 +1,6 @@
 """图谱管理查询（数据源：MySQL 快照表；subgraph 例外保留 Neo4j 图遍历）。
 
-管理台列表/统计/社区面板走 rag_graph_* 快照表（由 community_scheduler 同步），
+管理台列表/统计走 rag_graph_* 快照表（由 graph_sync_scheduler 同步），
 查询快且按 kb_id 过滤天然隔离；subgraph（种子多跳）是图遍历语义，
 MySQL 做不了，保留 Neo4j（标签隔离：EntityKb{id}）。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from rag_core.domain.graph.query.edge_view import GraphEdgeView
-from rag_core.infrastructure.neo4j import community_label, entity_label, get_read_graph
+from rag_core.infrastructure.neo4j import entity_label, get_read_graph
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,22 @@ def graph_stats(kb_id: int = 0, top_n: int = 10) -> dict:
     return graph_stats_mysql(kb_id, top_n=top_n)
 
 
+def entity_detail(kb_id: int, name: str) -> dict | None:
+    """实体详情（点击图谱节点）：MySQL 快照直查，含简注列表与合并摘要。"""
+    from rag_core.infrastructure.mysql_graph import entity_detail_mysql
+
+    return entity_detail_mysql(kb_id, name)
+
+
+def edge_detail(kb_id: int, head_name: str, relation_predicate: str, tail_name: str) -> dict | None:
+    """边详情（点击图谱边）：MySQL 快照直查，全部 hints 列表（类 Neo4j 属性面板）。"""
+    from rag_core.infrastructure.mysql_graph import edge_detail_mysql
+
+    return edge_detail_mysql(kb_id, head_name, relation_predicate, tail_name)
+
+
 def full_graph(kb_id: int = 0, limit: int | None = None) -> dict:
-    """全图节点边（MySQL 快照组装，节点带 community_id）。
+    """全图节点边（MySQL 快照组装）。
 
     limit=None → 默认 300（防大库卡死）；limit=0 → 全量不加 LIMIT（PITFALLS #22：
     路由层与函数层必须统一「0=全量」，禁止 falsy 转换）。
@@ -103,25 +117,13 @@ def _edge_view_to_dict(view: GraphEdgeView) -> dict:
     }
 
 
-def _fetch_community_map(kb_id: int, entity_names: list[str]) -> dict[str, str]:
-    """实体名 → community_id（无归属实体不在返回中；按 kb 标签查询）。"""
-    if not entity_names:
-        return {}
-    label = entity_label(kb_id)
-    rows = get_read_graph().query(
-        f"MATCH (e:{label})-[:MEMBER_OF]->(c:{community_label(kb_id)}) "
-        "WHERE e.name IN $names RETURN e.name AS name, c.id AS cid",
-        params={"names": entity_names},
-    )
-    return {r["name"]: str(r["cid"]) for r in rows}
-
-
 def _edges_to_subgraph(kb_id: int, rows: list[dict]) -> dict:
     """边行 → {nodes, edges}（管理台可视化结构）。
 
     Cypher 返回列名不统一：list 接口走 _edge_rows_to_dict（head_name/tail_name），
     full_graph/subgraph 直接 RETURN h/rel/t——两处都要兼容，避免 KeyError。
-    节点带 community_id（无归属不带），前端据此按社区着色。
+    （节点不再带 community_id——社区已随 LightRAG 迁移删除，前端按社区
+    着色自然失效，无色渲染不受影响。）
     """
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
@@ -139,12 +141,6 @@ def _edges_to_subgraph(kb_id: int, rows: list[dict]) -> dict:
                 "relation": row.get("relation_predicate") or row.get("rel") or "",
             }
         )
-    # 批量注入社区归属：一次查询避免 N+1
-    community_map = _fetch_community_map(kb_id, list(nodes.keys()))
-    for node in nodes.values():
-        cid = community_map.get(node["name"])
-        if cid:
-            node["community_id"] = cid
     # 契约对齐：GraphSubgraphResponse/前端可视化组件用 links（不是 edges）
     return {"nodes": list(nodes.values()), "links": edges}
 

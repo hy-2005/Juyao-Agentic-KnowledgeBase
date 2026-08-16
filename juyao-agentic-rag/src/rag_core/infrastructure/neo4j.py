@@ -17,15 +17,10 @@ def entity_label(kb_id: int) -> str:
     """kb 图谱的实体标签（标签隔离：每 kb 一套独立节点，替代 kb_ids 元数据过滤）。
 
     标签方案下 MATCH (e:EntityKb{id}) 由标签索引直接定位该 kb 节点集合，
-    社区重建等只遍历本 kb 内部数据；而 kb_ids 数组属性走不了索引，全库边
+    图谱同步等只遍历本 kb 内部数据；而 kb_ids 数组属性走不了索引，全库边
     线性扫描（详见 GRAPH_QUERY_REVIEW §标签隔离）。kb_id 是 int，拼接无注入风险。
     """
     return f"EntityKb{int(kb_id)}"
-
-
-def community_label(kb_id: int) -> str:
-    """kb 图谱的社区标签（与实体标签配套；社区/成员关系仅存在于本 kb 标签内）。"""
-    return f"CommunityKb{int(kb_id)}"
 
 
 
@@ -54,11 +49,17 @@ def _upsert_related_batch_query(kb_id: int) -> str:
 UNWIND $triples AS t
 MERGE (h:{label} {{name: t.head_name}})
 ON CREATE SET h.created_at = timestamp()
-SET h.updated_at = timestamp()
+SET h.updated_at = timestamp(),
+    h.summary_hints = CASE WHEN t.head_gloss <> '' AND NOT t.head_gloss IN coalesce(h.summary_hints, [])
+        THEN coalesce(h.summary_hints, []) + t.head_gloss
+        ELSE coalesce(h.summary_hints, []) END
 
 MERGE (tgt:{label} {{name: t.tail_name}})
 ON CREATE SET tgt.created_at = timestamp()
-SET tgt.updated_at = timestamp()
+SET tgt.updated_at = timestamp(),
+    tgt.summary_hints = CASE WHEN t.tail_gloss <> '' AND NOT t.tail_gloss IN coalesce(tgt.summary_hints, [])
+        THEN coalesce(tgt.summary_hints, []) + t.tail_gloss
+        ELSE coalesce(tgt.summary_hints, []) END
 
 MERGE (h)-[r:RELATED {{relation: t.relation}}]->(tgt)
 ON CREATE SET
@@ -204,6 +205,9 @@ class Neo4jTripleStore:
                     "relation_category": triple.relation_category or "",
                     "relation_full": (triple.relation_full or "")[:600],
                     "modality": triple.modality or "",
+                    # gloss 截断 200（parse 侧已截 120，双保险防超长 list 项）
+                    "head_gloss": (triple.head_gloss or "")[:200],
+                    "tail_gloss": (triple.tail_gloss or "")[:200],
                     "triplet_id": str(uuid.uuid4()),
                     "schema_ver": KG_JSON_SCHEMA_VERSION,
                 }
@@ -213,11 +217,16 @@ class Neo4jTripleStore:
 
     def purge_document_edges(
         self, *, name_prefix: str, source_display_name: str, kb_id: int | None = None
-    ) -> None:
+    ) -> dict:
         """按 source_doc_id / chunk_id 前缀（与 contracts 中 safe_name: 一致）清理 RELATED 边，并删除孤立 Entity。
 
         标签隔离版：直接按 EntityKb{id} 标签圈定本 kb 图，不再需要 kb_ids 数组过滤；
         kb_id 缺省按 0（单库默认）处理。
+
+        返回删除清单（LightRAG 卡片同步用，LIGHTRAG_MIGRATION_REVIEW §4.4）：
+          deleted_edges: [(head, relation, tail)]——引用清空后被删除的边
+          deleted_entities: [name]——随之消失的孤立实体
+        注意：幸存实体的 summary_hints 不回滚（gloss 是角色描述非事实断言，可接受）。
         """
         kb = int(kb_id or 0)
         label = entity_label(kb)
@@ -232,6 +241,18 @@ class Neo4jTripleStore:
             """,
             {"np": name_prefix, "sn": source_display_name},
         )
+        # 先读后删：把将被删除的边 key 收集出来（供 kg_cards 副本清理），
+        # 读与删非原子但同前缀场景下窗口极小，卡片残留可由 rebuild 兜底
+        doomed = self._driver.execute_query(
+            f"""
+            MATCH (h:{label})-[r:RELATED]->(t:{label})
+            WHERE size(coalesce(r.chunk_ids, [])) = 0 AND size(coalesce(r.doc_ids, [])) = 0
+            RETURN h.name AS h, r.relation AS rel, t.name AS t
+            """
+        )
+        deleted_edges = [
+            (str(rec["h"]), str(rec["rel"]), str(rec["t"])) for rec in doomed.records
+        ]
         self._run(
             f"""
             MATCH (h:{label})-[r:RELATED]->(t:{label})
@@ -239,14 +260,21 @@ class Neo4jTripleStore:
             DELETE r
             """
         )
-        # DETACH:实体可能还挂着 MEMBER_OF(社区成员)边,普通 DELETE 会因"仍有关系"报错
+        # 孤立实体同样先读后删（卡片副本要删对应的实体卡）
+        orphans = self._driver.execute_query(
+            f"MATCH (e:{label}) WHERE NOT (e)-[:RELATED]-() RETURN e.name AS n"
+        )
+        deleted_entities = [str(rec["n"]) for rec in orphans.records]
+        # DETACH:存量库实体可能还挂着 MEMBER_OF(社区成员,已废弃)边,普通 DELETE 会报错
         self._run(f"MATCH (e:{label}) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
+        return {"deleted_edges": deleted_edges, "deleted_entities": deleted_entities}
 
-    def purge_chunk_ids(self, chunk_ids: list[str], kb_id: int | None = None) -> None:
+    def purge_chunk_ids(self, chunk_ids: list[str], kb_id: int | None = None) -> dict:
         """按具体 chunk_id 列表移除边引用（先写后删差集清理用）。
 
         与 purge_document_edges 的区别：后者按前缀 STARTS WITH 清（适合整文档），
         这里是精确 id 列表——清空引用后删边、删孤立节点。
+        返回值同 purge_document_edges（deleted_edges/deleted_entities，卡片副本清理用）。
 
         边界：
         - 只清 `r.chunk_ids` 中的指定 chunk_id 引用；**不动 r.doc_ids**（doc_ids 里存的是
@@ -257,7 +285,7 @@ class Neo4jTripleStore:
           doc_ids 非空）
         """
         if not chunk_ids:
-            return
+            return {"deleted_edges": [], "deleted_entities": []}
         kb = int(kb_id or 0)
         label = entity_label(kb)
         self._run(
@@ -267,6 +295,16 @@ class Neo4jTripleStore:
             """,
             {"chunk_ids": chunk_ids},
         )
+        doomed = self._driver.execute_query(
+            f"""
+            MATCH (h:{label})-[r:RELATED]->(t:{label})
+            WHERE size(coalesce(r.chunk_ids, [])) = 0 AND size(coalesce(r.doc_ids, [])) = 0
+            RETURN h.name AS h, r.relation AS rel, t.name AS t
+            """
+        )
+        deleted_edges = [
+            (str(rec["h"]), str(rec["rel"]), str(rec["t"])) for rec in doomed.records
+        ]
         self._run(
             f"""
             MATCH (h:{label})-[r:RELATED]->(t:{label})
@@ -274,6 +312,11 @@ class Neo4jTripleStore:
             DELETE r
             """
         )
-        # DETACH:实体可能还挂着 MEMBER_OF(社区成员)边,普通 DELETE 会因"仍有关系"报错
+        orphans = self._driver.execute_query(
+            f"MATCH (e:{label}) WHERE NOT (e)-[:RELATED]-() RETURN e.name AS n"
+        )
+        deleted_entities = [str(rec["n"]) for rec in orphans.records]
+        # DETACH:存量库实体可能还挂着 MEMBER_OF(社区成员,已废弃)边,普通 DELETE 会报错
         self._run(f"MATCH (e:{label}) WHERE NOT (e)-[:RELATED]-() DETACH DELETE e")
+        return {"deleted_edges": deleted_edges, "deleted_entities": deleted_entities}
 

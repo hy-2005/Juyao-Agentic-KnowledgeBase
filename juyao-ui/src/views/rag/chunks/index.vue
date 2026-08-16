@@ -11,7 +11,7 @@
 
     <el-form v-show="showSearch" ref="queryForm" :model="queryParams" size="small" :inline="true">
       <el-form-item label="知识库">
-        <el-select v-model="queryParams.kbId" size="mini" style="width: 150px" @change="handleQuery">
+        <el-select v-model="queryParams.kbId" size="mini" style="width: 150px" @change="handleKbChange">
           <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
         </el-select>
       </el-form-item>
@@ -170,7 +170,7 @@ export default {
       queryParams: {
         pageNum: 1,
         pageSize: 10,
-        kbId: 0, // 当前知识库（0=默认库）
+        kbId: this.$store.state.kb.currentKbId != null ? this.$store.state.kb.currentKbId : 0, // 全局 kb（未选择回落默认库）
         sourceName: undefined,
         keyword: undefined
       },
@@ -239,6 +239,23 @@ export default {
     this.loadStats()
     this.getList()
   },
+  activated() {
+    // keep-alive 回页：全局 kb 可能被顶栏/其他页面改过，跟随并刷新
+    const globalKb = this.$store.state.kb.currentKbId != null ? this.$store.state.kb.currentKbId : 0
+    if (globalKb !== this.queryParams.kbId) {
+      this.queryParams.kbId = globalKb
+      this.handleQuery()
+    }
+  },
+  watch: {
+    '$store.state.kb.currentKbId'(newId) {
+      // 顶栏/其他页面切换了全局 kb：本页跟随（未选择回落默认库 0）
+      const target = newId != null ? newId : 0
+      if (target === this.queryParams.kbId) return
+      this.queryParams.kbId = target
+      this.handleQuery()
+    }
+  },
   methods: {
     loadKbs() {
       listKbs().then((res) => {
@@ -289,6 +306,11 @@ export default {
       this.loadDocOptions()
       this.loadStats()
       this.getList()
+    },
+    handleKbChange() {
+      // 本页选库后同步全局（文档/图谱/对话/顶栏跟随）
+      this.$store.commit('kb/SET_CURRENT_KB_ID', this.queryParams.kbId)
+      this.handleQuery()
     },
     resetQuery() {
       this.resetForm('queryForm')

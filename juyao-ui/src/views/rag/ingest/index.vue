@@ -8,7 +8,7 @@
           clearable
           size="mini"
           style="width: 170px"
-          @change="handleQuery"
+          @change="handleKbChange"
         >
           <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
         </el-select>
@@ -188,7 +188,7 @@ export default {
       queryParams: {
         pageNum: 1,
         pageSize: 10,
-        kbId: null, // 下拉选库名过滤；null=查全部知识库
+        kbId: this.$store.state.kb.currentKbId, // 全局 kb 选择（null=查全部知识库）
         docLogicalKey: undefined,
         fileExt: undefined
       },
@@ -216,6 +216,14 @@ export default {
       return [...this.uploadExts, ...this.uploadExts.map((e) => e.toUpperCase())].join(',')
     }
   },
+  watch: {
+    '$store.state.kb.currentKbId'(newId) {
+      // 顶栏/其他页面切换了全局 kb：本页跟随（null=恢复「全部」）
+      if (newId === this.queryParams.kbId) return
+      this.queryParams.kbId = newId
+      this.handleQuery()
+    }
+  },
   created() {
     this.loadKbs()
     this.getList()
@@ -225,6 +233,12 @@ export default {
     // RuoYi keep-alive 缓存页面：从知识库管理页新建库后切回本页，created 不再触发，需手动刷新下拉
     this.loadKbs()
     this.loadCommunityStatus()
+    // 离开本页期间全局 kb 可能被顶栏/其他页面改过：回页时跟随
+    const globalKb = this.$store.state.kb.currentKbId
+    if (globalKb !== this.queryParams.kbId) {
+      this.queryParams.kbId = globalKb
+      this.handleQuery()
+    }
   },
   methods: {
     loadKbs() {
@@ -304,12 +318,21 @@ export default {
       this.queryParams.pageNum = 1
       this.getList()
     },
+    handleKbChange() {
+      // 本页选库后同步全局（切片/图谱/对话/顶栏跟随）；el-select 清空给 ''，归一化为 null
+      const v = this.queryParams.kbId === '' ? null : this.queryParams.kbId
+      this.queryParams.kbId = v
+      this.$store.commit('kb/SET_CURRENT_KB_ID', v)
+      this.handleQuery()
+    },
     resetQuery() {
       this.dateRange = []
       this.resetForm('queryForm')
       this.queryParams.kbId = null
       this.queryParams.docLogicalKey = undefined
       this.queryParams.fileExt = undefined
+      // 重置同时解除全局 kb 选择（回到「全部」）
+      this.$store.commit('kb/SET_CURRENT_KB_ID', null)
       this.handleQuery()
     },
     handleSelectionChange(selection) {

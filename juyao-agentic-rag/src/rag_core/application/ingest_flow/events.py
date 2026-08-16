@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 def apply_kafka_ingest_payload(payload: dict[str, Any], *, build_communities: bool = True) -> None:
     """执行 UPSERT（先删后写）或 DELETE；供 Kafka 消费者与 FastAPI 内部 HTTP 共用。
 
-    build_communities=False 时入库不立即重建社区（由上层调度器静默窗口统一重建）。
+    build_communities=False 时入库不立即同步图谱快照（由 graph_sync_scheduler 静默窗口统一同步）。
     返回 (kb_id, changed)：changed=True 表示内容真正写库（hash 判重通过），
-    上层据此标记 dirty 等待调度器重建；CLI 等直接调用方保持默认 True。
+    上层据此标记 dirty 等待调度器同步；CLI 等直接调用方保持默认 True。
     """
     v = int(payload.get("v") or 1)
     if v != 1:

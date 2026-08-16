@@ -1,9 +1,9 @@
-"""图谱/社区 MySQL 持久化：管理台列表/统计/社区面板走 MySQL，Neo4j 保留做图遍历。
+"""图谱 MySQL 持久化：管理台列表/统计走 MySQL，Neo4j 保留做图遍历。
 
-表：rag_graph_entity / rag_graph_edge / rag_community / rag_community_member
-（建表见 sql/rag_all.sql 汇总文件）。快照由 community_scheduler 在 30s 静默窗口后全量重建：
-Neo4j 侧按 EntityKb{id}/CommunityKb{id} 标签分批拉取（LIMIT 游标，防大图 OOM），
-MySQL 侧事务内清空该 kb 四表 + 分批 executemany 插入（每批 500 行）。
+表：rag_graph_entity / rag_graph_edge（+ 已废弃的 rag_community/rag_community_member，
+列保留供存量数据读取，不再写入）。快照由 graph_sync_scheduler 在静默窗口后全量同步：
+Neo4j 侧按 EntityKb{id} 标签分批拉取（LIMIT 游标，防大图 OOM），
+MySQL 侧事务内清空该 kb 表 + 分批 executemany 插入（每批 500 行）。
 
 查询契约与 ES 时代 admin_queries 对齐，前端/Java 网关不变。
 """
@@ -16,7 +16,7 @@ import os
 
 import pymysql
 
-from rag_core.infrastructure.neo4j import community_label, entity_label, get_read_graph
+from rag_core.infrastructure.neo4j import entity_label, get_read_graph
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,15 @@ def _connect() -> pymysql.connections.Connection:
     )
 
 
+def _json_col(value) -> str | None:
+    """增量写入侧的 JSON 列归一：空列表/空串 → NULL（空串不是合法 JSON，历史坑）。"""
+    if isinstance(value, str):
+        return value if value.strip() else None
+    if isinstance(value, (list, tuple)):
+        return json.dumps([str(x) for x in value], ensure_ascii=False) if value else None
+    return None
+
+
 def _iter_pages(query: str, params: dict | None = None, page_size: int = _SYNC_BATCH):
     """Neo4j 分批游标读取：按 name 排序 SKIP/LIMIT 翻页，避免一次全量载入内存。"""
     skip = 0
@@ -60,7 +69,7 @@ def _iter_pages(query: str, params: dict | None = None, page_size: int = _SYNC_B
 
 
 def _fetch_entities(kb_id: int) -> list[tuple]:
-    """分批拉实体 + 入出度 + 社区归属（count{} 模式计数为 Neo4j 5.x 语法）。"""
+    """分批拉实体 + 入出度 + 简注（count{} 模式计数为 Neo4j 5.x 语法；社区归属已废弃恒 None）。"""
     label = entity_label(kb_id)
     rows = []
     for page in _iter_pages(
@@ -71,8 +80,7 @@ def _fetch_entities(kb_id: int) -> list[tuple]:
           RETURN count{{ (e)-[:RELATED]->() }} AS out_d,
                  count{{ ()-[:RELATED]->(e) }} AS in_d
         }}
-        OPTIONAL MATCH (e)-[:MEMBER_OF]->(c:{community_label(kb_id)})
-        RETURN e.name AS name, in_d, out_d, c.id AS cid
+        RETURN e.name AS name, in_d, out_d, coalesce(e.summary_hints, []) AS glosses
         ORDER BY e.name SKIP $skip LIMIT $limit
         """
     ):
@@ -82,21 +90,28 @@ def _fetch_entities(kb_id: int) -> list[tuple]:
                     str(r.get("name") or ""),
                     int(r.get("in_d") or 0),
                     int(r.get("out_d") or 0),
-                    str(r.get("cid") or "") or None,
+                    None,
+                    [str(g) for g in (r.get("glosses") or [])],
                 )
             )
     return rows
 
 
 def _fetch_edges(kb_id: int) -> list[tuple]:
-    """分批拉边（chunk_ids/证据片段序列化 JSON 由 MySQL 写入时处理）。"""
+    """分批拉边（全部 hints 列表一并拉出供详情持久化，JSON 由 MySQL 写入侧序列化）。"""
     label = entity_label(kb_id)
     rows = []
     for page in _iter_pages(
         f"""
         MATCH (h:{label})-[r:RELATED]->(t:{label})
         RETURN h.name AS h, r.relation AS rel, t.name AS t,
-               r.chunk_ids AS cids, r.evidence_snippets AS ev
+               coalesce(r.chunk_ids, []) AS cids, coalesce(r.evidence_snippets, []) AS ev,
+               coalesce(r.relation_full_hints, []) AS rfull, coalesce(r.relation_category_hints, []) AS rcat,
+               coalesce(r.time_hints, []) AS th, coalesce(r.location_hints, []) AS lh,
+               coalesce(r.head_kind_hints, []) AS hk, coalesce(r.tail_kind_hints, []) AS tk,
+               coalesce(r.head_sense_hints, []) AS hs, coalesce(r.tail_sense_hints, []) AS ts,
+               coalesce(r.modality_hints, []) AS md, coalesce(r.doc_ids, []) AS dids,
+               coalesce(r.source_names, []) AS snames
         ORDER BY h.name, rel, t.name SKIP $skip LIMIT $limit
         """
     ):
@@ -106,33 +121,22 @@ def _fetch_edges(kb_id: int) -> list[tuple]:
                     str(r.get("h") or ""),
                     str(r.get("rel") or ""),
                     str(r.get("t") or ""),
-                    json.dumps(list(r.get("cids") or []), ensure_ascii=False),
-                    json.dumps(list(r.get("ev") or []), ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("cids") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("ev") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("rfull") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("rcat") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("th") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("lh") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("hk") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("tk") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("hs") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("ts") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("md") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("dids") or [])], ensure_ascii=False),
+                    json.dumps([str(x) for x in (r.get("snames") or [])], ensure_ascii=False),
                 )
             )
     return rows
-
-
-def _fetch_communities(kb_id: int) -> tuple[list[tuple], list[tuple]]:
-    """分批拉社区（摘要/实体数）+ 成员对（community_id, entity_name）。"""
-    from rag_core.application.graph.community_build import list_community_summaries
-
-    communities = [
-        (str(s.get("community_id") or ""), str(s.get("summary") or ""), int(s.get("entity_count") or 0))
-        for s in list_community_summaries(kb_id)
-    ]
-    elabel = entity_label(kb_id)
-    members: list[tuple] = []
-    for page in _iter_pages(
-        f"""
-        MATCH (e:{elabel})-[:MEMBER_OF]->(c:{community_label(kb_id)})
-        RETURN c.id AS cid, e.name AS name
-        ORDER BY c.id, e.name SKIP $skip LIMIT $limit
-        """
-    ):
-        for r in page:
-            members.append((str(r.get("cid") or ""), str(r.get("name") or "")))
-    return communities, members
 
 
 def _exec_batches(cur, sql: str, rows: list[tuple]) -> None:
@@ -144,60 +148,60 @@ def _exec_batches(cur, sql: str, rows: list[tuple]) -> None:
 def sync_graph_snapshot_to_mysql(kb_id: int) -> int:
     """Neo4j → MySQL 全量快照重建（按 kb 分批拉取 + 分批插入，防 OOM）。
 
-    事务语义：同一连接内先清空该 kb 四表再插入——中途失败整体回滚，
+    事务语义：同一连接内先清空该 kb 各表再插入——中途失败整体回滚，
     不会出现「实体删了边没删」的半成品快照。返回写入行数合计。
+    rag_community* 两表一并清空（社区已废弃，防存量残留误导管理台）。
     """
     kb = int(kb_id)
     entities = _fetch_entities(kb)
     edges = _fetch_edges(kb)
-    communities, members = _fetch_communities(kb)
     conn = _connect()
     try:
         with conn.cursor() as cur:
             for table in ("rag_community_member", "rag_community", "rag_graph_edge", "rag_graph_entity"):
                 cur.execute(f"DELETE FROM {table} WHERE kb_id = %s", (kb,))
-            # ON DUPLICATE KEY UPDATE 兜底：Neo4j 源数据异常（如实体挂多社区导致
-            # 拉取行重复）时唯一键冲突不炸整批——重复行覆盖为最新值即可
+            # ON DUPLICATE KEY UPDATE 兜底：Neo4j 源数据异常（拉取行重复）时
+            # 唯一键冲突不炸整批——重复行覆盖为最新值即可
             _exec_batches(
                 cur,
-                "INSERT INTO rag_graph_entity (kb_id, name, community_id, in_degree, out_degree) "
-                "VALUES (%s,%s,%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE community_id = VALUES(community_id), "
-                "in_degree = VALUES(in_degree), out_degree = VALUES(out_degree)",
-                [(kb, name, cid, in_d, out_d) for name, in_d, out_d, cid in entities],
-            )
-            _exec_batches(
-                cur,
-                "INSERT INTO rag_graph_edge (kb_id, head_name, relation_predicate, tail_name, chunk_ids, evidence_snippets) "
+                "INSERT INTO rag_graph_entity (kb_id, name, community_id, in_degree, out_degree, summary_hints) "
                 "VALUES (%s,%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE community_id = VALUES(community_id), "
+                "in_degree = VALUES(in_degree), out_degree = VALUES(out_degree), "
+                "summary_hints = VALUES(summary_hints)",
+                [
+                    (kb, name, cid, in_d, out_d, _json_col(glosses))
+                    for name, in_d, out_d, cid, glosses in entities
+                ],
+            )
+            _exec_batches(
+                cur,
+                "INSERT INTO rag_graph_edge (kb_id, head_name, relation_predicate, tail_name, chunk_ids, "
+                "evidence_snippets, relation_full_hints, relation_category_hints, time_hints, location_hints, "
+                "head_kind_hints, tail_kind_hints, head_sense_hints, tail_sense_hints, modality_hints, "
+                "doc_ids, source_names) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON DUPLICATE KEY UPDATE chunk_ids = VALUES(chunk_ids), "
-                "evidence_snippets = VALUES(evidence_snippets)",
-                [(kb, h, rel, t, cids, ev) for h, rel, t, cids, ev in edges],
-            )
-            _exec_batches(
-                cur,
-                "INSERT INTO rag_community (kb_id, community_id, summary, entity_count) "
-                "VALUES (%s,%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE summary = VALUES(summary), "
-                "entity_count = VALUES(entity_count)",
-                [(kb, cid, summary, cnt) for cid, summary, cnt in communities],
-            )
-            _exec_batches(
-                cur,
-                "INSERT INTO rag_community_member (kb_id, community_id, entity_name) "
-                "VALUES (%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE kb_id = VALUES(kb_id)",
-                [(kb, cid, name) for cid, name in members],
+                "evidence_snippets = VALUES(evidence_snippets), "
+                "relation_full_hints = VALUES(relation_full_hints), "
+                "relation_category_hints = VALUES(relation_category_hints), "
+                "time_hints = VALUES(time_hints), location_hints = VALUES(location_hints), "
+                "head_kind_hints = VALUES(head_kind_hints), tail_kind_hints = VALUES(tail_kind_hints), "
+                "head_sense_hints = VALUES(head_sense_hints), tail_sense_hints = VALUES(tail_sense_hints), "
+                "modality_hints = VALUES(modality_hints), doc_ids = VALUES(doc_ids), "
+                "source_names = VALUES(source_names)",
+                [
+                    (kb, h, rel, t, cids, ev, rfull, rcat, th, lh, hk, tk, hs, ts, md, dids, snames)
+                    for (h, rel, t, cids, ev, rfull, rcat, th, lh, hk, tk, hs, ts, md, dids, snames) in edges
+                ],
             )
         conn.commit()
-        total = len(entities) + len(edges) + len(communities) + len(members)
+        total = len(entities) + len(edges)
         logger.info(
-            "【图谱快照】MySQL 同步完成 kb=%s 实体=%s 边=%s 社区=%s 成员=%s",
+            "【图谱快照】MySQL 同步完成 kb=%s 实体=%s 边=%s",
             kb,
             len(entities),
             len(edges),
-            len(communities),
-            len(members),
         )
         return total
     except Exception as exc:
@@ -225,6 +229,176 @@ def purge_kb_graph_snapshot(kb_id: int) -> int:
         return 0
     finally:
         conn.close()
+
+
+def upsert_graph_delta(
+    kb_id: int,
+    entities: list[tuple[str, int, int, list[str]]],
+    edges: list[dict],
+) -> int:
+    """按文档增量写入图谱快照：每份文档图谱构建完成后立即 upsert，管理页/图谱页立即可见。
+
+    - entities: (name, in_degree_delta, out_degree_delta, glosses)——度数按增量累加
+      （ON DUPLICATE KEY UPDATE 累加；内容变更重传场景可能轻微漂移，
+      调度器静默窗口后的全量同步 sync_graph_snapshot_to_mysql 负责校正）
+    - edges: dict(head/relation/tail + chunk_ids/relation_full/categories/time/location/evidence/
+      head_type/tail_type/head_sense/tail_sense/modality 均 list[str])——hints 按本批覆盖
+      （跨文档累积的真值在 Neo4j，全量同步校正；与 chunk_ids 覆盖语义一致）
+    """
+    if not entities and not edges:
+        return 0
+    kb = int(kb_id)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            if entities:
+                _exec_batches(
+                    cur,
+                    "INSERT INTO rag_graph_entity (kb_id, name, in_degree, out_degree, summary_hints) "
+                    "VALUES (%s,%s,%s,%s,%s) "
+                    "ON DUPLICATE KEY UPDATE in_degree = in_degree + VALUES(in_degree), "
+                    "out_degree = out_degree + VALUES(out_degree), "
+                    "summary_hints = VALUES(summary_hints)",
+                    [(kb, n, ind, outd, _json_col(g)) for n, ind, outd, g in entities],
+                )
+            if edges:
+                _exec_batches(
+                    cur,
+                    "INSERT INTO rag_graph_edge "
+                    "(kb_id, head_name, relation_predicate, tail_name, chunk_ids, evidence_snippets, "
+                    "relation_full_hints, relation_category_hints, time_hints, location_hints, "
+                    "head_kind_hints, tail_kind_hints, head_sense_hints, tail_sense_hints, "
+                    "modality_hints) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON DUPLICATE KEY UPDATE chunk_ids = VALUES(chunk_ids), "
+                    "evidence_snippets = VALUES(evidence_snippets), "
+                    "relation_full_hints = VALUES(relation_full_hints), "
+                    "relation_category_hints = VALUES(relation_category_hints), "
+                    "time_hints = VALUES(time_hints), location_hints = VALUES(location_hints), "
+                    "head_kind_hints = VALUES(head_kind_hints), tail_kind_hints = VALUES(tail_kind_hints), "
+                    "head_sense_hints = VALUES(head_sense_hints), tail_sense_hints = VALUES(tail_sense_hints), "
+                    "modality_hints = VALUES(modality_hints)",
+                    [
+                        (
+                            kb, e["head"], e["relation"], e["tail"],
+                            _json_col(e.get("chunk_ids")),
+                            _json_col(e.get("evidence")),
+                            _json_col(e.get("relation_full")),
+                            _json_col(e.get("categories")),
+                            _json_col(e.get("time")),
+                            _json_col(e.get("location")),
+                            _json_col(e.get("head_type")),
+                            _json_col(e.get("tail_type")),
+                            _json_col(e.get("head_sense")),
+                            _json_col(e.get("tail_sense")),
+                            _json_col(e.get("modality")),
+                        )
+                        for e in edges
+                    ],
+                )
+        conn.commit()
+        logger.info(
+            "【图谱快照】增量同步 kb=%s 实体=%s 边=%s",
+            kb, len(entities), len(edges),
+        )
+        return len(entities) + len(edges)
+    except Exception as exc:
+        logger.warning("MySQL 图谱快照增量同步失败 kb=%s：%s", kb, exc)
+        return 0
+    finally:
+        conn.close()
+
+
+def entity_detail_mysql(kb_id: int, name: str) -> dict | None:
+    """实体详情（点击图谱节点展示）：名称/度数/简注列表 + 合并摘要 + 时间戳。"""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT name, in_degree, out_degree, summary_hints, create_time, update_time "
+                "FROM rag_graph_entity WHERE kb_id = %s AND name = %s",
+                (int(kb_id), name),
+            )
+            r = cur.fetchone()
+    except Exception as exc:
+        logger.warning("MySQL entity_detail 失败：%s", exc)
+        return None
+    finally:
+        conn.close()
+    if not r:
+        return None
+    hints = _parse_json_col(r.get("summary_hints"))
+    return {
+        "type": "entity",
+        "name": r["name"],
+        "in_degree": int(r["in_degree"] or 0),
+        "out_degree": int(r["out_degree"] or 0),
+        "degree": int(r["in_degree"] or 0) + int(r["out_degree"] or 0),
+        "summary_hints": hints,
+        "summary": "；".join(hints),
+        "create_time": str(r.get("create_time") or ""),
+        "update_time": str(r.get("update_time") or ""),
+    }
+
+
+def edge_detail_mysql(kb_id: int, head: str, relation: str, tail: str) -> dict | None:
+    """边详情（点击图谱边展示）：三元组 + 全部 hints 列表 + 时间戳（类 Neo4j 属性面板）。"""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT head_name, relation_predicate, tail_name, chunk_ids, evidence_snippets, "
+                "relation_full_hints, relation_category_hints, time_hints, location_hints, "
+                "head_kind_hints, tail_kind_hints, head_sense_hints, tail_sense_hints, "
+                "modality_hints, doc_ids, source_names, create_time, update_time "
+                "FROM rag_graph_edge WHERE kb_id = %s AND head_name = %s "
+                "AND relation_predicate = %s AND tail_name = %s",
+                (int(kb_id), head, relation, tail),
+            )
+            r = cur.fetchone()
+    except Exception as exc:
+        logger.warning("MySQL edge_detail 失败：%s", exc)
+        return None
+    finally:
+        conn.close()
+    if not r:
+        return None
+    relation_fulls = _parse_json_col(r.get("relation_full_hints"))
+    return {
+        "type": "relation",
+        "head_name": r["head_name"],
+        "relation_predicate": r["relation_predicate"],
+        "tail_name": r["tail_name"],
+        "chunk_ids": _parse_json_col(r.get("chunk_ids")),
+        "doc_ids": _parse_json_col(r.get("doc_ids")),
+        "source_names": _parse_json_col(r.get("source_names")),
+        "evidence_snippets": _parse_json_col(r.get("evidence_snippets")),
+        "relation_full_hints": relation_fulls,
+        "relation_full": "；".join(relation_fulls),
+        "relation_category_hints": _parse_json_col(r.get("relation_category_hints")),
+        "time_hints": _parse_json_col(r.get("time_hints")),
+        "location_hints": _parse_json_col(r.get("location_hints")),
+        "head_kind_hints": _parse_json_col(r.get("head_kind_hints")),
+        "tail_kind_hints": _parse_json_col(r.get("tail_kind_hints")),
+        "head_sense_hints": _parse_json_col(r.get("head_sense_hints")),
+        "tail_sense_hints": _parse_json_col(r.get("tail_sense_hints")),
+        "modality_hints": _parse_json_col(r.get("modality_hints")),
+        "create_time": str(r.get("create_time") or ""),
+        "update_time": str(r.get("update_time") or ""),
+    }
+
+
+def _parse_json_col(value) -> list[str]:
+    """MySQL JSON 列 → list[str]（pymysql 自动反序列化为 list；NULL/异常回退空表）。"""
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return [str(x) for x in parsed] if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
 
 
 # ---------------------------------------------------------------------------

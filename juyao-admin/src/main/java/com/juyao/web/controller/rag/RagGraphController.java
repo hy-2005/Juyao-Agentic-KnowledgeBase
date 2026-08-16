@@ -165,6 +165,44 @@ public class RagGraphController extends BaseController{
         }
     }
 
+    /** 实体详情（点击图谱节点展示：简注/度数/摘要，GRAPH_DETAIL_PERSIST_REVIEW） */
+    @GetMapping("/entity/detail")
+    public AjaxResult entityDetail(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam("name") String name){
+        try{
+            Map<String, Object> data = ragAdminClient.getJson(
+                    "/api/v1/admin/graph/entity/detail",
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "name", name));
+            return success(data);
+        } catch (Exception e){
+            return error("查询实体详情失败: " + e.getMessage());
+        }
+    }
+
+    /** 关系详情（点击图谱边展示：三元组 + 全部 hints，类 Neo4j 属性面板） */
+    @GetMapping("/edge/detail")
+    public AjaxResult edgeDetail(
+            @RequestParam(value = "kbId", defaultValue = "0") Integer kbId,
+            @RequestParam("headName") String headName,
+            @RequestParam("relationPredicate") String relationPredicate,
+            @RequestParam("tailName") String tailName){
+        try{
+            Map<String, Object> data = ragAdminClient.getJson(
+                    "/api/v1/admin/graph/edge/detail",
+                    RagAdminClient.params(
+                            "kbId", String.valueOf(kbId),
+                            "headName", headName,
+                            "relationPredicate", relationPredicate,
+                            "tailName", tailName));
+            return success(data);
+        } catch (Exception e){
+            return error("查询关系详情失败: " + e.getMessage());
+        }
+    }
+
     @Log(title = "知识图谱", businessType = BusinessType.INSERT)
     @PostMapping("/entities")
     public AjaxResult createEntity(

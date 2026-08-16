@@ -16,6 +16,8 @@ embed_provider = "ollama"  # ollama | dashscope | openai（llama-swap /v1/embedd
 local_model_max_concurrency = 10
 # 各线程池阻塞任务队列长度（满则阻塞背压）
 local_model_task_queue_size = 5000
+# 本地 qwen3 思考模式开关（false=关闭思考；2026-08-14 实测 93s→7s）
+local_think = false
 embed_model = "mxbai-embed-large:latest"
 embed_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 rerank_model = "bge-reranker-v2-m3-Q8_0"
@@ -23,8 +25,8 @@ rerank_provider = "ollama"  # dashscope | ollama（llama-swap 走 /v1/rerank）
 
 dashscope_rerank_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 dashscope_rerank_model = "gte-rerank-v2"
-dashscope_compatible_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-gen_model = "local_Qwen3-30B-A3B"  # 本地 208:11435（.env 可覆盖）
+dashscope_compatible_base_url = "https://api.deepseek.com/v1"
+gen_model = "deepseek-v4-flash"  # .env 可覆盖（2026-08-14 全量切 DeepSeek）
 dashscope_enable_thinking = false
 
 openai_base_url = "https://api.openai.com/v1"

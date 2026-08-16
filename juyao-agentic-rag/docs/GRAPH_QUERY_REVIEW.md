@@ -1,6 +1,6 @@
 # 图谱层面评审与规划（查询 + 入库 + 社区）
 
-> 状态：🔄 进行中（查询/入库/社区基础设施已完成；**派系 2 主路径改造实施中**——见 §6.5 路线图，**Steps 1-7 已完成，Step 8 评测待跑**；2026-08-12 追加「标签隔离 + MySQL 快照」多图谱改造 ✅ 已实施待实测） · 创建：2026-08-07 · 更新：2026-08-12
+> 状态：🔄 进行中（查询/入库/社区基础设施已完成；**派系 2 主路径改造实施中**——见 §6.5 路线图，**Steps 1-7 已完成，Step 8 评测待跑**；2026-08-12 追加「标签隔离 + MySQL 快照」多图谱改造 ✅ 已实施待实测；2026-08-14 §8 本地 qwen3 思考关闭 ✅） · 创建：2026-08-07 · 更新：2026-08-14
 > 范围：juyao-agentic-rag 知识图谱链路（`rag_core/knowledge_graph/` + `orchestration/` + `ingestion/graph_writer.py`）
 > 配套代码：
 > - 查询侧：`edge_queries.py`、`cypher.py`、`observation.py`、`question_seed.py`、`intent_router.py`、`routed_flow.py`、`sufficiency.py`、`finalize.py`
@@ -369,3 +369,15 @@ graph_search_l2_timeout_s: float = 5.0
 3. **图数据库资源**：Neo4j 版本/内存（GDS 库可用性——决定社区检测方案），5 跳遍历实际耗时
 4. **社区检测范围**：是否实施 global 检索（社区摘要），还是先只做 local（现有路径）+ 实体归一化
 5. **谓词候选集**：业务需要哪些自定义谓词（与业务方确认固定词表）
+
+---
+
+## 8. 本地 qwen3 思考模式关闭（2026-08-14 ✅ 已实施验证）
+
+**背景**：LLM 切回本地 qwen3-30B 后，图谱抽取单 chunk 达 93s（思考 token 占大头），批量入库极慢。
+
+**实现**：请求体下发 `chat_template_kwargs={"enable_thinking": false}`（llama-swap 协议字段，实测可用）——封装为 `local_think` 配置（默认 false=关闭思考，仅本地 base_url 生效），图谱抽取（`json_client.get_json_chat_llm`）与语义切分（`factory._resolve_dashscope_task_llm`）生效；对话 LLM 保留思考（问答质量优先）。
+
+**验证**：同一抽取 prompt 实测 **93s → 7s**（reasoning_content 从 1447 字 → 0），三元组质量无损；py_compile 通过。
+
+**注意**：qwen3 是自适应思考（简单题不思考、复杂任务思考，思考内容走 `reasoning_content` 字段而非 content 内 think 块）——PITFALLS #30。切回 DeepSeek 时该字段自动不生效（deepseek base_url 不匹配本地分支）。

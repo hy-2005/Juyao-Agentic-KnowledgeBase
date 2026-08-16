@@ -7,6 +7,7 @@ import logging
 from langchain_openai import ChatOpenAI
 
 from rag_core.core.config import get_settings
+from rag_core.infrastructure.llm.concurrency import _is_local_base_url
 from rag_core.infrastructure.llm.factory import build_openai_http_client, resolve_llm_api_key
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,10 @@ def _resolve_json_llm_endpoint() -> tuple[str, str, str, dict]:
         extra_body = {"thinking": {"type": "disabled"}}
     elif is_dashscope:
         extra_body = {"enable_thinking": False}
+    elif not settings.local_think and _is_local_base_url(base_url):
+        # 本地 llama-swap 的 qwen3：local_think=false 时用 chat_template_kwargs 关闭自适应思考
+        # （2026-08-14 实测：抽取任务思考 token 占 93s 里的大头，关闭后 7s，质量无损）
+        extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
     else:
         extra_body = {}
     return model, base_url, api_key, extra_body

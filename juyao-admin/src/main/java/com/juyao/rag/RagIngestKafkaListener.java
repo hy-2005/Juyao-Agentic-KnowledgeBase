@@ -81,25 +81,31 @@ public class RagIngestKafkaListener{
         try{
             JsonNode root = objectMapper.readTree(payload);
             String action = root.path("action").asText("").trim().toUpperCase();
+            if ("UPSERT".equals(action) && shouldSkipDuplicateHash(root, record)){
+                return;
+            }
+            // 先入库后登记（2026-08-14 修复，PITFALLS #30）：hash 登记挪到入库成功之后，
+            // 否则「入库失败但 hash 已登记 → 重传被幂等跳过」会产出永远进不来的卡死文档
+            ragIngestFastApiClient.postIngestEvent(payload);
             if ("UPSERT".equals(action)){
-                if (shouldSkipDuplicateHash(root, record)){
-                    return;
-                }
                 mergeHashBeforeIngest(root);
             }
-            ragIngestFastApiClient.postIngestEvent(payload);
             log.info(
                     "[RAG-Kafka-Java] Consumer 处理完成 topic={} partition={} offset={} key={}",
                     record.topic(), record.partition(), record.offset(), record.key());
         } catch (Exception e){
+            // 失败必须抛出（PITFALLS #30）：吞掉异常会让 Spring 照常提交 offset，
+            // 消息静默丢失；抛出后 Spring 按默认策略重试 9 次，瞬时故障可自愈。
+            // Python 侧有 hash 判重 + 先删后写，重试重复处理无副作用
             log.error(
-                    "[RAG-Kafka-Java] FastAPI 入库失败 topic={} partition={} offset={} key={} err={}",
+                    "[RAG-Kafka-Java] FastAPI 入库失败（将重试） topic={} partition={} offset={} key={} err={}",
                     record.topic(),
                     record.partition(),
                     record.offset(),
                     record.key(),
                     e.getMessage(),
                     e);
+            throw new RuntimeException("RAG ingest event failed, offset=" + record.offset(), e);
         }
     }
 

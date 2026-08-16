@@ -196,6 +196,16 @@ export default {
           }
           this.$emit('node-click', params.name)
         }
+        // 边点击 → 详情抽屉（GRAPH_DETAIL_PERSIST_REVIEW）：ECharts 的 source/target
+        // 渲染后保持为节点名字符串，relation 为 links 里塞的自定义字段
+        if (params.dataType === 'edge' && params.data) {
+          const d = params.data
+          const source = typeof d.source === 'string' ? d.source : (d.source && d.source.name) || ''
+          const target = typeof d.target === 'string' ? d.target : (d.target && d.target.name) || ''
+          if (source && target) {
+            this.$emit('edge-click', { head: source, relation: d.relation || '', tail: target })
+          }
+        }
       })
       this.renderChart()
     },

@@ -12,8 +12,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from rag_core.core.config import chunk_collection, community_collection, get_settings
-from rag_core.infrastructure.llm.factory import get_embeddings
+from rag_core.core.config import chunk_collection, get_settings, kg_card_collection
+from rag_core.infrastructure.llm.factory import get_embeddings, get_kg_card_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -159,34 +159,18 @@ def get_chunk_by_id_from_qdrant(chunk_id: str, kb_id: int = 0) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# 社区摘要独立 collection（派系 2 Step 2）：与 chunks 物理隔离，独立 upsert/delete
+# LightRAG 实体/关系卡片（LIGHTRAG_MIGRATION_REVIEW §4.3）：Neo4j 是事实源，
+# 本 collection 是检索副本；type=entity|relation 元数据区分（payload index）。
 # ---------------------------------------------------------------------------
 
 
-def _get_community_summary_embeddings():
-    """社区摘要 embedding：默认跟随 settings.embed_provider/embed_model，可独立覆盖。
+def ensure_kg_card_collection_exists(kb_id: int = 0) -> None:
+    """确保卡片 collection 存在（每 kb 独立；维度探针与主 embedding 同源）。
 
-    派系 2 设计：摘要和 chunk 用同一套 embedding 便于后续 step 3 复用检索栈；
-    若后续评估发现摘要用更大模型更合适，可通过 settings.community_summary_embed_provider
-    /community_summary_embedding_model 单独指定（需在 factory 扩展 provider）。
+    创建后补 type 字段的 keyword payload index——local/global 检索都按 type 过滤，
+    无 index 时 Qdrant 对全 collection 线性扫过滤，卡片多了会拖慢检索。
     """
-    settings = get_settings()
-    if settings.community_summary_embed_provider or settings.community_summary_embedding_model:
-        # 独立 provider/model 暂未在 factory 暴露，落到这里时回退到默认 embedding，
-        # 避免误用主 embedding 模型导致维度不一致（参考 chunk/embedding 维度对齐）
-        logger.info(
-            "社区摘要 embedding 独立配置尚未实现，按主 embedding 走：provider=%s",
-            settings.embed_provider,
-        )
-    return get_embeddings()
-
-
-def ensure_community_collection_exists(kb_id: int = 0) -> None:
-    """确保社区摘要 collection 存在（每 kb 独立 collection；kb=0 沿用原名兼容存量）。
-
-    维度用探针取，复用 get_embeddings() 同源模型，保证与实际写入向量严格匹配。
-    """
-    name = community_collection(kb_id)
+    name = kg_card_collection(kb_id)
     client = get_qdrant_client()
     try:
         client.get_collection(collection_name=name)
@@ -195,122 +179,97 @@ def ensure_community_collection_exists(kb_id: int = 0) -> None:
         if "doesn't exist" not in str(exc) and "Not found" not in str(exc):
             raise
 
-    # 探针文本取 embedding 维度（与 chunk collection 走同一套 embedding 模型）
-    dim = len(_get_community_summary_embeddings().embed_query("dimension probe"))
+    dim = len(get_kg_card_embeddings().embed_query("dimension probe"))
     try:
         client.create_collection(
             collection_name=name,
             vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
         )
+        logger.info("Qdrant 卡片 collection 已创建：%s dim=%s", name, dim)
     except UnexpectedResponse as exc:
-        # 与 _ensure_collection 同款并发竞态：重建与手动触发可能同时创建（409）——幂等容忍
-        if "already exists" in str(exc):
-            logger.info("Qdrant 社区摘要 collection 已存在（并发创建容忍）：%s", name)
-            return
-        raise
-    logger.info("Qdrant 社区摘要 collection 已创建：%s dim=%s", name, dim)
+        # 并发创建竞态（409）幂等容忍，与 _ensure_collection 同款
+        if "already exists" not in str(exc):
+            raise
+    try:
+        client.create_payload_index(
+            collection_name=name,
+            field_name="type",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+    except UnexpectedResponse as exc:
+        # 已存在（409）不视为错误；其余告警不阻断——最坏只是检索慢一点
+        if "already exists" not in str(exc):
+            logger.warning("Qdrant 卡片 type payload index 创建失败（不阻断）：%s", exc)
 
 
-def upsert_community_summaries(communities: list[dict], *, kb: int | None) -> int:
-    """把社区摘要批量写入该 kb 的独立 collection；返回写入条数。
+def _kg_card_point_id(key: str) -> str:
+    """卡片 key → 幂等 point id：同 key 重建覆盖而非重复（社区摘要同款 uuid5 模式）。"""
+    return str(uuid5(NAMESPACE_URL, f"kg_card:{key}"))
 
-    输入项 fields：
-      - community_id: str（必填，Neo4j Community.id 同源，如 "kb0:community:1"）
-      - summary: str（必填，LLM 摘要文本）
-      - entity_count: int（社区实体数）
-      - entities: list[str]（实体名列表，写入 payload 便于检索结果直接展示）
 
-    payload 顶层字段：community_id / summary / entity_count / entities / kb_id
-    （保持扁平结构避免嵌套路径；kb_id 冗余保留供对账，隔离由 collection 承担）。
+def upsert_kg_cards(records: list[dict], *, kb: int | None) -> int:
+    """批量写入实体/关系卡片；返回写入条数。
+
+    records 每项 fields：
+      - key: str（必填，幂等 id 来源；entity 卡=实体名，relation 卡="head|pred|tail"）
+      - vector_text: str（必填，做 embedding 的锚定全文——关系卡必须含头尾实体防丢主客）
+      - payload: dict（必填，type/name 或 head/predicate/tail/summary 等结构化字段）
+    kb_id 由本函数注入 payload（冗余供对账，隔离由 collection 承担）。
     """
-    if not communities:
+    if not records:
         return 0
-
     client = get_qdrant_client()
-    texts = [str(c.get("summary") or "") for c in communities]
-    # embedding 调用一次批处理，避免逐条调用 N 次 LLM/Embedding 调用
-    vectors = _get_community_summary_embeddings().embed_documents(texts)
-
+    # embedding 一次批处理：热门文档一次入库可能 touch 数百实体/关系
+    vectors = get_kg_card_embeddings().embed_documents([str(r["vector_text"]) for r in records])
     points = []
-    for community, vector in zip(communities, vectors):
-        community_id = str(community["community_id"])
-        # 用 community_id 派生 UUID，保证 upsert 幂等（同一社区重建会覆盖而非重复）
-        point_id = uuid5(NAMESPACE_URL, f"community_summary:{community_id}")
+    for record, vector in zip(records, vectors):
+        payload = dict(record["payload"])
+        payload["kb_id"] = int(kb) if kb is not None else 0
         points.append(
             models.PointStruct(
-                id=str(point_id),
+                id=_kg_card_point_id(str(record["key"])),
                 vector=vector,
-                payload={
-                    "community_id": community_id,
-                    "summary": community.get("summary", ""),
-                    "entity_count": int(community.get("entity_count") or 0),
-                    "entities": list(community.get("entities") or []),
-                    "kb_id": int(kb) if kb is not None else 0,
-                },
+                payload=payload,
             )
         )
-
-    name = community_collection(kb)
+    name = kg_card_collection(kb)
     client.upsert(collection_name=name, points=points)
-    logger.info("Qdrant 社区摘要写入：%s 条 → %s", len(points), name)
+    logger.info("Qdrant 卡片写入：%s 条 → %s", len(points), name)
     return len(points)
 
 
-def delete_community_summaries_by_ids(community_ids: list[str], kb_id: int = 0) -> int:
-    """按 community_id 列表删除摘要点（孤儿社区清理用，不调 LLM 的轻量路径）。
-
-    payload 里 community_id 是顶层 key（见 upsert_community_summaries），filter 走顶层。
-    每 kb 独立 collection，删除只碰本 kb 容器。
-    """
-    if not community_ids:
+def delete_kg_card_points(keys: list[str], kb_id: int = 0) -> int:
+    """按卡片 key 列表删除点（purge 路径的副本清理；collection 不存在时视为 0）。"""
+    if not keys:
         return 0
     client = get_qdrant_client()
-    flt = models.Filter(
-        must=[
-            models.FieldCondition(
-                key="community_id",
-                match=models.MatchAny(any=community_ids),
-            )
-        ]
-    )
     try:
-        result = client.delete(
-            collection_name=community_collection(kb_id),
-            points_selector=models.FilterSelector(filter=flt),
+        client.delete(
+            collection_name=kg_card_collection(kb_id),
+            points_selector=models.PointIdsList(points=[_kg_card_point_id(k) for k in keys]),
         )
+        return len(keys)
     except UnexpectedResponse as exc:
-        # collection 还没建好时直接视为 0
         if "doesn't exist" in str(exc) or "Not found" in str(exc):
             return 0
         raise
-    deleted = getattr(result, "result", None) or {}
-    count = int(deleted.get("points_count", 0)) if isinstance(deleted, dict) else 0
-    logger.info("Qdrant 社区摘要按 id 删除：%s 个 community_ids → %s 条", len(community_ids), count)
-    return count
 
 
-def delete_community_summaries(kb: int | None) -> int:
-    """删除社区摘要 collection 中该 kb 的全部点；返回删除条数（0 也正常返回）。
-
-    每 kb 独立 collection：reset 重建前清空本 kb 容器（kb=0 沿用原名）。
-    kb=None 时删默认 collection 全部（兼容旧调用，通常不会走到）。
-    """
+def delete_all_kg_cards(kb: int | None) -> int:
+    """清空该 kb 的全部卡片（rebuild 前重置；kb=0 沿用原名兼容存量）。"""
     client = get_qdrant_client()
-    name = community_collection(kb)
+    name = kg_card_collection(kb)
     try:
-        # FilterSelector 的 filter 是必填字段（qdrant-client pydantic 模型，无默认值）——
-        # 空 Filter() 序列化为 {}，Qdrant 语义 = 匹配全部点，即删全 collection
-        # （踩坑：裸 FilterSelector() 会抛 validation error 导致摘要永远写不进向量库）
+        # 空 Filter() = 匹配全部点（同 delete_community_summaries 的坑：FilterSelector 必填）
         result = client.delete(
             collection_name=name,
             points_selector=models.FilterSelector(filter=models.Filter()),
         )
     except UnexpectedResponse as exc:
-        # collection 还没建好时直接视为 0
-        if "doesn't exist" in str(exc) or "Not found" in str(exc):
-            return 0
-        raise
+        if "doesn't exist" not in str(exc) and "Not found" not in str(exc):
+            raise
+        return 0
     deleted = getattr(result, "result", None) or {}
     count = int(deleted.get("points_count", 0)) if isinstance(deleted, dict) else 0
-    logger.info("Qdrant 社区摘要删除：kb=%s collection=%s count=%s", kb, name, count)
+    logger.info("Qdrant 卡片清空：kb=%s collection=%s count=%s", kb, name, count)
     return count

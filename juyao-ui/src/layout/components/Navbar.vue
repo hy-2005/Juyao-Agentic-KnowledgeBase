@@ -10,6 +10,20 @@
     </template>
     <div class="right-menu">
       <template v-if="device!=='mobile'">
+        <div v-if="showKbSwitcher" class="right-menu-item kb-switcher-wrap">
+          <el-select
+            id="global-kb-select"
+            v-model="globalKbId"
+            size="mini"
+            clearable
+            class="kb-switcher"
+            placeholder="选择知识库"
+            title="全局知识库：选择后文档/切片/图谱/对话自动跟随，清空恢复各页默认"
+          >
+            <el-option v-for="kb in kbList" :key="kb.id" :label="kb.name" :value="kb.id" />
+          </el-select>
+        </div>
+
         <search id="header-search" class="right-menu-item" />
 
         <screenfull id="screenfull" class="right-menu-item hover-effect" />
@@ -50,6 +64,7 @@
 
 <script>
 import { mapGetters } from 'vuex'
+import { listKbs } from '@/api/rag'
 import Breadcrumb from '@/components/Breadcrumb'
 import TopNav from './TopNav'
 import TopBar from './TopBar'
@@ -72,6 +87,19 @@ export default {
     Search,
     HeaderNotice
   },
+  data() {
+    return {
+      kbList: []
+    }
+  },
+  watch: {
+    '$route.path'(path) {
+      // 知识库管理页新建库后顶栏下拉需同步；每次进入 rag 页面刷新一次（接口很轻）
+      if ((path || '').startsWith('/rag')) {
+        this.loadKbs()
+      }
+    }
+  },
   computed: {
     ...mapGetters([
       'sidebar',
@@ -79,6 +107,19 @@ export default {
       'device',
       'nickName'
     ]),
+    showKbSwitcher() {
+      // 全局知识库切换器只在 RAG 页面显示，其他业务页不打扰
+      return (this.$route.path || '').startsWith('/rag')
+    },
+    globalKbId: {
+      get() {
+        return this.$store.state.kb.currentKbId
+      },
+      set(v) {
+        // 清空（null/''）=> 全局选择解除，各页面回落自身默认
+        this.$store.commit('kb/SET_CURRENT_KB_ID', v)
+      }
+    },
     setting: {
       get() {
         return this.$store.state.settings.showSettings
@@ -95,7 +136,24 @@ export default {
       }
     }
   },
+  created() {
+    // 首次进入 rag 页面时加载下拉数据源（后续路由变化由 watch 刷新）
+    if (this.showKbSwitcher) {
+      this.loadKbs()
+    }
+  },
   methods: {
+    loadKbs() {
+      listKbs().then((res) => {
+        this.kbList = (res && res.data) || []
+        // 默认库（kb=0）不落 rag_kb 表，前端补一行
+        if (!this.kbList.some((k) => k.id === 0)) {
+          this.kbList.unshift({ id: 0, name: '默认知识库' })
+        }
+      }).catch(() => {
+        this.kbList = [{ id: 0, name: '默认知识库' }]
+      })
+    },
     toggleSideBar() {
       this.$store.dispatch('app/toggleSideBar')
     },
@@ -200,6 +258,23 @@ export default {
 
         &:hover {
           background: rgba(0, 0, 0, .025)
+        }
+      }
+    }
+
+    .kb-switcher-wrap {
+      // 顶栏垂直居中（right-menu 是 50px 行高 + 18px 图标区，el-select 需单独对齐）
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+
+      .kb-switcher {
+        width: 150px;
+
+        ::v-deep .el-input__inner {
+          height: 30px;
+          line-height: 30px;
+          font-size: 13px;
         }
       }
     }

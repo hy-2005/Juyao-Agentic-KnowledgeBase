@@ -384,3 +384,21 @@ export function setCommunityAutoRebuild(enabled) {
 export function rebuildCommunity(kbId) {
   return request({ url: `${BASE}/community/rebuild`, method: 'post', data: { kbId } })
 }
+
+/** 实体详情（点击图谱节点展示：简注列表/合并摘要/度数，MySQL 快照直查） */
+export function getRagGraphEntityDetail(params) {
+  return request({
+    url: `${BASE}/graph/entity/detail`,
+    method: 'get',
+    params
+  })
+}
+
+/** 关系详情（点击图谱边展示：三元组 + 全部 hints，类 Neo4j 属性面板） */
+export function getRagGraphEdgeDetail(params) {
+  return request({
+    url: `${BASE}/graph/edge/detail`,
+    method: 'get',
+    params
+  })
+}

@@ -101,12 +101,15 @@ class WorkerPoolPolicy(ConcurrencyPolicy):
         return self._queue.qsize()
 
 
-def _policy_for(provider: str, name: str) -> ConcurrencyPolicy:
-    """按单个 provider 决定策略：本地 → WorkerPoolPolicy，云端/不限流 → DirectPolicy。"""
+def _policy_for(provider: str, name: str, max_workers: int | None = None) -> ConcurrencyPolicy:
+    """按单个 provider 决定策略：本地 → WorkerPoolPolicy，云端/不限流 → DirectPolicy。
+
+    max_workers 显式传入时覆盖 local_model_max_concurrency（卡片组独立并发用）。
+    """
     if (provider or "").strip().lower() not in _LOCAL_PROVIDERS:
         return DirectPolicy()
     settings = get_settings()
-    limit = settings.local_model_max_concurrency
+    limit = max_workers if max_workers is not None else settings.local_model_max_concurrency
     if limit is None or int(limit) <= 0:
         logger.info("[并发策略] %s 本地模型不限流（local_model_max_concurrency<=0）→ DirectPolicy", name)
         return DirectPolicy()
@@ -130,6 +133,29 @@ def get_rerank_concurrency_policy() -> ConcurrencyPolicy:
     """rerank 专属策略工厂：向量与重排各建各的池，互不占对方的并发名额。"""
     settings = get_settings()
     return _policy_for(settings.rerank_provider, "rerank")
+
+
+@lru_cache(maxsize=1)
+def get_kg_card_embed_concurrency_policy() -> ConcurrencyPolicy:
+    """LightRAG 卡片组 embedding 池（双模型组隔离）：独立端点**或独立模型名**任一配置即建独立池。
+
+    独立模型名意味着 llama-swap 会为它起**第二个 llama-server 进程**（两个进程各占
+    显存、各 16 并发槽），此时必须配独立 Python 池才有意义；两者都未配置（与主组
+    完全同模型同端点）才复用主 embedding 池，避免同一进程上开两个池空转。
+    """
+    settings = get_settings()
+    if not (settings.kg_card_embed_base_url or "").strip() and not (settings.kg_card_embed_model or "").strip():
+        return get_embed_concurrency_policy()
+    return _policy_for("openai", "kg_card_embedding", max_workers=int(settings.kg_card_max_concurrency))
+
+
+@lru_cache(maxsize=1)
+def get_kg_card_rerank_concurrency_policy() -> ConcurrencyPolicy:
+    """LightRAG 卡片组 rerank 池：语义同上（独立端点或独立模型名任一即独立池）。"""
+    settings = get_settings()
+    if not (settings.kg_card_rerank_base_url or "").strip() and not (settings.kg_card_rerank_model or "").strip():
+        return get_rerank_concurrency_policy()
+    return _policy_for("openai", "kg_card_rerank", max_workers=int(settings.kg_card_max_concurrency))
 
 
 def _is_local_base_url(url: str) -> bool:

@@ -140,6 +140,10 @@ export default {
         `确认删除知识库「${row.name}」？将级联清空该库的向量 / 全文 / 图谱 / 社区全部数据，不可恢复！`
       ).then(() => deleteKb(row.id)).then(() => {
         this.$modal.msgSuccess('删除成功')
+        // 删除的是全局选中的库：重置为默认库，避免其他页面挂在已删除库上
+        if (this.$store.state.kb.currentKbId === row.id) {
+          this.$store.commit('kb/SET_CURRENT_KB_ID', 0)
+        }
         this.loadList()
       }).catch(() => {})
     }

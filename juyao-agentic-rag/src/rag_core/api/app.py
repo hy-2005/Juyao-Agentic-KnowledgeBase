@@ -27,8 +27,8 @@ async def lifespan(app: FastAPI):
     ensure_file_logging()
     settings = get_settings()
     app.state.redis = redis.from_url(settings.redis_url, decode_responses=True)
-    # 社区重建调度器：入库只标记 dirty，静默窗口统一重建；退出时立即重建剩余 dirty kb
-    from rag_core.application.ingest_flow.community_scheduler import get_scheduler
+    # 图谱快照同步调度器：入库只标记 dirty，静默窗口统一同步；退出时立即同步剩余 dirty kb
+    from rag_core.application.ingest_flow.graph_sync_scheduler import get_scheduler
 
     scheduler = get_scheduler()
     scheduler.start()
