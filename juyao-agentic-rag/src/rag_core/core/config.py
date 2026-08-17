@@ -174,10 +174,18 @@ class Settings(BaseSettings):
     kg_card_rerank_model: str = Field(default="", description="空=跟随 rerank_model")
 
     # --- 实体摘要语义合并（每次入库 旧摘要+新gloss → LLM 融合，替代机械拼接）---
+    # 2026-08-17 异步化（用户定稿）：True=入库只投递队列立即返回，卡片先写拼接占位摘要，
+    # 后台专用 mini 模型（独立 10 并发池，不与抽取/切分争抢）消费融合 → 写回 Neo4j + 更新卡片；
+    # False=旧同步行为（入库内联合并，阻塞批量上传）
     kg_summary_merge_enabled: bool = Field(default=True, description="False=退回机械分号拼接")
+    kg_summary_merge_async: bool = Field(default=True, description="True=异步合并（投递队列）；False=同步合并（旧行为）")
     kg_summary_merge_batch_size: int = Field(default=8, description="单次 LLM 调用合并的实体数")
-    kg_summary_merge_workers: int = Field(default=3, description="合并 LLM 并发（对齐抽取并发）")
+    kg_summary_merge_workers: int = Field(default=10, description="合并 LLM 并发（异步 worker 线程数；同步模式下为批并发）")
     kg_summary_merge_timeout_s: float = Field(default=90.0)
+    # 合并专用模型/端点（双模型组同源思路：mini 模型独立进程、独立并发池，与主链路不争抢）。
+    # 留空 = 跟随 json_gen_model / json_llm_base_url（此时仍走独立并发池，只是打同一模型）
+    kg_summary_merge_model: str = Field(default="", description="合并专用模型（如 local_Qwen3-30B-A3B-mini）")
+    kg_summary_merge_base_url: str = Field(default="", description="合并模型端点（自动拼 /v1）；空=跟随 json_llm_base_url")
 
     # --- Agentic RAG ---
     # flowchart_strict_mode/intent_route_* 已随 LLM 意图路由删除；strict 键保留在

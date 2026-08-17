@@ -1,7 +1,7 @@
 # LightRAG 迁移方案（评审）
 
-> 状态：🔄 进行中（P0 入库侧 / P1 检索侧 / P2 拆旧已实施并通过单测 61 项；P3 新库实测与 RAGAS 评测待跑）
-> 创建：2026-08-16 · 更新：2026-08-16
+> 状态：🔄 进行中（P0 入库侧 / P1 检索侧 / P2 拆旧已实施并通过单测 69 项；P3 新库实测与 RAGAS 评测待跑）
+> 创建：2026-08-16 · 更新：2026-08-17
 > 关联：[AGENT_FLOW.md](AGENT_FLOW.md)（已重写为新架构流程图）、[GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md)（旧图谱设计，L1/L2/L3 级联已废弃）、[COMMUNITY_SYNC_REVIEW.md](COMMUNITY_SYNC_REVIEW.md) / [COMMUNITY_ENHANCEMENT_REVIEW.md](COMMUNITY_ENHANCEMENT_REVIEW.md)（社区方案已整体废弃）、[PITFALLS.md](PITFALLS.md)
 
 ## 0. 实施结论（2026-08-16）
@@ -10,6 +10,7 @@
 - 需求方拍板：社区**全删**（兼容 URL 保留防 Java 404）；存量数据**不迁移**，新开知识库测试重新生成；`rag_strict_refusal` 默认 True（按原始需求"不齐不回答"）
 - 待验证（P3）：新库入库跑通卡片双写 → 对话实测双路并行/拒答 → RAGAS 对照（qa100）
 - **2026-08-16 补充**：① 实体摘要升级为**语义合并**（Entity.summary 由 LLM 融合"旧摘要+新 gloss"，merged_hint_count 游标增量幂等，失败退机械拼接）；② 新增**双模型组**（kg_card_embed/rerank 独立端点**或独立模型名**任一配置即独立并发池，与传统链路不争抢；服务器已在 swarp_config_amd.yaml 补 `bge-m3-Q8_0-card` / `bge-reranker-v2-m3-Q8_0-card` 双实例，复用同一 GGUF、独立 llama-server 进程）；③ 卡片检索全链路日志（召回/展开/融合/重排逐段）。部署踩坑：docker compose v5 的 `config` 需显式 `--profile` 才激活 default profile 服务，否则依赖检查误报 undefined
+- **2026-08-17 补充（异步合并定稿）**：④ 摘要合并**异步化**（`kg_summary_merge_async=true`，✅ 已实施）：入库同步路径只投递队列立即返回，卡片先写拼接占位摘要（可检索）；后台 `summary_merge_worker` 用专用 **mini 模型**（`kg_summary_merge_model=local_Qwen3-30B-A3B-mini`，服务器条目已调小 ctx 32768→16384）**10 并发独立池**消费：读 Neo4j 最新 → LLM 融合 → 写回 summary+游标 → 覆盖更新实体卡。可靠性：pending set 实体级去重（批量上传 N 文档只融合一次）+ merged_hint_count 游标幂等 + 首次投递前全库 catchup 补投（重启兜底）。`rebuild_kg_cards` 保持同步合并（管理端低频手动，期望"重建完即最新"）。新增测试 5 项（tests/test_summary_merge_worker.py），全套 69 项通过。⚠️ 实测发现 `chat_template_kwargs.enable_thinking` 在 llama-swap 层**不生效**（主模型请求狂吐 6000+ reasoning token，单请求 3~9 分钟），详见 [PITFALLS.md](PITFALLS.md) #32；mini 是否同样不生效待服务器实测（本地代码已下发该字段）
 
 ## 1. 背景与动机
 

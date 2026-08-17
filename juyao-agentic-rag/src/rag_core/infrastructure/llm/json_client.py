@@ -13,10 +13,15 @@ from rag_core.infrastructure.llm.factory import build_openai_http_client, resolv
 logger = logging.getLogger(__name__)
 
 
-def _resolve_json_llm_endpoint() -> tuple[str, str, str, dict]:
+def _resolve_json_llm_endpoint(
+    *,
+    model_override: str = "",
+    base_url_override: str = "",
+) -> tuple[str, str, str, dict]:
     settings = get_settings()
     base_url = (
-        settings.json_llm_base_url
+        base_url_override
+        or settings.json_llm_base_url
         or settings.embed_base_url
         or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     ).rstrip("/")
@@ -30,7 +35,9 @@ def _resolve_json_llm_endpoint() -> tuple[str, str, str, dict]:
     else:
         api_key = resolve_llm_api_key()
 
-    if settings.json_gen_model.strip():
+    if model_override.strip():
+        model = model_override.strip()
+    elif settings.json_gen_model.strip():
         model = settings.json_gen_model.strip()
     elif is_dashscope:
         model = "qwen-plus"
@@ -58,10 +65,20 @@ def get_json_chat_llm(
     max_retries: int | None = None,
     temperature: float = 0,
     enable_thinking: bool = False,
+    model: str | None = None,
+    base_url: str | None = None,
+    policy=None,
 ) -> ChatOpenAI:
-    """返回强制 JSON 输出的 ChatOpenAI 实例。"""
+    """返回强制 JSON 输出的 ChatOpenAI 实例。
+
+    model/base_url：覆盖默认端点（摘要合并 worker 用 mini 模型场景）；
+    policy：显式传入并发策略时用传入池（异步合并独立池），None=共享全局 LLM 池。
+    """
     settings = get_settings()
-    model, base_url, api_key, extra_body = _resolve_json_llm_endpoint()
+    model, base_url, api_key, extra_body = _resolve_json_llm_endpoint(
+        model_override=model or "",
+        base_url_override=base_url or "",
+    )
     # DeepSeek 等第三方不认识 enable_thinking——只有显式传入才加（默认 False 不发）
     if enable_thinking and "thinking" not in extra_body:
         extra_body["enable_thinking"] = True
@@ -83,10 +100,11 @@ def get_json_chat_llm(
         extra_body=extra_body,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
-    # JSON 任务（图谱抽取等）同款本地并发限流：与对话/切分共享同一个 LLM 线程池
+    # JSON 任务（图谱抽取等）同款本地并发限流：默认与对话/切分共享全局 LLM 线程池；
+    # 摘要合并 worker 显式传入独立池（mini 模型进程独立，各 10 并发互不争抢）
     from rag_core.infrastructure.llm.concurrency import (
         ConcurrencyLimitedChatModel,
         get_llm_concurrency_policy,
     )
 
-    return ConcurrencyLimitedChatModel(raw, get_llm_concurrency_policy())
+    return ConcurrencyLimitedChatModel(raw, policy if policy is not None else get_llm_concurrency_policy())

@@ -39,8 +39,14 @@ def _merge_summary(hints: list[str]) -> str:
 
 
 def _llm_merge_one_batch(rows: list[dict]) -> list[dict]:
-    """单批 LLM 语义合并；返回 [{"name", "summary"}]，失败抛错由上层兜底。"""
+    """单批 LLM 语义合并；返回 [{"name", "summary"}]，失败抛错由上层兜底。
+
+    2026-08-17 双模型组同源设计：配置了 kg_summary_merge_model（mini）时走专用
+    模型 + 独立并发池（不与抽取/切分的全局池争抢）；未配置则跟随 json 链路
+    主模型，但**仍走独立池**（并发上限 kg_summary_merge_workers）。
+    """
     from rag_core.prompts.templates import KG_ENTITY_SUMMARY_MERGE_SYSTEM_PROMPT
+    from rag_core.infrastructure.llm.concurrency import get_kg_summary_merge_concurrency_policy
     from rag_core.infrastructure.llm.json_client import get_json_chat_llm
 
     settings = get_settings()
@@ -48,6 +54,9 @@ def _llm_merge_one_batch(rows: list[dict]) -> list[dict]:
         timeout=float(settings.kg_summary_merge_timeout_s),
         max_retries=0,
         enable_thinking=False,
+        model=(settings.kg_summary_merge_model or None),
+        base_url=(settings.kg_summary_merge_base_url or None),
+        policy=get_kg_summary_merge_concurrency_policy(),
     )
     payload = {
         "entities": [
@@ -104,19 +113,16 @@ def _writeback_merged_summaries(kb_id: int, merged: list[dict], rows: list[dict]
     return len(payload_rows)
 
 
-def merge_entity_summaries(kb_id: int, entity_names: list[str]) -> int:
-    """对给定实体做增量语义合并（sync/rebuild 前置步骤）；返回合并实体数。
+def _load_pending_entity_rows(kb_id: int, entity_names: list[str]) -> list[dict]:
+    """读实体最新状态并筛出有 pending gloss 的行（同步 merge / 异步 worker 共用）。
 
     merged_hint_count 游标语义：hints[0:count] 已融合进 summary，pending = hints[count:]。
-    幂等：重复调同一批（无新增 gloss）零 LLM 调用。
-    失败降级：单批 LLM 失败只 warn，该批实体卡片走机械拼接兜底，不阻断同步。
+    worker 消费时重新读（不用投递时的快照），天然规避"两次入库并发投递同一实体
+    时旧快照覆盖新数据"的竞态——游标推进到最新长度才写回。
     """
-    settings = get_settings()
-    if not settings.kg_summary_merge_enabled:
-        return 0
     names = [str(n).strip() for n in entity_names if str(n).strip()]
     if not names:
-        return 0
+        return []
     label = entity_label(kb_id)
     rows: list[dict] = []
     for i in range(0, len(names), 500):
@@ -142,6 +148,21 @@ def merge_entity_summaries(kb_id: int, entity_names: list[str]) -> int:
                         "pending": pending,
                     }
                 )
+    return rows
+
+
+def merge_entity_summaries(kb_id: int, entity_names: list[str]) -> int:
+    """对给定实体做增量语义合并（同步模式/rebuild 用）；返回合并实体数。
+
+    幂等：重复调同一批（无新增 gloss）零 LLM 调用。
+    失败降级：单批 LLM 失败只 warn，该批实体卡片走机械拼接兜底，不阻断同步。
+    异步模式下入库不再走此函数（sync_kg_cards 只投递队列），rebuild 仍用同步版
+    ——管理端手动全量重建期望"重建完即最新"，低频可接受同步等待。
+    """
+    settings = get_settings()
+    if not settings.kg_summary_merge_enabled:
+        return 0
+    rows = _load_pending_entity_rows(kb_id, entity_names)
     if not rows:
         return 0
 
@@ -326,7 +347,12 @@ def sync_kg_cards(
 
     entity_names/relation_keys 只决定"读哪些"（读回的是 Neo4j 当前全量状态，
     所以传多了无害——最多多读几行；传漏了靠 rebuild 兜底）。
-    前置 merge_entity_summaries：先做语义合并再装配，卡片摘要始终是融合版。
+    合并策略（2026-08-17 异步化定稿）：
+    - 异步模式（默认）：只投递后台队列立即返回，卡片先写 e.summary（上次融合值）
+      或 hints 机械拼接**占位**（可检索），后台 mini worker 融合完成后覆盖更新卡片
+      ——批量入库不受合并 LLM 阻塞；
+    - 同步模式（kg_summary_merge_async=false）：先 merge_entity_summaries 再装配，
+      卡片摘要始终是融合版（旧行为，入库慢）。
     """
     names = [str(n).strip() for n in entity_names if str(n).strip()]
     keys = [
@@ -334,11 +360,18 @@ def sync_kg_cards(
         for h, r, t in relation_keys
         if str(h).strip() and str(r).strip() and str(t).strip()
     ]
-    try:
-        merge_entity_summaries(kb_id, names)
-    except Exception as exc:
-        # 合并整体失败不阻断同步——卡片走机械拼接（质量降级但可用）
-        logger.warning("【卡片同步】摘要语义合并异常（机械拼接兜底）：%s", exc)
+    settings = get_settings()
+    if settings.kg_summary_merge_enabled and settings.kg_summary_merge_async:
+        # 异步合并：投递 (kb_id, 实体名集合)，内部按批次去重入队；不等待结果
+        from rag_core.application.graph.summary_merge_worker import enqueue_summary_merge
+
+        enqueue_summary_merge(kb_id, names)
+    else:
+        try:
+            merge_entity_summaries(kb_id, names)
+        except Exception as exc:
+            # 合并整体失败不阻断同步——卡片走机械拼接（质量降级但可用）
+            logger.warning("【卡片同步】摘要语义合并异常（机械拼接兜底）：%s", exc)
 
     records: list[dict] = []
     for name, _hints, summary in _read_entities(kb_id, names):

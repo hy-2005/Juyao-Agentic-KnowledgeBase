@@ -158,6 +158,17 @@ def get_kg_card_rerank_concurrency_policy() -> ConcurrencyPolicy:
     return _policy_for("openai", "kg_card_rerank", max_workers=int(settings.kg_card_max_concurrency))
 
 
+@lru_cache(maxsize=1)
+def get_kg_summary_merge_concurrency_policy() -> ConcurrencyPolicy:
+    """摘要合并专用池（异步 worker 消费用）：与抽取/切分的全局 LLM 池完全隔离。
+
+    合并模型（mini，独立 llama-server 进程）与主模型进程不同，若共用全局池会
+    互相排队——各 10 并发互不争抢（与卡片组 embedding 双池同源设计）。
+    """
+    settings = get_settings()
+    return _policy_for("openai", "kg_summary_merge", max_workers=int(settings.kg_summary_merge_workers))
+
+
 def _is_local_base_url(url: str) -> bool:
     """内网/本机地址 = 本地模型服务（llama-swap/ollama 等）；云端域名返回 False。"""
     u = (url or "").strip()

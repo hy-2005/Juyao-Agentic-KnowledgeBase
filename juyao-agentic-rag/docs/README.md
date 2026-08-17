@@ -14,7 +14,7 @@
 | [GRAPH_QUERY_REVIEW.md](GRAPH_QUERY_REVIEW.md) | 图谱评审：查询/入库/社区（Leiden+摘要+global 兜底）+ 2026-08-12 多图谱改造（标签隔离 + MySQL 管理快照）。**2026-08-16：L1/L2/L3 级联与社区检索已随 LightRAG 迁移废弃，入库/标签隔离部分仍有效** | 🔄 进行中（历史文档，检索侧已过时） | 2026-08-07 | 2026-08-16 |
 | [GRAPH_COMMUNITY_UI_REVIEW.md](GRAPH_COMMUNITY_UI_REVIEW.md) | 图谱社区展示：节点按社区着色 + 社区面板 + 聚类布局/边界气泡 + §3 批量入库模式。**2026-08-16：社区功能已整体删除，后端恒空/无色** | ✅ 已完成（后端功能已废弃，见 LIGHTRAG_MIGRATION_REVIEW P3-1） | 2026-08-08 | 2026-08-16 |
 | [COMMUNITY_SYNC_REVIEW.md](COMMUNITY_SYNC_REVIEW.md) | 社区同步方案评审。**2026-08-16：方案已整体废弃（社区功能删除，调度器骨架迁移为 graph_sync_scheduler）** | ❌ 已废弃 | 2026-08-13 | 2026-08-16 |
-| [LIGHTRAG_MIGRATION_REVIEW.md](LIGHTRAG_MIGRATION_REVIEW.md) | **图谱侧 LightRAG 迁移**：实体/关系卡片向量库（local+global 双路）+ 与传统检索并行 + 社区全删 + 拒答审核 | 🔄 进行中（P0/P1/P2 已实施，单测 64 项过；P3 新库实测与 RAGAS 待跑） | 2026-08-16 | 2026-08-16 |
+| [LIGHTRAG_MIGRATION_REVIEW.md](LIGHTRAG_MIGRATION_REVIEW.md) | **图谱侧 LightRAG 迁移**：实体/关系卡片向量库（local+global 双路）+ 与传统检索并行 + 社区全删 + 拒答审核 + 摘要异步合并（mini 10 并发） | 🔄 进行中（P0/P1/P2 已实施，单测 69 项过；P3 新库实测与 RAGAS 待跑） | 2026-08-16 | 2026-08-17 |
 | [GRAPH_DETAIL_PERSIST_REVIEW.md](GRAPH_DETAIL_PERSIST_REVIEW.md) | **图谱详情持久化**：MySQL 快照表扩展 hints 全列 + 节点/边点击详情接口（类 Neo4j 属性面板）+ Vue 详情抽屉 | ✅ 已完成（老数据不回填，新链路数据自带） | 2026-08-16 | 2026-08-16 |
 | [KB_GLOBAL_SWITCH_REVIEW.md](KB_GLOBAL_SWITCH_REVIEW.md) | 全局知识库选择 UX：Vuex 全局状态 + 顶栏切换器 + 四页面跟随 + localStorage 持久化 | ✅ 已完成（2026-08-14 实施，构建通过） | 2026-08-14 | 2026-08-14 |
 | [COMMUNITY_ENHANCEMENT_REVIEW.md](COMMUNITY_ENHANCEMENT_REVIEW.md) | 社区层增强方案与实施路线图。**2026-08-16：方案已整体废弃（社区功能删除）** | ❌ 已废弃 | 2026-08-14 | 2026-08-16 |
@@ -24,7 +24,7 @@
 | [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) | 架构评审：分层+管线重构方案（§9 决策 + §10 映射表） | ✅ 已完成 | 2026-08-07 | 2026-08-07 |
 | [PARENT_CHILD_CHUNKING.md](PARENT_CHILD_CHUNKING.md) | 父子分块 + 结构化识别方案 | 🔄 进行中（已启用 chunk_parent_enabled=true + child_chunk_size=300；4311 大块根因待查） | 2026-08-07 | 2026-08-12 |
 | [PARENT_CHILD_UI_REVIEW.md](PARENT_CHILD_UI_REVIEW.md) | 父切片展开查看子切片已实施 | ✅ 已完成 | 2026-08-07 | 2026-08-08 |
-| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（24 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） | 2026-08-07 | 2026-08-12 |
+| [PITFALLS.md](PITFALLS.md) | **开发踩坑记录**（32 个坑 + 模式总结，必须持续维护） | ✅ 持续更新（记录文档） | 2026-08-07 | 2026-08-17 |
 | [AGENT_FLOW.md](AGENT_FLOW.md) | **整体 Agent 流程图（LightRAG 并行架构版）**：闲聊短路→双路并行（向量+图谱卡片）→证据审核→生成/拒答→SSE；含入库链路（gloss+卡片双写）与运维/配置清单 | ✅ 已完成（2026-08-16 整体重写） | 2026-08-11 | 2026-08-16 |
 
 ## 评测（docs/eval/）

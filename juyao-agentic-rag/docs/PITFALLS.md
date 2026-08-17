@@ -2,7 +2,7 @@
 
 > 维护规则（见 CLAUDE.md）：**每个踩坑必须记录到本文件**——现象、根因、修复、教训。
 > 创建：2026-08-07
-> 更新：2026-08-14
+> 更新：2026-08-17
 
 ---
 
@@ -335,6 +335,7 @@
 26. **调用自封装 API 前先确认返回契约（已解包 body / AxiosResponse）**——一次修复里「漏判断」和「双重解包」两个方向各错一遍（坑 25 续）
 27. **外部 SDK pydantic 模型字段是否必填，实测为准**——`FilterSelector()` 无参构造直接抛 validation error；best-effort try 必须打全异常，别吞成一行 warning（坑 26）
 28. **判断模型是否思考要看「复杂任务 + reasoning_content 字段」**——qwen3 自适应思考，简单 prompt 或 content 里找 think 块都会误判；关闭思考用服务端协议字段（chat_template_kwargs）而非 prompt 前缀（坑 30）
+29. **代理层会改写/过滤请求字段——"直连实测有效"不能外推"经代理有效"**；慢模型任务先看 llama-server 日志 n_decoded 是否远超预期（思考狂飙特征），修复结论必须按完整部署链路（含代理）重测（坑 32）
 
 ## 15. uvicorn 启动时 dictConfig 会清掉 import 阶段添加的 root 日志 handler
 
@@ -395,3 +396,11 @@
 - **根因**：sed r 命令语义是"在匹配行**之后**插入"，锚点行本身是服务名（缩进 2 空格 + 冒号），其后续属性行缩进更深，插入块接在服务名行后 = 变成该服务的属性，同名 image 键重复
 - **修复**：改用 awk 在锚点行**之前**插入（`awk '/^  cube-llamafactory:/ && !done {while ((getline l < f)>0) print l; done=1} {print}'`）；已破坏版本用插入前的 cp 备份回滚
 - **教训**：向 YAML 插入块务必先想清楚锚点语义（sed r = 行后、awk = 行前）；任何文件修改先 cp 备份再操作，回滚才有依据
+
+## 32. `chat_template_kwargs.enable_thinking=false` 在 llama-swap 层不生效：思考 token 狂飙拖死单请求
+
+- **场景**：2026-08-17 排查"入库/合并怎么这么慢"；代码已按坑 30 下发 `chat_template_kwargs={"enable_thinking": false}`（local_think=false）
+- **现象**：llama-server 日志显示任务持续解码 **6000+ reasoning token 还在增长**（`n_decoded=6293`，每 3s +100），单请求 3~9 分钟（`n_predict=16384` 上限才停）；本应几秒完成的任务全卡在思考上
+- **根因**：❌ 待定位——请求经 llama-swap（11435）转发时字段疑似被丢弃/不识别，llama.cpp 模板回退默认思考；与坑 30（2026-08-14 直连实测有效）环境差异（当时可能直连 llama-server，绕过代理层）。对照实验（直连 5816 vs 代理 11435）未完成即被打断
+- **修复**：❌ 未解决——服务器侧用户已手动把 mini 条目 ctx 32768→16384（减 KV 占用），但思考关闭仍依赖请求字段；候选方案：a) 实测直连 llama-server 字段是否生效，确认 llama-swap 层丢弃则升级/换转发；b) llama-server 启动参数或模板层强制 no-think；c) 服务器条目加 `--no-think`（若该版本支持）
+- **教训**：**代理层会改写/过滤请求字段**——"直连实测有效"不能外推"经代理有效"；判断慢模型任务先看 llama-server 日志 `n_decoded` 是否远超预期 token 数（一眼识别思考狂飙）；同样的"修好"要按部署链路重测（坑 30 的结论只对直连成立）
